@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+
+set -o errexit -o nounset -o pipefail
+
+if [[ -n "${_PROJECT_NAME:-}" ]]; then
+    printf 'A project shell is already active (%s). Exit it before starting another.\n' \
+        "$_PROJECT_NAME" >&2
+    exit 1
+fi
+
+if (( $# > 1 )); then
+    printf 'Usage: %s [debug|release|profile]\n' "$0" >&2
+    exit 2
+fi
+
+build_type="${1:-debug}"
+case "$build_type" in
+    debug)
+        cmake_build_type=Debug
+        ;;
+    release)
+        cmake_build_type=Release
+        ;;
+    profile)
+        cmake_build_type=RelWithDebInfo
+        ;;
+    *)
+        printf 'Unknown build type: %s\nUsage: %s [debug|release|profile]\n' \
+            "$build_type" "$0" >&2
+        exit 2
+        ;;
+esac
+
+project_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+build_dir="$project_root/build"
+
+export _PROJECT_LOC="$project_root"
+export _PROJECT_NAME="$(basename -- "$project_root")"
+export _BUILD_TYPE="$build_type"
+export CWHIP_BUILD_TYPE="$cmake_build_type"
+
+if ! cmake -S "$project_root" -B "$build_dir" \
+    -DCMAKE_BUILD_TYPE="$cmake_build_type"; then
+    printf 'CMake configuration failed; project shell was not started.\n' >&2
+    exit 1
+fi
+
+bash --rcfile "$project_root/.project_env" -i
