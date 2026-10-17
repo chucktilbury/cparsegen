@@ -1,0 +1,49 @@
+if [[ -r "$HOME/.bashrc" ]]; then
+    source "$HOME/.bashrc"
+fi
+
+export HISTCONTROL=ignoreboth:erasedups
+
+project_path="$_PROJECT_LOC/bin:$_PROJECT_LOC/scripts"
+if [[ -n "${CWHIP_SDK:-}" ]]; then
+    project_path+=":$CWHIP_SDK/bin"
+fi
+export PATH="$project_path:$PATH"
+
+status() {
+    git -C "$_PROJECT_LOC" status "$@"
+}
+
+add() {
+    if (( $# )); then
+        git -C "$_PROJECT_LOC" add "$@"
+    else
+        git -C "$_PROJECT_LOC" add .
+    fi
+}
+
+commit() {
+    git -C "$_PROJECT_LOC" commit "$@"
+}
+
+push() {
+    git -C "$_PROJECT_LOC" push "$@"
+}
+
+all() {
+    git -C "$_PROJECT_LOC" add -A &&
+        git -C "$_PROJECT_LOC" commit "$@" &&
+        git -C "$_PROJECT_LOC" push
+}
+
+dbg() {
+    if (( $# == 0 )); then
+        printf 'Usage: dbg [SOURCE.cw|EXECUTABLE [-- ARGS...]]\n' >&2
+        return 2
+    fi
+    cdbg "$@"
+}
+
+PS1="\[\e[0;31;1m\]${_PROJECT_NAME}(${_BUILD_TYPE}):\[\e[0m\]${PS1:-\\u@\\h:\\w\\$ }"
+cd -- "$_PROJECT_LOC/build"
+unset project_path
