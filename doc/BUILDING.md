@@ -5,7 +5,7 @@ or build the compiler or SDK during CMake configuration. A fresh checkout
 needs a separately installed compiler-only SDK and its host prerequisites.
 The following explicit source-build sequence installs the current compiler
 SDK into a user-owned prefix; Cwhip records that prefix in its
-`settings.toml`, which this project discovers automatically:
+`sdk.toml`, which this project discovers automatically:
 
 ```sh
 git clone --depth 1 https://github.com/chucktilbury/cwhip.git "$HOME/Src/cwhip"
@@ -24,7 +24,9 @@ guide](https://github.com/chucktilbury/cwhip/blob/master/doc/GETTING_STARTED.md#
 first. This project requires the exact Cwhip SDK version `0.0.1` and an
 installation that supports configurable application output directories.
 Keep the complete SDK prefix; do not point the project at just its `bin/`
-directory. For an existing SDK, use the selection options below instead of
+directory. The installer registers the prefix in the dedicated
+`sdk.toml`; cparsegen only reads this configuration and never edits user
+settings. For an existing SDK, use the selection options below instead of
 rebuilding it.
 
 ## Select an SDK
@@ -32,12 +34,21 @@ rebuilding it.
 SDK selection follows this order:
 
 1. A non-empty `CWHIP_SDK` environment variable. It selects only that prefix;
-   an invalid explicit prefix fails instead of falling back.
+   it bypasses configuration parsing, and an invalid explicit prefix fails
+   instead of falling back.
 2. The registered top-level `sdk_prefix` from
-   `$XDG_CONFIG_HOME/cwhip/settings.toml`, or
-   `$HOME/.config/cwhip/settings.toml` when `XDG_CONFIG_HOME` is unset or
-   empty. Invalid TOML or an invalid `sdk_prefix` is an error.
+   `$XDG_CONFIG_HOME/cwhip/sdk.toml`, or
+   `$HOME/.config/cwhip/sdk.toml` when `XDG_CONFIG_HOME` is unset or empty.
+   A non-empty `XDG_CONFIG_HOME` is exclusive and must be absolute.
+   `settings.toml` is consulted only when `sdk.toml` is absent. Invalid TOML
+   or an invalid `sdk_prefix` in the selected file is an error.
 3. Normal CMake package discovery, including `CMAKE_PREFIX_PATH`.
+
+The dedicated `sdk.toml` keeps the SDK location separate from application
+preferences that an editor may rewrite. If `sdk.toml` exists but has no
+top-level `sdk_prefix`, cparsegen proceeds to normal CMake discovery and does
+not consult `settings.toml`. Discovery is read-only; it does not create or
+modify either configuration file.
 
 To select an SDK explicitly, point `CWHIP_SDK` at its whole installed prefix:
 
@@ -49,8 +60,8 @@ export CWHIP_SDK=/path/to/cwhip-sdk
 For either explicit or registered selection, CMake clears a stale cached
 `Cwhip_DIR` and searches only the selected prefix. The project shell also adds
 the selected SDK's `bin/` directory to `PATH`. To use normal CMake discovery,
-unset `CWHIP_SDK`, remove `sdk_prefix` from the settings file, and configure
-the project.
+unset `CWHIP_SDK`, remove `sdk_prefix` from `sdk.toml` (and, if that file is
+absent, from legacy `settings.toml`), and configure the project.
 
 ## Troubleshoot missing package configuration
 
@@ -75,11 +86,13 @@ CWHIP_SDK="/absolute/path/to/cwhip-sdk" cmake -S . -B build
 cmake --build build
 ```
 
-A settings file without a **top-level** `sdk_prefix` does not register an
-SDK, even if the file contains other application settings. If no SDK is
-installed, follow the installation steps above first. Do not rename package
-files or select arbitrary sibling compiler build directories. Invalid
-explicit or registered selections fail rather than reuse a cached SDK.
+A selected file without a **top-level** `sdk_prefix` does not register an
+SDK, even if it contains other settings. A present `sdk.toml` is authoritative:
+if it is malformed or its prefix is invalid, discovery fails rather than
+falling back to `settings.toml` or a cached SDK. If no SDK is installed,
+follow the installation steps above first. Do not rename package files or
+select arbitrary sibling compiler build directories. Invalid explicit or
+registered selections fail rather than reuse a cached SDK.
 
 ## Configure and build
 
