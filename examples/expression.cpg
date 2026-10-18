@@ -1,0 +1,12 @@
+DIRECTIVES {
+    target cwhip
+}
+
+LEXER {
+    INTEGER = [0-9]+
+}
+
+PARSER {
+    expression : expression "+" INTEGER | INTEGER
+    program : expression ("," expression)*
+}
