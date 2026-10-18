@@ -13,6 +13,8 @@
   fixture. Add generated-parser and SDK-discovery integration tests.
 - Add explicit Cwhip SDK discovery through the registered `sdk_prefix`
   setting and document the standalone compiler SDK installation path.
+- Read the SDK prefix from dedicated `sdk.toml`, using `settings.toml` only
+  as a legacy fallback when the dedicated file is absent.
 - Adopt the CWhip project template's setup shell, SDK-backed CMake configuration,
   configurable root output directories, and build documentation.
 - Add the standard MIT license.

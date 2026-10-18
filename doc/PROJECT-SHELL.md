@@ -15,9 +15,12 @@ The project shell sources `~/.bashrc` when readable, adds the project's
 `bin/` and `scripts/` directories to `PATH`, and starts in `build/`. If
 `CWHIP_SDK` is set, its `bin/` directory is also added to `PATH` after the
 project directories so the SDK compiler and package tools are available.
-When the variable is empty, setup reads the registered `sdk_prefix` setting
-and exports it as `CWHIP_SDK` for the shell. The explicit environment
-override takes precedence over the registered setting.
+When the variable is empty, setup reads the registered `sdk_prefix` from
+`$XDG_CONFIG_HOME/cwhip/sdk.toml`, or `$HOME/.config/cwhip/sdk.toml` when
+`XDG_CONFIG_HOME` is unset or empty, and exports it as `CWHIP_SDK` for the
+shell. Legacy `settings.toml` is read only when `sdk.toml` is absent. The
+explicit environment override takes precedence and bypasses configuration
+parsing.
 
 The shell exports:
 

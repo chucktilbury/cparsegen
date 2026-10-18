@@ -28,10 +28,11 @@ The default build type is `debug`. Choose `release` or `profile` with
 
 The project selects an installed SDK in this order: non-empty `CWHIP_SDK`,
 the registered top-level `sdk_prefix` in
-`$XDG_CONFIG_HOME/cwhip/settings.toml` (or `$HOME/.config/cwhip/settings.toml`
-when `XDG_CONFIG_HOME` is unset or empty), then normal CMake discovery such as
-`CMAKE_PREFIX_PATH`. See [Building](doc/BUILDING.md) for override and
-troubleshooting details.
+`$XDG_CONFIG_HOME/cwhip/sdk.toml` (or `$HOME/.config/cwhip/sdk.toml` when
+`XDG_CONFIG_HOME` is unset or empty), then normal CMake discovery such as
+`CMAKE_PREFIX_PATH`. The legacy `settings.toml` is read only when `sdk.toml`
+does not exist, keeping SDK selection separate from editor preferences. See
+[Building](doc/BUILDING.md) for override and troubleshooting details.
 
 See [Building](doc/BUILDING.md) for SDK installation, selection, and
 output-directory customization, and [Project shell](doc/PROJECT-SHELL.md) for

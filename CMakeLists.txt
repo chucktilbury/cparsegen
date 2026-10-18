@@ -27,6 +27,7 @@ if(cwhip_sdk_prefix STREQUAL "")
         set(cwhip_config_home "$ENV{HOME}/.config")
     endif()
     if(NOT cwhip_config_home STREQUAL "")
+        set(cwhip_registration_file_found FALSE)
         if(NOT IS_ABSOLUTE "${cwhip_config_home}")
             message(FATAL_ERROR
                 "Cannot discover sdk_prefix: config home '${cwhip_config_home}' is not absolute")
@@ -34,20 +35,31 @@ if(cwhip_sdk_prefix STREQUAL "")
         cmake_path(APPEND cwhip_config_home "cwhip"
             OUTPUT_VARIABLE cwhip_settings_directory)
         cmake_path(NORMAL_PATH cwhip_settings_directory)
-        set(cwhip_settings "${cwhip_settings_directory}/settings.toml")
-        file(GLOB cwhip_settings_entries "${cwhip_settings_directory}/*")
-        if("${cwhip_settings}" IN_LIST cwhip_settings_entries)
+        set(cwhip_sdk_settings "${cwhip_settings_directory}/sdk.toml")
+        set(cwhip_legacy_settings "${cwhip_settings_directory}/settings.toml")
+        file(GLOB cwhip_settings_entries
+            LIST_DIRECTORIES TRUE "${cwhip_settings_directory}/*")
+        if("${cwhip_sdk_settings}" IN_LIST cwhip_settings_entries)
+            set(cwhip_registration_file "${cwhip_sdk_settings}")
+            set(cwhip_registration_file_found TRUE)
+        elseif("${cwhip_legacy_settings}" IN_LIST cwhip_settings_entries)
+            set(cwhip_registration_file "${cwhip_legacy_settings}")
+            set(cwhip_registration_file_found TRUE)
+        endif()
+        if(cwhip_registration_file_found)
             find_package(Python3 3.11 REQUIRED COMPONENTS Interpreter)
             execute_process(
                 COMMAND "${Python3_EXECUTABLE}"
-                    "${PROJECT_SOURCE_DIR}/scripts/sdk-prefix.py" "${cwhip_settings}"
+                    "${PROJECT_SOURCE_DIR}/scripts/sdk-prefix.py"
+                    "${cwhip_registration_file}"
                 RESULT_VARIABLE cwhip_settings_result
                 OUTPUT_VARIABLE cwhip_sdk_prefix
                 ERROR_VARIABLE cwhip_settings_error)
             if(NOT cwhip_settings_result STREQUAL "0")
                 message(FATAL_ERROR "${cwhip_settings_error}")
             endif()
-            set(cwhip_sdk_selection "sdk_prefix in ${cwhip_settings}")
+            set(cwhip_sdk_selection
+                "sdk_prefix in ${cwhip_registration_file}")
         endif()
     endif()
 endif()
@@ -76,15 +88,16 @@ if(NOT Cwhip_FOUND)
             "${cwhip_sdk_selection} selected '${cwhip_sdk_prefix}'. No fallback SDK was used.")
     else()
         set(cwhip_sdk_context
-            "No SDK prefix was selected by CWHIP_SDK or the registered sdk_prefix setting.")
+            "No SDK prefix was selected by CWHIP_SDK or a registered sdk_prefix setting.")
     endif()
     message(FATAL_ERROR
         "Cwhip SDK 0.0.1 was not found or is incompatible. ${cwhip_sdk_context}\n"
         "Select an installed SDK with:\n"
         "  export CWHIP_SDK=\"/absolute/path/to/cwhip-sdk\"\n"
         "  ./scripts/setup\n"
-        "Or register top-level sdk_prefix in the selected cwhip/settings.toml, "
-        "or use CMAKE_PREFIX_PATH for normal CMake discovery.\n"
+        "Or register top-level sdk_prefix in the selected cwhip/sdk.toml "
+        "(legacy settings.toml is used only when sdk.toml is absent), or use "
+        "CMAKE_PREFIX_PATH for normal CMake discovery.\n"
         "The SDK normally contains lib/cmake/Cwhip/CwhipConfig.cmake "
         "(CMake also accepts cwhip-config.cmake). Select the whole prefix, "
         "not bin/ or the package directory. If neither config exists, install "

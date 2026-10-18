@@ -27,6 +27,7 @@ class SdkDiscoveryTests(unittest.TestCase):
         (self.project / "src/main.cw").write_text("start {}\n")
         self.home = self.root / "home"
         self.home.mkdir()
+        self.sdk_settings = self.home / ".config/cwhip/sdk.toml"
         self.settings = self.home / ".config/cwhip/settings.toml"
         self.build = self.project / "build"
         self.env = os.environ.copy()
@@ -55,9 +56,10 @@ class SdkDiscoveryTests(unittest.TestCase):
         )
         return prefix
 
-    def select(self, prefix):
-        self.settings.parent.mkdir(parents=True, exist_ok=True)
-        self.settings.write_text(f"sdk_prefix = {json.dumps(str(prefix))}\n")
+    def select(self, prefix, settings=None):
+        settings = settings or self.sdk_settings
+        settings.parent.mkdir(parents=True, exist_ok=True)
+        settings.write_text(f"sdk_prefix = {json.dumps(str(prefix))}\n")
 
     def configure(self, success=True, extra=()):
         result = subprocess.run(
@@ -90,11 +92,12 @@ class SdkDiscoveryTests(unittest.TestCase):
         self.env["CWHIP_SDK"] = str(selected)
         self.assertEqual(self.configure(), str(selected))
 
-    def test_explicit_sdk_bypasses_invalid_settings(self):
-        self.settings.parent.mkdir(parents=True)
-        self.settings.write_text("invalid = [\n")
+    def test_explicit_sdk_bypasses_invalid_registration(self):
+        self.sdk_settings.parent.mkdir(parents=True, exist_ok=True)
+        self.sdk_settings.write_text("invalid = [\n")
         selected = self.make_sdk("explicit SDK 'quoted'")
         self.env["CWHIP_SDK"] = str(selected)
+        self.env["XDG_CONFIG_HOME"] = "relative"
         self.assertEqual(self.configure(), str(selected))
 
     def test_registered_prefix_with_spaces_and_quotes(self):
@@ -102,15 +105,18 @@ class SdkDiscoveryTests(unittest.TestCase):
         self.select(selected)
         self.assertEqual(self.configure(), str(selected))
 
-    def test_settings_only_discovery(self):
+    def test_sdk_toml_only_discovery(self):
         selected = self.make_sdk("registered")
         self.select(selected)
         self.env.pop("CMAKE_PREFIX_PATH")
         self.assertEqual(self.configure(), str(selected))
 
-    def test_settings_without_prefix_uses_normal_discovery(self):
+    def test_sdk_settings_without_prefix_uses_normal_discovery_not_legacy(self):
         self.settings.parent.mkdir(parents=True)
-        self.settings.write_text('[application]\nsdk_prefix = "not top level"\n')
+        legacy = self.make_sdk("legacy")
+        self.select(legacy, self.settings)
+        self.sdk_settings.parent.mkdir(parents=True, exist_ok=True)
+        self.sdk_settings.write_text('[application]\nsdk_prefix = "not top level"\n')
         self.assertEqual(self.configure(), str(self.root / "fallback"))
 
     def test_invalid_explicit_selection_does_not_reuse_cached_sdk(self):
@@ -124,7 +130,7 @@ class SdkDiscoveryTests(unittest.TestCase):
 
     def test_invalid_registered_package_does_not_reuse_cached_sdk(self):
         self.assertEqual(self.configure(), str(self.root / "fallback"))
-        self.select(self.home)
+        self.select(self.home, self.settings)
         output = self.configure(success=False)
         self.assertIn("sdk_prefix in", output)
         self.assertIn("No fallback SDK was used", output)
@@ -155,23 +161,94 @@ class SdkDiscoveryTests(unittest.TestCase):
     def test_empty_settings_falls_back_to_cmake_discovery(self):
         self.assertEqual(self.configure(), str(self.root / "fallback"))
 
-    def test_invalid_registered_setting_fails_instead_of_falling_back(self):
+    def test_invalid_legacy_setting_fails_instead_of_falling_back(self):
         self.settings.parent.mkdir(parents=True)
         self.settings.write_text('sdk_prefix = "relative"\n')
         output = self.configure(success=False)
         self.assertIn("sdk_prefix", output)
         self.assertIn("settings.toml", output)
 
-    def test_xdg_settings_override_home_settings(self):
+    def test_legacy_settings_used_when_sdk_file_is_absent(self):
+        selected = self.make_sdk("legacy")
+        self.select(selected, self.settings)
+        self.assertEqual(self.configure(), str(selected))
+
+    def test_sdk_settings_precede_legacy_settings(self):
+        legacy = self.make_sdk("legacy")
+        self.select(legacy, self.settings)
+        selected = self.make_sdk("registered")
+        self.select(selected)
+        self.assertEqual(self.configure(), str(selected))
+
+    def test_preferences_rewrite_does_not_change_registered_sdk(self):
+        selected = self.make_sdk("dedicated")
+        self.select(selected)
+        rewritten_preferences_sdk = self.make_sdk("preferences rewrite")
+        self.select(rewritten_preferences_sdk, self.settings)
+        self.assertEqual(self.configure(), str(selected))
+
+    def test_malformed_sdk_file_does_not_fall_back_to_legacy(self):
+        legacy = self.make_sdk("legacy")
+        self.select(legacy, self.settings)
+        self.sdk_settings.parent.mkdir(parents=True, exist_ok=True)
+        self.sdk_settings.write_text("invalid = [\n")
+        output = self.configure(success=False)
+        self.assertIn("sdk.toml", output)
+        self.assertIn("cannot read sdk_prefix", output)
+
+    def test_empty_sdk_prefix_is_invalid(self):
+        self.sdk_settings.parent.mkdir(parents=True)
+        self.sdk_settings.write_text('sdk_prefix = ""\n')
+        output = self.configure(success=False)
+        self.assertIn("sdk.toml", output)
+        self.assertIn("non-empty absolute path", output)
+
+    def test_sdk_prefix_with_line_break_is_invalid(self):
+        selected = self.make_sdk("registered\nprefix")
+        self.select(selected)
+        output = self.configure(success=False)
+        self.assertIn("sdk.toml", output)
+        self.assertIn("NUL or line breaks", output)
+
+    def test_sdk_settings_directory_is_authoritative_error(self):
+        legacy = self.make_sdk("legacy")
+        self.select(legacy, self.settings)
+        self.sdk_settings.mkdir(parents=True)
+        output = self.configure(success=False)
+        self.assertIn("sdk.toml", output)
+        self.assertIn("cannot read sdk_prefix", output)
+
+    def test_dangling_sdk_settings_symlink_is_authoritative_error(self):
+        legacy = self.make_sdk("legacy")
+        self.select(legacy, self.settings)
+        self.sdk_settings.parent.mkdir(parents=True, exist_ok=True)
+        self.sdk_settings.symlink_to(self.root / "missing-sdk.toml")
+        output = self.configure(success=False)
+        self.assertIn("sdk.toml", output)
+        self.assertIn("cannot read sdk_prefix", output)
+
+    def test_xdg_sdk_settings_override_home_settings(self):
         home_sdk = self.make_sdk("home")
-        self.select(home_sdk)
+        self.select(home_sdk, self.sdk_settings)
         xdg = self.root / "xdg"
-        xdg_settings = xdg / "cwhip/settings.toml"
+        xdg_settings = xdg / "cwhip/sdk.toml"
         xdg_settings.parent.mkdir(parents=True)
         xdg_sdk = self.make_sdk("xdg")
         xdg_settings.write_text(f"sdk_prefix = {json.dumps(str(xdg_sdk))}\n")
         self.env["XDG_CONFIG_HOME"] = str(xdg)
         self.assertEqual(self.configure(), str(xdg_sdk))
+
+    def test_xdg_config_home_is_exclusive_of_home_config(self):
+        home_sdk = self.make_sdk("home")
+        self.select(home_sdk, self.sdk_settings)
+        self.env["XDG_CONFIG_HOME"] = str(self.root / "empty-xdg")
+        self.assertEqual(self.configure(), str(self.root / "fallback"))
+
+    def test_relative_xdg_config_home_is_invalid(self):
+        self.env["XDG_CONFIG_HOME"] = "relative"
+        output = self.configure(success=False)
+        self.assertIn("config home", output)
+        self.assertIn("not absolute", output)
 
     def run_setup(self):
         tools = self.root / "tools"
@@ -207,11 +284,12 @@ class SdkDiscoveryTests(unittest.TestCase):
             str(prefix / "bin"),
         ])
 
-    def test_setup_explicit_sdk_bypasses_invalid_settings(self):
-        self.settings.parent.mkdir(parents=True)
-        self.settings.write_text("invalid = [\n")
+    def test_setup_explicit_sdk_bypasses_invalid_registration(self):
+        self.sdk_settings.parent.mkdir(parents=True)
+        self.sdk_settings.write_text("invalid = [\n")
         prefix = self.make_sdk("explicit SDK")
         self.env["CWHIP_SDK"] = str(prefix)
+        self.env["XDG_CONFIG_HOME"] = "relative"
         result = self.run_setup()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual((self.build / "selected-sdk.txt").read_text(), str(prefix))
@@ -226,26 +304,31 @@ class SdkDiscoveryTests(unittest.TestCase):
 
     def test_missing_settings_does_not_create_user_configuration(self):
         self.assertEqual(self.configure(), str(self.root / "fallback"))
+        self.assertFalse(self.sdk_settings.exists())
         self.assertFalse(self.settings.exists())
 
 
 class InstalledSdkTests(unittest.TestCase):
-    def test_settings_only_configures_and_builds_with_installed_sdk(self):
+    def test_sdk_toml_configures_and_builds_with_installed_sdk(self):
         prefix = os.environ.get("CWHIP_SDK")
         if not prefix:
             self.skipTest("set CWHIP_SDK to validate a real installed SDK")
         with tempfile.TemporaryDirectory(prefix="cparsegen SDK ") as directory:
             root = Path(directory)
-            settings = root / "config/cwhip/settings.toml"
+            settings = root / "config/cwhip/sdk.toml"
             settings.parent.mkdir(parents=True)
             settings.write_text(f"sdk_prefix = {json.dumps(prefix)}\n")
             env = os.environ.copy()
-            for name in ("CWHIP_SDK", "CMAKE_PREFIX_PATH", "Cwhip_DIR"):
+            for name in ("CWHIP_SDK", "CMAKE_PREFIX_PATH", "Cwhip_DIR", "Cwhip_ROOT"):
                 env.pop(name, None)
+            home = root / "home"
+            home.mkdir()
+            env["HOME"] = str(home)
             env["XDG_CONFIG_HOME"] = str(root / "config")
             result = subprocess.run(
                 ["cmake", "-S", str(ROOT), "-B", str(root / "build"),
-                 f"-DCWHIP_BIN_DIR={root / 'bin'}"],
+                 f"-DCWHIP_BIN_DIR={root / 'bin'}",
+                 f"-DCWHIP_LIB_DIR={root / 'lib'}"],
                 env=env, capture_output=True, text=True, timeout=60,
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
