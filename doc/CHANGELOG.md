@@ -8,9 +8,14 @@
 - Clarify that grammar declarations may interleave, parser rules terminate
   with `;`, and parser shortest-match behavior differs from lexer longest
   match; leave unresolved syntax and include semantics open.
+- Add a bounded Cwhip grammar reader, target-neutral declaration model and
+  validation, plus Cwhip parser/AST/scanner and DOT emitters for a small
+  fixture. Add generated-parser and SDK-discovery integration tests.
+- Add explicit Cwhip SDK discovery through the registered `sdk_prefix`
+  setting and document the standalone compiler SDK installation path.
 - Adopt the CWhip project template's setup shell, SDK-backed CMake configuration,
   configurable root output directories, and build documentation.
 - Add the standard MIT license.
 
-The initial bootstrap includes the template hello-world executable. The
-parser-generator implementation is not included in this change.
+The parser generator remains an early prototype; consult the architecture
+document for its current syntax boundary and deferred behavior.

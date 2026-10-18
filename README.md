@@ -1,32 +1,45 @@
 # cparsegen
 
-A Cwhip parser-generator project bootstrapped with the Cwhip project template.
-This initial template adoption provides the setup shell and SDK-backed build
-conventions; the current `src/main.cw` is the template's hello-world example,
-not the parser-generator implementation.
+A Cwhip parser-generator prototype using a target-neutral grammar model and
+backend emitters. The current executable is intentionally a small, bounded
+slice; its supported syntax and unimplemented areas are listed in the
+[architecture proposal](doc/ARCHITECTURE.md).
 
 ## Get started
 
-Install the Cwhip SDK and its host prerequisites. If the SDK isn't
-discoverable through `CMAKE_PREFIX_PATH`, set `CWHIP_SDK` to the SDK's whole
-installation prefix. Then start the project shell and build:
+Install the Cwhip SDK and its host prerequisites; cparsegen does not vendor,
+download, or build the SDK during CMake configuration. Follow the
+[Cwhip SDK installation guide](https://github.com/chucktilbury/cwhip/blob/master/doc/GETTING_STARTED.md#build-and-install-the-sdk)
+to install a compiler-only SDK. Then configure/build and generate both
+outputs:
 
 ```sh
 ./scripts/setup
 cmake --build .
-../bin/cparsegen
+mkdir -p generated
+../bin/cparsegen ../tests/fixtures/shortest.cpg generated/shortest.cw generated/shortest.dot
+cwhip generated/shortest.cw -o generated/shortest-parser
+printf '123+456' > generated/input.txt
+generated/shortest-parser generated/input.txt
 ```
 
 The default build type is `debug`. Choose `release` or `profile` with
 `./scripts/setup release` or `./scripts/setup profile`.
 
-See [Building](doc/BUILDING.md) for SDK selection and output-directory
-customization, and [Project shell](doc/PROJECT-SHELL.md) for the shell
-environment and available commands. The proposed parser-generator design and
-provisional expression grammar are in
-[Architecture](doc/ARCHITECTURE.md) and [examples/expression.cpg](examples/expression.cpg);
-the fixture illustrates confirmed declaration forms but is not a finalized
-compatibility contract. See the
+The project selects an installed SDK in this order: non-empty `CWHIP_SDK`,
+the registered top-level `sdk_prefix` in
+`$XDG_CONFIG_HOME/cwhip/settings.toml` (or `$HOME/.config/cwhip/settings.toml`
+when `XDG_CONFIG_HOME` is unset or empty), then normal CMake discovery such as
+`CMAKE_PREFIX_PATH`. See [Building](doc/BUILDING.md) for override and
+troubleshooting details.
+
+See [Building](doc/BUILDING.md) for SDK installation, selection, and
+output-directory customization, and [Project shell](doc/PROJECT-SHELL.md) for
+the shell environment and available commands. The architecture proposal and
+provisional grammar fixtures are in [Architecture](doc/ARCHITECTURE.md),
+[examples/expression.cpg](examples/expression.cpg), and
+[tests/fixtures/shortest.cpg](tests/fixtures/shortest.cpg); none is a
+finalized compatibility contract. See the
 [changelog](doc/CHANGELOG.md) for updates.
 
 ## License

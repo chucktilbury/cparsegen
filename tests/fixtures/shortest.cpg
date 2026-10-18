@@ -1,0 +1,8 @@
+sum : /* comments and whitespace are allowed
+         inside a parser rule */
+    INTEGER
+    | INTEGER "+" INTEGER
+    ;
+
+@note this payload is opaque : | and is not a grammar expression;
+INTEGER = [0-9]+

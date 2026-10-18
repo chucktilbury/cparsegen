@@ -25,10 +25,10 @@ contract between parsing, analysis, and every emitter; target backends must
 not re-parse grammar text or infer syntax from generated code. Emitters
 consume only a model that has passed validation.
 
-The first executable milestone should prove this boundary with one small
-grammar, a Cwhip parser/AST/scanner emitter, and a DOT emitter. C, C++, and
-Python emitters follow the model rather than defining separate grammar
-semantics.
+The initial executable milestone proves this boundary with one small grammar,
+a Cwhip parser/AST/scanner emitter, and a DOT emitter. C, C++, and Python
+emitters remain future backends and should follow the model rather than define
+separate grammar semantics.
 
 ## Intermediate representation boundary
 
@@ -76,6 +76,39 @@ remain Cwhip-level and target-neutral.
 The SDK version and file/collection APIs are documented in the public
 [Cwhip SDK contract](https://github.com/chucktilbury/cwhip/blob/master/doc/CMAKE-SDK.md)
 and [standard library reference](https://github.com/chucktilbury/cwhip/blob/master/doc/STDLIB.md).
+
+## Executable prototype boundary
+
+The current executable is a first bounded slice, not an implementation of
+the complete proposal. Its fixture uses interleaved declarations and a
+forward token reference:
+
+```text
+sum : INTEGER | INTEGER "+" INTEGER ;
+@note opaque directive payload;
+INTEGER = [0-9]+
+```
+
+The prototype reader recognizes named directives as `@name payload;`; the
+payload is retained as opaque text and has no generation effect. This spelling
+and semicolon boundary are prototype-only until checked against the real
+grammar sample. Lexer regexes are limited to `[0-9]` with optional `+`; parser
+alternatives contain fixed sequences of lexer-token names and quoted
+terminals. Groups, parser quantifiers, parser-rule references, lexer-rule
+composition, recursion, regex escapes, and whitespace skipping in generated
+input are not implemented. Unsupported constructs fail with a diagnostic.
+
+Among successful fixed alternatives, the generated parser selects the one
+consuming the fewest input bytes; equal-length alternatives keep source order.
+The selected start rule returns its shortest matching prefix and does not
+require end-of-input yet. The generated scanner uses longest byte match,
+breaking ties by lexer declaration order and then literal appearance order.
+These details define this prototype only; regex matching and whole-input
+acceptance require refinement against representative grammars.
+
+The current reader records declaration line numbers, not full filename/line/
+column spans. The fuller `SourceSpan`, source-stack, and include contracts
+above remain design targets, not completed features.
 
 ## Provisional declaration format
 
@@ -201,12 +234,12 @@ same model and be deterministic for the same grammar.
 
 ## Milestone and open decisions
 
-This is a design proposal and fixture, not an implemented parser generator.
-The first code milestone should establish declaration collection, a typed
-target-neutral model, later reference resolution/validation, and Cwhip plus
-DOT emission. Later work adds C, C++, and Python emitters. A real example
-grammar is needed to settle directive spelling and content boundaries,
-comment syntax, include semantics, regex composition and operators,
-equal-length match behavior, parser-expression choice/backtracking details,
-and the supported left-recursion transformations without baking guesses into
-the format.
+This document remains a design proposal with provisional fixtures, but the
+first executable milestone now establishes declaration collection, a small
+typed target-neutral model, reference validation, and Cwhip plus DOT
+emission. Later work adds C, C++, and Python emitters and expands the model
+and analysis to cover the full proposal. A real example grammar is needed to
+settle directive spelling and content boundaries, comment syntax, include
+semantics, regex composition and operators, equal-length match behavior,
+parser-expression choice/backtracking details, and supported left-recursion
+transformations without baking guesses into the format.

@@ -15,6 +15,9 @@ The project shell sources `~/.bashrc` when readable, adds the project's
 `bin/` and `scripts/` directories to `PATH`, and starts in `build/`. If
 `CWHIP_SDK` is set, its `bin/` directory is also added to `PATH` after the
 project directories so the SDK compiler and package tools are available.
+When the variable is empty, setup reads the registered `sdk_prefix` setting
+and exports it as `CWHIP_SDK` for the shell. The explicit environment
+override takes precedence over the registered setting.
 
 The shell exports:
 

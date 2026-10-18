@@ -1,26 +1,56 @@
 # Building
 
-This starter consumes the installed CWhip SDK; it does not build or download
-the compiler or SDK for you. Use the complete SDK installation prefix, not
-just its `bin/` directory. CMake requires SDK version `0.0.1` and an
+This project consumes the installed CWhip SDK; it does not vendor, download,
+or build the compiler or SDK during CMake configuration. A fresh checkout
+needs a separately installed compiler-only SDK and its host prerequisites.
+The following explicit source-build sequence installs the current compiler
+SDK into a user-owned prefix; Cwhip records that prefix in its
+`settings.toml`, which this project discovers automatically:
+
+```sh
+git clone --depth 1 https://github.com/chucktilbury/cwhip.git "$HOME/Src/cwhip"
+cmake -S "$HOME/Src/cwhip" -B "$HOME/Src/cwhip-build" \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCWHIP_STAGE_PREFIX="$HOME/Src/cwhip-build/stage" \
+  -DCMAKE_INSTALL_PREFIX="$HOME/.local/cwhip" \
+  -DCMAKE_INSTALL_LIBDIR=lib \
+  -DBUILD_TESTING=OFF -DCWHIP_GTK=OFF -DCWHIP_GTK_SOURCEVIEW=OFF
+cmake --build "$HOME/Src/cwhip-build" --target cwhip --parallel 4
+cmake --install "$HOME/Src/cwhip-build"
+```
+
+Install the host prerequisites listed in the [Cwhip SDK installation
+guide](https://github.com/chucktilbury/cwhip/blob/master/doc/GETTING_STARTED.md#host-prerequisites)
+first. This project requires the exact Cwhip SDK version `0.0.1` and an
 installation that supports configurable application output directories.
+Keep the complete SDK prefix; do not point the project at just its `bin/`
+directory. For an existing SDK, use the selection options below instead of
+rebuilding it.
 
 ## Select an SDK
 
-If the SDK is already discoverable via `CMAKE_PREFIX_PATH`, no extra setting
-is needed. Otherwise, point `CWHIP_SDK` at its whole installed prefix before
-configuring:
+SDK selection follows this order:
+
+1. A non-empty `CWHIP_SDK` environment variable. It selects only that prefix;
+   an invalid explicit prefix fails instead of falling back.
+2. The registered top-level `sdk_prefix` from
+   `$XDG_CONFIG_HOME/cwhip/settings.toml`, or
+   `$HOME/.config/cwhip/settings.toml` when `XDG_CONFIG_HOME` is unset or
+   empty. Invalid TOML or an invalid `sdk_prefix` is an error.
+3. Normal CMake package discovery, including `CMAKE_PREFIX_PATH`.
+
+To select an SDK explicitly, point `CWHIP_SDK` at its whole installed prefix:
 
 ```sh
 export CWHIP_SDK=/path/to/cwhip-sdk
 ./scripts/setup
 ```
 
-When `CWHIP_SDK` is set, CMake searches only that prefix. Switching the
-environment variable also clears the previously cached `Cwhip_DIR`; an
-invalid explicit prefix fails configuration rather than silently selecting a
-different SDK. To use normal CMake discovery again, unset `CWHIP_SDK` and
-configure the project.
+For either explicit or registered selection, CMake clears a stale cached
+`Cwhip_DIR` and searches only the selected prefix. The project shell also adds
+the selected SDK's `bin/` directory to `PATH`. To use normal CMake discovery,
+unset `CWHIP_SDK`, remove `sdk_prefix` from the settings file, and configure
+the project.
 
 ## Configure and build
 
@@ -33,17 +63,22 @@ project shell there. Its build type argument is optional:
 | `release` | `Release` |
 | `profile` | `RelWithDebInfo` |
 
-Build and run the starter executable from the project shell:
+Build the generator and compile/run its generated parser from the project
+shell:
 
 ```sh
 cmake --build .
-../bin/cparsegen
+mkdir -p generated
+../bin/cparsegen ../tests/fixtures/shortest.cpg generated/shortest.cw generated/shortest.dot
+cwhip generated/shortest.cw -o generated/shortest-parser
+printf '123+456' > generated/input.txt
+generated/shortest-parser generated/input.txt
 ```
 
 The Cwhip application helper writes generated sources and package metadata
-inside the build tree. The compiled application is written directly to
-`bin/`. Neither `bin/` nor `lib/` is created during configuration; the build
-creates an output directory only when a target needs it.
+inside the build tree. The compiled generator is written directly to `bin/`.
+Neither `bin/` nor `lib/` is created during configuration; the build creates
+an output directory only when a target needs it.
 
 ## Customize output directories
 
@@ -59,8 +94,17 @@ cmake -S . -B build \
 cmake --build build
 ```
 
-The starter executable follows `CWHIP_BIN_DIR`. Generated output
+The generator executable follows `CWHIP_BIN_DIR`. Generated output
 directories are ignored by Git.
+
+After building the generator, run the black-box and SDK-selection tests with:
+
+```sh
+python3 -m unittest discover -s ../tests -v
+```
+
+The black-box tests also compile generated Cwhip and therefore need the SDK's
+`cwhip` executable on `PATH`, in `CWHIP_SDK`, or under `CMAKE_PREFIX_PATH`.
 
 ## Clean
 
