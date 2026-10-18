@@ -319,12 +319,16 @@ class InstalledSdkTests(unittest.TestCase):
             settings.parent.mkdir(parents=True)
             settings.write_text(f"sdk_prefix = {json.dumps(prefix)}\n")
             env = os.environ.copy()
-            for name in ("CWHIP_SDK", "CMAKE_PREFIX_PATH", "Cwhip_DIR"):
+            for name in ("CWHIP_SDK", "CMAKE_PREFIX_PATH", "Cwhip_DIR", "Cwhip_ROOT"):
                 env.pop(name, None)
+            home = root / "home"
+            home.mkdir()
+            env["HOME"] = str(home)
             env["XDG_CONFIG_HOME"] = str(root / "config")
             result = subprocess.run(
                 ["cmake", "-S", str(ROOT), "-B", str(root / "build"),
-                 f"-DCWHIP_BIN_DIR={root / 'bin'}"],
+                 f"-DCWHIP_BIN_DIR={root / 'bin'}",
+                 f"-DCWHIP_LIB_DIR={root / 'lib'}"],
                 env=env, capture_output=True, text=True, timeout=60,
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
