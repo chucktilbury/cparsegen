@@ -25,7 +25,8 @@ customization, and [Project shell](doc/PROJECT-SHELL.md) for the shell
 environment and available commands. The proposed parser-generator design and
 provisional expression grammar are in
 [Architecture](doc/ARCHITECTURE.md) and [examples/expression.cpg](examples/expression.cpg);
-neither is a finalized compatibility contract. See the
+the fixture illustrates confirmed declaration forms but is not a finalized
+compatibility contract. See the
 [changelog](doc/CHANGELOG.md) for updates.
 
 ## License
