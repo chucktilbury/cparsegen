@@ -7,6 +7,11 @@ export HISTCONTROL=ignoreboth:erasedups
 project_path="$_PROJECT_LOC/bin:$_PROJECT_LOC/scripts"
 if [[ -n "${CWHIP_SDK:-}" ]]; then
     project_path+=":$CWHIP_SDK/bin"
+else
+    cwhip_sdk_prefix="$(python3 "$_PROJECT_LOC/scripts/sdk-prefix.py" --discover)" || return
+    if [[ -n "$cwhip_sdk_prefix" ]]; then
+        project_path+=":$cwhip_sdk_prefix/bin"
+    fi
 fi
 export PATH="$project_path:$PATH"
 

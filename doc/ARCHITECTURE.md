@@ -9,21 +9,26 @@ discussion, not a compatibility promise.
 
 ```text
 grammar source stack
-  -> section-aware grammar reader
+  -> declaration collector
+  -> reference resolution and validation
   -> validated target-neutral grammar model
   -> analysis and normalization
   -> Cwhip / C / C++ / Python / DOT emitters
 ```
 
-The grammar reader should preserve source provenance in diagnostics. The
-validated model is the shared contract between parsing, analysis, and every
-emitter; target backends must not re-parse grammar text or infer syntax from
-generated code. Emitters consume only a model that has passed validation.
+The collector preserves source provenance and declaration order, but does
+not require declarations to appear in separate sections. It gathers lexer
+rules, parser rules, and named directives before resolving references and
+validating the complete grammar. This permits forward references without
+silently changing declaration order. The validated model is the shared
+contract between parsing, analysis, and every emitter; target backends must
+not re-parse grammar text or infer syntax from generated code. Emitters
+consume only a model that has passed validation.
 
-The first executable milestone should prove this boundary with one small
-grammar, a Cwhip parser/AST/scanner emitter, and a DOT emitter. C, C++, and
-Python emitters follow the model rather than defining separate grammar
-semantics.
+The initial executable milestone proves this boundary with one small grammar,
+a Cwhip parser/AST/scanner emitter, and a DOT emitter. C, C++, and Python
+emitters remain future backends and should follow the model rather than define
+separate grammar semantics.
 
 ## Intermediate representation boundary
 
@@ -32,9 +37,9 @@ rendering:
 
 | Model component | Contents |
 | --- | --- |
-| `Grammar` | Ordered lexer rules, ordered parser rules, directives, and source identity |
+| `Grammar` | Source-ordered lexer rules, parser rules, named directives, and source identity |
 | `SourceSpan` | Source identity, half-open byte range, and one-based start/end line and column |
-| `RegexExpr` | Tagged literal, character class, any-character, sequence, alternation, and repetition nodes |
+| `RegexExpr` | Structured regex syntax and references to smaller lexer rules; exact node kinds follow the confirmed regex notation |
 | `RuleExpr` | Tagged token reference, rule reference, literal terminal, sequence, alternation, optional, and repetition nodes |
 | `CodeInsertion` | Target name, named boundary, opaque source text, and source span; present only when supplied by a directive |
 | `Analysis` | Resolved references, nullability, left-corner graph, and validated normalization records |
@@ -72,40 +77,87 @@ The SDK version and file/collection APIs are documented in the public
 [Cwhip SDK contract](https://github.com/chucktilbury/cwhip/blob/master/doc/CMAKE-SDK.md)
 and [standard library reference](https://github.com/chucktilbury/cwhip/blob/master/doc/STDLIB.md).
 
-## Provisional file structure
+## Executable prototype boundary
 
-Each grammar has three distinct top-level sections, in this order:
+The current executable is a first bounded slice, not an implementation of
+the complete proposal. Its fixture uses interleaved declarations and a
+forward token reference:
 
 ```text
-DIRECTIVES { ... }
-LEXER     { ... }
-PARSER    { ... }
+sum : INTEGER | INTEGER "+" INTEGER ;
+@note opaque directive payload;
+INTEGER = [0-9]+
 ```
 
-The section names are illustrative. A file must contain exactly one of each;
-directives and grammar rules never share a section. Duplicate, missing,
-unknown, or out-of-order sections are errors rather than silently ignored
-input.
+The prototype reader recognizes named directives as `@name payload;`; the
+payload is retained as opaque text and has no generation effect. This spelling
+and semicolon boundary are prototype-only until checked against the real
+grammar sample. Lexer regexes are limited to `[0-9]` with optional `+`; parser
+alternatives contain fixed sequences of lexer-token names and quoted
+terminals. Groups, parser quantifiers, parser-rule references, lexer-rule
+composition, recursion, regex escapes, and whitespace skipping in generated
+input are not implemented. Unsupported constructs fail with a diagnostic.
 
-`LEXER` contains uppercase token names assigned flex-like regular expressions.
-`PARSER` contains lowercase rule names, `:`, and alternatives separated by
-`|`. Parentheses group expressions; `*`, `+`, and `?` mean zero-or-more,
-one-or-more, and optional. Literal terminals are quoted. Named lexer tokens
-are referenced by their uppercase names.
+Among successful fixed alternatives, the generated parser selects the one
+consuming the fewest input bytes; equal-length alternatives keep source order.
+The selected start rule returns its shortest matching prefix and does not
+require end-of-input yet. The generated scanner uses longest byte match,
+breaking ties by lexer declaration order and then literal appearance order.
+These details define this prototype only; regex matching and whole-input
+acceptance require refinement against representative grammars.
 
-The initial regex subset should be explicit and portable: concatenation,
-alternation, grouping, character classes and ranges, escapes, `.`, and the
-`*`, `+`, `?` quantifiers. Anchors, counted repetition, trailing context,
-start conditions, backreferences, and engine-specific extensions are not in
-the initial subset. Unsupported constructs must have source-located errors.
+The current reader records declaration line numbers, not full filename/line/
+column spans. The fuller `SourceSpan`, source-stack, and include contracts
+above remain design targets, not completed features.
+
+## Provisional declaration format
+
+Lexer declarations, parser rules, and directives may be interleaved at the
+top level; there are no mandatory `DIRECTIVES`, `LEXER`, or `PARSER` sections.
+The collector classifies declarations, retaining their encounter order
+within each kind. It then resolves names and validates the assembled grammar
+in a later pass. A parser rule may refer to a lexer rule or parser rule that
+appears later in the source.
+
+Lexer rules use uppercase names assigned to regex expressions. Larger lexer
+rules may be built from smaller lexer rules. The first lexer rule encountered
+defines the whole expression. These ordering and composition rules must be
+preserved by collection and expansion; the exact regex operators and
+remaining composition semantics are not fixed here.
+
+Parser rules use lowercase names, a colon, and a rule definition terminated
+by `;`. Whitespace and comments are permitted within a parser-rule
+definition. The first parser rule encountered is the start rule. Alternatives,
+grouping, repetition, and quoted terminals are part of the intended
+ANTLR-like form, but this proposal does not settle every detail of their
+spelling or precedence.
+
+Named directives are collected separately from grammar rules. Their content
+is opaque to the grammar reader and is not parsed as lexer or parser syntax.
+The directive names, source spelling, and how a directive selects a target
+remain open; no particular block delimiter or insertion syntax is implied by
+this document.
+
+Whitespace and comments inside grammar declarations are separate from
+whitespace and comments in text scanned by a generated parser. The latter's
+handling must be stated by the grammar or another confirmed rule; it must not
+be inferred from formatting accepted by the grammar reader.
+
+Inputs/includes must have explicit source semantics before include behavior
+is implemented. Those semantics need to define source order and declaration
+visibility, provenance in diagnostics, duplicate declarations, relative
+path resolution, and cycle handling. The source stack must not imply an
+undocumented include mechanism.
 
 ## Scanner and source locations
 
-The scanner selects the longest matching token. Equal-length matches resolve
-by lexer declaration order; literal terminals are added in first-appearance
-order after named lexer rules. Whitespace and comments are not implicitly
-discarded: grammars must declare them and the format must provide a distinct
-skip directive before implementation.
+The scanner selects the longest matching lexer token. The equal-length tie
+policy is not specified yet. Parser-expression matching is distinct: a
+parser rule expression chooses the shortest possible match, rather than
+applying the scanner's longest-token policy. The precise interaction of
+alternatives, repetition, recursion, and equal-length parser matches remains
+to be validated and specified; implementations must not substitute greedy
+or maximal-munch parser behavior.
 
 Each token carries its kind, lexeme, and start/end source span. A span records
 source identity, byte offsets, and one-based line and column positions. The
@@ -125,7 +177,8 @@ children in grammar/source order. Matched terminals are explicit leaf nodes
 with token kind, lexeme, and span; grouping syntax does not add artificial
 nodes. Repeated and optional constructs preserve the matched child order.
 The root span runs from the first consumed token through the last consumed
-token, excluding trailing skipped input.
+token. Handling unconsumed trailing input is parser API behavior and is not
+specified here.
 
 Generated visitors expose normal target-language APIs with a pre-hook and a
 post-hook for every parser rule. A pre-hook runs before child traversal and a
@@ -135,13 +188,12 @@ semantics.
 
 ## Directives and target code
 
-Directives select output options and named target-language insertion
-boundaries. Proposed boundaries are a file preamble, generated declarations,
-and file footer, with target-language source kept only in `DIRECTIVES`.
-Insertion order within a boundary is source order. The generator should reject
-a code block whose declared target does not match the selected backend.
-Directive names, quoting/escaping, and exact block delimiters remain open
-until a real sample grammar is available.
+Directives are named, and their content is opaque to grammar parsing. They
+may eventually select output options or target-language insertion
+boundaries, but the names, boundaries, payload rules, and syntax are not
+specified here. If code-insertion directives are supported, their contents
+must remain opaque until passed to the selected backend; parser rules cannot
+contain those payloads or arbitrary actions.
 
 Parser rules accept grammar expressions only. They cannot contain arbitrary
 code, semantic actions, or embedded target-language fragments. AST visitors
@@ -154,21 +206,22 @@ unreachable rules, and detects nullable repetitions and left-recursive cycles
 before emission. Diagnostics point to the grammar source span and include
 the relevant rule path.
 
-Direct left recursion of the form `A : A suffix | base` can be normalized
-into a seed parse followed by an ordered suffix loop. AST construction must
-fold each suffix onto the prior result so the resulting tree remains
-left-associative; for example, `a+b+c` becomes `((a+b)+c)`, not
-`(a+(b+c))`. Alternative order and child order remain observable. A recursive
-alternative without a base, a nullable suffix, or a cycle that the selected
-normalizer cannot preserve must fail with a diagnostic instead of generating
-a looping or semantics-changing parser. Indirect-left-recursion handling and
-its precise supported subset require validation against representative
-grammars before being promised.
+Left recursion must be detected and transformed where supported, with the
+generated parse preserving the grammar's shortest-match behavior, alternative
+and child order, and AST associativity. A conventional greedy suffix loop
+must not be assumed correct merely because it removes recursion. For
+example, an expression grammar intended to produce `((a+b)+c)` must retain
+that AST shape without changing which input extent the grammar matches.
+Transformation details and the supported direct/indirect cases remain open
+until their behavior is validated against representative grammars. A
+left-recursive form the implementation cannot preserve must fail with a
+source-located diagnostic rather than generate a looping or
+semantics-changing parser.
 
 Other validation failures should likewise be actionable and located: duplicate
-rules/tokens, malformed expressions, unknown token/rule references, invalid
-regex constructs, and malformed section boundaries. Generation must not
-silently omit invalid grammar fragments.
+rules/tokens/directives, malformed expressions, unknown token/rule references,
+unsupported regex constructs, and malformed declarations. Generation must
+not silently omit invalid grammar fragments.
 
 ## DOT view
 
@@ -181,10 +234,12 @@ same model and be deterministic for the same grammar.
 
 ## Milestone and open decisions
 
-This is a design proposal and fixture, not an implemented parser generator.
-The first code milestone should establish section-aware parsing, a typed
-target-neutral model, validation, and Cwhip plus DOT emission. Later work adds
-C, C++, and Python emitters. A real example grammar is needed to settle
-directive/block syntax, whitespace and comment conventions, source-stack
-include spelling, regex compatibility details, and indirect-left-recursion
-behavior without baking guesses into the format.
+This document remains a design proposal with provisional fixtures, but the
+first executable milestone now establishes declaration collection, a small
+typed target-neutral model, reference validation, and Cwhip plus DOT
+emission. Later work adds C, C++, and Python emitters and expands the model
+and analysis to cover the full proposal. A real example grammar is needed to
+settle directive spelling and content boundaries, comment syntax, include
+semantics, regex composition and operators, equal-length match behavior,
+parser-expression choice/backtracking details, and supported left-recursion
+transformations without baking guesses into the format.

@@ -3,3 +3,5 @@
 /lib/
 /CMakeUserPresets.json
 .DS_Store
+__pycache__/
+*.py[cod]
