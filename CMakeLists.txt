@@ -20,6 +20,7 @@ foreach(configuration DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
 endforeach()
 
 set(cwhip_sdk_prefix "$ENV{CWHIP_SDK}")
+set(cwhip_sdk_selection "CWHIP_SDK")
 if(cwhip_sdk_prefix STREQUAL "")
     set(cwhip_config_home "$ENV{XDG_CONFIG_HOME}")
     if(cwhip_config_home STREQUAL "" AND NOT "$ENV{HOME}" STREQUAL "")
@@ -46,18 +47,49 @@ if(cwhip_sdk_prefix STREQUAL "")
             if(NOT cwhip_settings_result STREQUAL "0")
                 message(FATAL_ERROR "${cwhip_settings_error}")
             endif()
+            set(cwhip_sdk_selection "sdk_prefix in ${cwhip_settings}")
         endif()
     endif()
 endif()
 
 if(NOT cwhip_sdk_prefix STREQUAL "")
+    if(NOT IS_ABSOLUTE "${cwhip_sdk_prefix}" OR
+       NOT IS_DIRECTORY "${cwhip_sdk_prefix}")
+        message(FATAL_ERROR
+            "${cwhip_sdk_selection} selects '${cwhip_sdk_prefix}', which is not "
+            "an existing absolute SDK installation prefix. Set CWHIP_SDK to "
+            "the complete installed SDK prefix, not its bin/ directory. "
+            "See doc/BUILDING.md.")
+    endif()
     message(STATUS "Using Cwhip SDK prefix: ${cwhip_sdk_prefix}")
     unset(Cwhip_DIR CACHE)
     unset(Cwhip_DIR)
-    find_package(Cwhip 0.0.1 EXACT CONFIG REQUIRED
+    find_package(Cwhip 0.0.1 EXACT CONFIG QUIET
         PATHS "${cwhip_sdk_prefix}" NO_DEFAULT_PATH)
 else()
-    find_package(Cwhip 0.0.1 EXACT CONFIG REQUIRED)
+    find_package(Cwhip 0.0.1 EXACT CONFIG QUIET)
+endif()
+
+if(NOT Cwhip_FOUND)
+    if(NOT cwhip_sdk_prefix STREQUAL "")
+        set(cwhip_sdk_context
+            "${cwhip_sdk_selection} selected '${cwhip_sdk_prefix}'. No fallback SDK was used.")
+    else()
+        set(cwhip_sdk_context
+            "No SDK prefix was selected by CWHIP_SDK or the registered sdk_prefix setting.")
+    endif()
+    message(FATAL_ERROR
+        "Cwhip SDK 0.0.1 was not found or is incompatible. ${cwhip_sdk_context}\n"
+        "Select an installed SDK with:\n"
+        "  export CWHIP_SDK=\"/absolute/path/to/cwhip-sdk\"\n"
+        "  ./scripts/setup\n"
+        "Or register top-level sdk_prefix in the selected cwhip/settings.toml, "
+        "or use CMAKE_PREFIX_PATH for normal CMake discovery.\n"
+        "The SDK normally contains lib/cmake/Cwhip/CwhipConfig.cmake "
+        "(CMake also accepts cwhip-config.cmake). Select the whole prefix, "
+        "not bin/ or the package directory. If neither config exists, install "
+        "the SDK first; cparsegen does not download it. See doc/BUILDING.md.\n"
+        "${Cwhip_NOT_FOUND_MESSAGE}")
 endif()
 
 if(NOT Cwhip_APPLICATION_OUTPUT_DIRECTORIES)

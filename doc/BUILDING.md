@@ -52,6 +52,35 @@ the selected SDK's `bin/` directory to `PATH`. To use normal CMake discovery,
 unset `CWHIP_SDK`, remove `sdk_prefix` from the settings file, and configure
 the project.
 
+## Troubleshoot missing package configuration
+
+If CMake reports that it cannot find `CwhipConfig.cmake` or
+`cwhip-config.cmake`, those are alternative package filenames, not files
+cparsegen generates. The SDK normally installs
+`lib/cmake/Cwhip/CwhipConfig.cmake` beneath its prefix. A compiler on `PATH`
+alone is not enough for CMake discovery.
+
+For an SDK already installed at a known prefix, select it explicitly:
+
+```sh
+export CWHIP_SDK="/absolute/path/to/cwhip-sdk"
+test -f "$CWHIP_SDK/lib/cmake/Cwhip/CwhipConfig.cmake"
+./scripts/setup
+```
+
+The same override works without the project shell:
+
+```sh
+CWHIP_SDK="/absolute/path/to/cwhip-sdk" cmake -S . -B build
+cmake --build build
+```
+
+A settings file without a **top-level** `sdk_prefix` does not register an
+SDK, even if the file contains other application settings. If no SDK is
+installed, follow the installation steps above first. Do not rename package
+files or select arbitrary sibling compiler build directories. Invalid
+explicit or registered selections fail rather than reuse a cached SDK.
+
 ## Configure and build
 
 The setup script configures the `build/` directory and launches an interactive

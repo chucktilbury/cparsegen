@@ -30,7 +30,7 @@ class SdkDiscoveryTests(unittest.TestCase):
         self.settings = self.home / ".config/cwhip/settings.toml"
         self.build = self.project / "build"
         self.env = os.environ.copy()
-        for name in ("CWHIP_SDK", "CMAKE_PREFIX_PATH", "XDG_CONFIG_HOME"):
+        for name in ("CWHIP_SDK", "CMAKE_PREFIX_PATH", "Cwhip_DIR", "XDG_CONFIG_HOME"):
             self.env.pop(name, None)
         self.env["HOME"] = str(self.home)
         self.env["CMAKE_PREFIX_PATH"] = str(self.make_sdk("fallback"))
@@ -90,6 +90,68 @@ class SdkDiscoveryTests(unittest.TestCase):
         self.env["CWHIP_SDK"] = str(selected)
         self.assertEqual(self.configure(), str(selected))
 
+    def test_explicit_sdk_bypasses_invalid_settings(self):
+        self.settings.parent.mkdir(parents=True)
+        self.settings.write_text("invalid = [\n")
+        selected = self.make_sdk("explicit SDK 'quoted'")
+        self.env["CWHIP_SDK"] = str(selected)
+        self.assertEqual(self.configure(), str(selected))
+
+    def test_registered_prefix_with_spaces_and_quotes(self):
+        selected = self.make_sdk('registered SDK "quoted"')
+        self.select(selected)
+        self.assertEqual(self.configure(), str(selected))
+
+    def test_settings_only_discovery(self):
+        selected = self.make_sdk("registered")
+        self.select(selected)
+        self.env.pop("CMAKE_PREFIX_PATH")
+        self.assertEqual(self.configure(), str(selected))
+
+    def test_settings_without_prefix_uses_normal_discovery(self):
+        self.settings.parent.mkdir(parents=True)
+        self.settings.write_text('[application]\nsdk_prefix = "not top level"\n')
+        self.assertEqual(self.configure(), str(self.root / "fallback"))
+
+    def test_invalid_explicit_selection_does_not_reuse_cached_sdk(self):
+        self.assertEqual(self.configure(), str(self.root / "fallback"))
+        for prefix in ("relative", str(self.root / "absent"), str(self.home)):
+            with self.subTest(prefix=prefix):
+                self.env["CWHIP_SDK"] = prefix
+                output = self.configure(success=False)
+                self.assertIn("CWHIP_SDK", output)
+                self.assertIn("doc/BUILDING.md", output)
+
+    def test_invalid_registered_package_does_not_reuse_cached_sdk(self):
+        self.assertEqual(self.configure(), str(self.root / "fallback"))
+        self.select(self.home)
+        output = self.configure(success=False)
+        self.assertIn("sdk_prefix in", output)
+        self.assertIn("No fallback SDK was used", output)
+        self.assertIn("CwhipConfig.cmake", output)
+
+    def test_missing_install_has_actionable_diagnostic(self):
+        self.env.pop("CMAKE_PREFIX_PATH")
+        output = self.configure(success=False, extra=[
+            "-DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF",
+            "-DCMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=OFF",
+            "-DCMAKE_IGNORE_PREFIX_PATH=/usr;/usr/local;/opt",
+        ])
+        output = " ".join(output.split())
+        self.assertIn("No SDK prefix was selected", output)
+        self.assertIn('export CWHIP_SDK=', output)
+        self.assertIn("install the SDK first", output)
+
+    def test_lowercase_package_config_filename(self):
+        selected = self.make_sdk("lowercase")
+        package = selected / "lib/cmake/Cwhip"
+        (package / "CwhipConfig.cmake").rename(package / "cwhip-config.cmake")
+        (package / "CwhipConfigVersion.cmake").rename(
+            package / "cwhip-config-version.cmake"
+        )
+        self.env["CWHIP_SDK"] = str(selected)
+        self.assertEqual(self.configure(), str(selected))
+
     def test_empty_settings_falls_back_to_cmake_discovery(self):
         self.assertEqual(self.configure(), str(self.root / "fallback"))
 
@@ -111,9 +173,7 @@ class SdkDiscoveryTests(unittest.TestCase):
         self.env["XDG_CONFIG_HOME"] = str(xdg)
         self.assertEqual(self.configure(), str(xdg_sdk))
 
-    def test_setup_uses_registered_prefix_for_cmake_and_shell_path(self):
-        prefix = self.make_sdk("registered")
-        self.select(prefix)
+    def run_setup(self):
         tools = self.root / "tools"
         tools.mkdir()
         record = self.root / "shell-path.txt"
@@ -126,7 +186,7 @@ class SdkDiscoveryTests(unittest.TestCase):
         fake_bash.chmod(0o755)
         self.env["PATH"] = f"{tools}:{self.env['PATH']}"
         self.env["SHELL_RECORD"] = str(record)
-        result = subprocess.run(
+        return subprocess.run(
             ["/bin/bash", str(self.project / "scripts/setup")],
             cwd=self.root,
             env=self.env,
@@ -134,17 +194,68 @@ class SdkDiscoveryTests(unittest.TestCase):
             text=True,
             timeout=60,
         )
+
+    def test_setup_uses_registered_prefix_for_cmake_and_shell_path(self):
+        prefix = self.make_sdk("registered SDK 'quoted'")
+        self.select(prefix)
+        result = self.run_setup()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual((self.build / "selected-sdk.txt").read_text(), str(prefix))
-        self.assertEqual(record.read_text().split(":")[:3], [
+        self.assertEqual((self.root / "shell-path.txt").read_text().split(":")[:3], [
             str(self.project / "bin"),
             str(self.project / "scripts"),
             str(prefix / "bin"),
         ])
 
+    def test_setup_explicit_sdk_bypasses_invalid_settings(self):
+        self.settings.parent.mkdir(parents=True)
+        self.settings.write_text("invalid = [\n")
+        prefix = self.make_sdk("explicit SDK")
+        self.env["CWHIP_SDK"] = str(prefix)
+        result = self.run_setup()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((self.build / "selected-sdk.txt").read_text(), str(prefix))
+
+    def test_setup_invalid_prefix_does_not_start_shell(self):
+        self.env["CWHIP_SDK"] = str(self.home)
+        result = self.run_setup()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("CWHIP_SDK", result.stderr)
+        self.assertIn("project shell was not started", result.stderr)
+        self.assertFalse((self.root / "shell-path.txt").exists())
+
     def test_missing_settings_does_not_create_user_configuration(self):
         self.assertEqual(self.configure(), str(self.root / "fallback"))
         self.assertFalse(self.settings.exists())
+
+
+class InstalledSdkTests(unittest.TestCase):
+    def test_settings_only_configures_and_builds_with_installed_sdk(self):
+        prefix = os.environ.get("CWHIP_SDK")
+        if not prefix:
+            self.skipTest("set CWHIP_SDK to validate a real installed SDK")
+        with tempfile.TemporaryDirectory(prefix="cparsegen SDK ") as directory:
+            root = Path(directory)
+            settings = root / "config/cwhip/settings.toml"
+            settings.parent.mkdir(parents=True)
+            settings.write_text(f"sdk_prefix = {json.dumps(prefix)}\n")
+            env = os.environ.copy()
+            for name in ("CWHIP_SDK", "CMAKE_PREFIX_PATH", "Cwhip_DIR"):
+                env.pop(name, None)
+            env["XDG_CONFIG_HOME"] = str(root / "config")
+            result = subprocess.run(
+                ["cmake", "-S", str(ROOT), "-B", str(root / "build"),
+                 f"-DCWHIP_BIN_DIR={root / 'bin'}"],
+                env=env, capture_output=True, text=True, timeout=60,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn(f"Using Cwhip SDK prefix: {prefix}", result.stdout)
+            result = subprocess.run(
+                ["cmake", "--build", str(root / "build"), "--parallel", "4"],
+                env=env, capture_output=True, text=True, timeout=180,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue((root / "bin/cparsegen").is_file())
 
 
 if __name__ == "__main__":
