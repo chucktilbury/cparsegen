@@ -139,6 +139,7 @@ class SdkDiscoveryTests(unittest.TestCase):
     def test_missing_install_has_actionable_diagnostic(self):
         self.env.pop("CMAKE_PREFIX_PATH")
         output = self.configure(success=False, extra=[
+            "-DCMAKE_DISABLE_FIND_PACKAGE_Cwhip=TRUE",
             "-DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF",
             "-DCMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=OFF",
             "-DCMAKE_IGNORE_PREFIX_PATH=/usr;/usr/local;/opt",
@@ -309,7 +310,7 @@ class SdkDiscoveryTests(unittest.TestCase):
 
 
 class InstalledSdkTests(unittest.TestCase):
-    def test_sdk_toml_configures_and_builds_with_installed_sdk(self):
+    def test_sdk_toml_builds_generator_and_calculator_with_installed_sdk(self):
         prefix = os.environ.get("CWHIP_SDK")
         if not prefix:
             self.skipTest("set CWHIP_SDK to validate a real installed SDK")
@@ -334,11 +335,18 @@ class InstalledSdkTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn(f"Using Cwhip SDK prefix: {prefix}", result.stdout)
             result = subprocess.run(
-                ["cmake", "--build", str(root / "build"), "--parallel", "4"],
+                ["cmake", "--build", str(root / "build"),
+                 "--target", "calculator", "--parallel", "4"],
                 env=env, capture_output=True, text=True, timeout=180,
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue((root / "bin/cparsegen").is_file())
+            result = subprocess.run(
+                [str(root / "bin/calculator"), "-e", "2 + 3 * 4"],
+                env=env, capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(result.stdout, "14\n")
 
 
 if __name__ == "__main__":

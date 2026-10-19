@@ -114,7 +114,13 @@ class GrammarScanner {
         if (value == 91) {
             int startIndex = offset
             advance()
-            while (current() >= 0 && current() != 93 && current() != 10) { advance() }
+            while (current() >= 0 && current() != 93 && current() != 10) {
+                if (current() == 92) {
+                    advance()
+                    if (current() < 0 || current() == 10) { break }
+                }
+                advance()
+            }
             if (current() != 93) {
                 problem = format("line {}: unterminated character class", startLine)
                 return GrammarToken(0, "", "", startLine)
@@ -151,49 +157,72 @@ class GrammarScanner {
 
 class LexerRule {
     String name
-    String characterClass
-    bool repeat
+    list parts
+    bool skip
     int line
 
-    LexerRule(String tokenName, String tokenClass, bool repeated, int sourceLine) {
+    LexerRule(String tokenName, int sourceLine) {
         name = tokenName
-        characterClass = tokenClass
-        repeat = repeated
+        parts = []
+        skip = false
         line = sourceLine
     }
 }
 
-class ParseAtom {
-    String name
-    String literal
-    bool isLiteral
-    int line
+class RegexPart {
+    list ranges
+    int minimum
+    int maximum
 
-    ParseAtom(String tokenName, String tokenLiteral, bool literalValue, int sourceLine) {
-        name = tokenName
-        literal = tokenLiteral
-        isLiteral = literalValue
-        line = sourceLine
+    RegexPart(list characters, int lower, int upper) {
+        ranges = characters
+        minimum = lower
+        maximum = upper
     }
 }
 
-class ParseAlternative {
-    list atoms
+class ByteRange {
+    int first
+    int last
 
-    ParseAlternative() {
-        atoms = []
+    ByteRange(int lower, int upper) {
+        first = lower
+        last = upper
+    }
+}
+
+// Kinds: reference, literal, sequence, choice, repetition.
+class RuleExpr {
+    int kind
+    String value
+    list children
+    int minimum
+    int maximum
+    int line
+    int index
+
+    RuleExpr(int expressionKind, String text, int sourceLine) {
+        kind = expressionKind
+        value = text
+        children = []
+        minimum = 1
+        maximum = 1
+        line = sourceLine
+        index = -1
     }
 }
 
 class ParserRule {
     String name
-    list alternatives
+    RuleExpr expression
+    bool nullable
     int line
 
     ParserRule(String ruleName, int sourceLine) {
         name = ruleName
         line = sourceLine
-        alternatives = []
+        nullable = false
+        expression = null
     }
 }
 
@@ -240,6 +269,93 @@ class GrammarModel {
         return null
     }
 
+    bool isNullable(RuleExpr expression) {
+        if (expression.kind == 0) {
+            ParserRule rule = findParser(expression.value)
+            return rule != null && rule.nullable
+        }
+        if (expression.kind == 1) { return false }
+        if (expression.kind == 4) {
+            return expression.minimum == 0 || isNullable(expression.children[0] as RuleExpr)
+        }
+        int i = 0
+        while (i < expression.children.length) {
+            bool childNullable = isNullable(expression.children[i] as RuleExpr)
+            if (expression.kind == 2 && !childNullable) { return false }
+            if (expression.kind == 3 && childNullable) { return true }
+            i += 1
+        }
+        return expression.kind == 2
+    }
+
+    String validateExpression(RuleExpr expression) {
+        if (expression.kind == 0 && findLexer(expression.value) == null) {
+            if (findParser(expression.value) == null) {
+                int first = int(expression.value.byteAt(0))
+                if (first >= 65 && first <= 90) {
+                    return format("line {}: unknown lexer token {}", expression.line, expression.value)
+                }
+                return format("line {}: unknown parser rule {}", expression.line, expression.value)
+            }
+        }
+        if (expression.kind == 0) {
+            LexerRule token = findLexer(expression.value)
+            if (token != null && token.skip) {
+                return format("line {}: skipped lexer token {} cannot be matched by a parser", expression.line, token.name)
+            }
+        }
+        if (expression.kind == 1 && expression.value.length == 0) {
+            return format("line {}: empty quoted terminals are not supported", expression.line)
+        }
+        if (expression.kind == 4 && isNullable(expression.children[0] as RuleExpr)) {
+            return format("line {}: nullable repetition is not supported", expression.line)
+        }
+        int i = 0
+        while (i < expression.children.length) {
+            String error = validateExpression(expression.children[i] as RuleExpr)
+            if (!error.equals("")) { return error }
+            i += 1
+        }
+        return ""
+    }
+
+    bool hasName(list names, String name) {
+        int i = 0
+        while (i < names.length) {
+            if ((names[i] as String).equals(name)) { return true }
+            i += 1
+        }
+        return false
+    }
+
+    String leftCycle(RuleExpr expression, list path) {
+        if (expression.kind == 0) {
+            ParserRule target = findParser(expression.value)
+            if (target != null) {
+                if (hasName(path, target.name)) {
+                    return format("line {}: left recursion through parser rule {}", expression.line, target.name)
+                }
+                list next = []
+                int p = 0
+                while (p < path.length) {
+                    next.append(path[p])
+                    p += 1
+                }
+                next.append(target.name)
+                return leftCycle(target.expression, next)
+            }
+        }
+        int i = 0
+        while (i < expression.children.length) {
+            RuleExpr child = expression.children[i] as RuleExpr
+            String error = leftCycle(child, path)
+            if (!error.equals("")) { return error }
+            if (expression.kind == 2 && !isNullable(child)) { return "" }
+            i += 1
+        }
+        return ""
+    }
+
     String validate() {
         if (lexerRules.length == 0) { return "grammar must declare a lexer rule" }
         if (parserRules.length == 0) { return "grammar must declare a parser rule" }
@@ -253,13 +369,29 @@ class GrammarModel {
             if (findLexerCount(rule.name) > 1) {
                 return format("line {}: duplicate lexer rule {}", rule.line, rule.name)
             }
-            if (!rule.characterClass.equals("[0-9]")) {
-                return format("line {}: prototype supports only [0-9] lexer classes ({})", rule.line, rule.name)
+            bool nullable = true
+            int p = 0
+            while (p < rule.parts.length) {
+                RegexPart part = rule.parts[p] as RegexPart
+                if (part.minimum > 0) { nullable = false }
+                p += 1
+            }
+            if (nullable) {
+                return format("line {}: lexer rule {} can match empty input", rule.line, rule.name)
             }
             i += 1
         }
-        if (lexerRules.length > 1) {
-            return "prototype accepts one lexer rule; lexer-rule composition is deferred"
+        i = 0
+        while (i < directives.length) {
+            GrammarDirective directive = directives[i] as GrammarDirective
+            if (directive.name.equals("skip")) {
+                LexerRule token = findLexer(directive.content)
+                if (token == null) {
+                    return format("line {}: @skip requires a declared lexer token name", directive.line)
+                }
+                token.skip = true
+            }
+            i += 1
         }
         i = 0
         while (i < parserRules.length) {
@@ -271,29 +403,29 @@ class GrammarModel {
             if (findParserCount(rule.name) > 1) {
                 return format("line {}: duplicate parser rule {}", rule.line, rule.name)
             }
-            int a = 0
-            while (a < rule.alternatives.length) {
-                ParseAlternative alternative = rule.alternatives[a] as ParseAlternative
-                int b = 0
-                if (alternative.atoms.length == 0) {
-                    return format("line {}: empty alternatives are not supported", rule.line)
+            i += 1
+        }
+        bool changed = true
+        while (changed) {
+            changed = false
+            i = 0
+            while (i < parserRules.length) {
+                ParserRule rule = parserRules[i] as ParserRule
+                if (!rule.nullable && isNullable(rule.expression)) {
+                    rule.nullable = true
+                    changed = true
                 }
-                while (b < alternative.atoms.length) {
-                    ParseAtom atom = alternative.atoms[b] as ParseAtom
-                    if (!atom.isLiteral && findLexer(atom.name) == null) {
-                        if (findParser(atom.name) != null) {
-                            return format("line {}: parser-rule references are deferred in this prototype ({})",
-                                atom.line, atom.name)
-                        }
-                        return format("line {}: unknown lexer token {}", atom.line, atom.name)
-                    }
-                    if (atom.isLiteral && atom.literal.length == 0) {
-                        return format("line {}: empty quoted terminals are not supported", atom.line)
-                    }
-                    b += 1
-                }
-                a += 1
+                i += 1
             }
+        }
+        i = 0
+        while (i < parserRules.length) {
+            ParserRule rule = parserRules[i] as ParserRule
+            String error = validateExpression(rule.expression)
+            if (!error.equals("")) { return error }
+            list path = [rule.name]
+            error = leftCycle(rule.expression, path)
+            if (!error.equals("")) { return error }
             i += 1
         }
         return ""
@@ -359,6 +491,103 @@ class GrammarReader {
         return token.text
     }
 
+    list classRanges(GrammarToken token) {
+        String pattern = token.text
+        list ranges = []
+        int i = 1
+        while (i < pattern.length - 1) {
+            int first = int(pattern.byteAt(i))
+            if (first == 94 && i == 1) {
+                problem = format("line {}: negated character classes are not supported", token.line)
+                return ranges
+            }
+            if (first == 92) {
+                i += 1
+                first = int(pattern.byteAt(i))
+                if (first == 110) { first = 10 }
+                else {
+                    if (first == 114) { first = 13 }
+                    else {
+                        if (first == 116) { first = 9 }
+                        else {
+                            if (first != 92 && first != 93 && first != 45) {
+                                problem = format("line {}: unsupported character-class escape", token.line)
+                                return ranges
+                            }
+                        }
+                    }
+                }
+            }
+            i += 1
+            int last = first
+            if (i + 1 < pattern.length - 1 && int(pattern.byteAt(i)) == 45) {
+                i += 1
+                last = int(pattern.byteAt(i))
+                if (last == 92) {
+                    problem = format("line {}: escaped range endpoints are not supported", token.line)
+                    return ranges
+                }
+                i += 1
+                if (last < first) {
+                    problem = format("line {}: descending character-class range", token.line)
+                    return ranges
+                }
+            }
+            if (first == 0 || last > 127) {
+                problem = format("line {}: character classes must contain non-NUL ASCII bytes", token.line)
+                return ranges
+            }
+            ranges.append(ByteRange(first, last))
+        }
+        if (ranges.length == 0) {
+            problem = format("line {}: empty character class", token.line)
+        }
+        return ranges
+    }
+
+    RuleExpr choice() {
+        RuleExpr expression = RuleExpr(3, "", peek().line)
+        expression.children.append(sequence())
+        while (peek().kind == 124 && problem.equals("")) {
+            take()
+            expression.children.append(sequence())
+        }
+        return expression
+    }
+
+    RuleExpr sequence() {
+        RuleExpr expression = RuleExpr(2, "", peek().line)
+        while (peek().kind != 0 && peek().kind != 124 && peek().kind != 41 &&
+               peek().kind != 59 && problem.equals("")) {
+            GrammarToken token = take()
+            RuleExpr atom = null
+            if (token.kind == 256) { atom = RuleExpr(0, token.text, token.line) }
+            else {
+                if (token.kind == 257) { atom = RuleExpr(1, token.text, token.line) }
+                else {
+                    if (token.kind == 40) {
+                        atom = choice()
+                        expect(41, "')' after parser group")
+                    }
+                    else {
+                        problem = format("line {}: unsupported parser-expression syntax", token.line)
+                        return expression
+                    }
+                }
+            }
+            if (peek().kind == 42 || peek().kind == 43 || peek().kind == 63) {
+                GrammarToken quantifier = take()
+                RuleExpr repeated = RuleExpr(4, "", quantifier.line)
+                repeated.children.append(atom)
+                if (quantifier.kind != 43) { repeated.minimum = 0 }
+                if (quantifier.kind != 63) { repeated.maximum = -1 }
+                atom = repeated
+            }
+            expression.children.append(atom)
+        }
+        return expression
+    }
+
     GrammarModel read() {
         GrammarModel grammar()
         if (!problem.equals("")) { return grammar }
@@ -371,66 +600,37 @@ class GrammarReader {
                 if (first.kind == 256) {
                     GrammarToken separator = take()
                     if (separator.kind == 61) {
-                    String pattern = expect(258, "a [0-9] character class")
-                    bool repeat = false
-                    if (peek().kind == 43) {
-                        take()
-                        repeat = true
-                    }
-                    else {
-                        if (peek().kind == 42 || peek().kind == 63) {
-                            problem = format("line {}: only '+' repetition is supported in lexer regexes", first.line)
+                        LexerRule rule = LexerRule(first.text, first.line)
+                        while (peek().kind == 258 && peek().line == first.line && problem.equals("")) {
+                            GrammarToken tokenClass = take()
+                            list ranges = classRanges(tokenClass)
+                            int minimum = 1
+                            int maximum = 1
+                            if (peek().line == first.line &&
+                                (peek().kind == 43 || peek().kind == 42 || peek().kind == 63)) {
+                                int quantifier = take().kind
+                                if (quantifier != 43) { minimum = 0 }
+                                if (quantifier != 63) { maximum = -1 }
+                            }
+                            rule.parts.append(RegexPart(ranges, minimum, maximum))
                         }
-                    }
-                    if (peek().kind != 0 && peek().line == first.line && peek().kind != 35) {
-                        problem = format("line {}: unsupported lexer regex syntax", first.line)
-                    }
-                    grammar.lexerRules.append(LexerRule(first.text, pattern, repeat, first.line))
+                        if (rule.parts.length == 0) {
+                            problem = format("line {}: expected lexer character class", first.line)
+                        }
+                        if (peek().kind != 0 && peek().line == first.line) {
+                            problem = format("line {}: unsupported lexer regex syntax", first.line)
+                        }
+                        grammar.lexerRules.append(rule)
                     }
                     else {
                         if (separator.kind == 58) {
-                    ParserRule rule(first.text, first.line)
-                    ParseAlternative alternative()
-                    bool sawAtom = false
-                    bool ended = false
-                    while (peek().kind != 0 && problem.equals("")) {
-                        GrammarToken atomToken = take()
-                        if (atomToken.kind == 59) {
-                            if (sawAtom) { rule.alternatives.append(alternative) }
-                            else { problem = format("line {}: empty parser alternative", first.line) }
-                            ended = true
-                            break
-                        }
-                        if (atomToken.kind == 124) {
-                            if (!sawAtom) {
-                                problem = format("line {}: empty parser alternative", atomToken.line)
+                            ParserRule rule(first.text, first.line)
+                            rule.expression = choice()
+                            if (problem.equals("") && peek().kind != 59) {
+                                problem = format("line {}: parser rule must end with ';'", first.line)
                             }
-                            else {
-                                rule.alternatives.append(alternative)
-                                alternative = ParseAlternative()
-                                sawAtom = false
-                            }
-                        }
-                        else {
-                            if (atomToken.kind == 256) {
-                                alternative.atoms.append(ParseAtom(atomToken.text, "", false, atomToken.line))
-                                sawAtom = true
-                            }
-                            else {
-                                if (atomToken.kind == 257) {
-                                    alternative.atoms.append(ParseAtom("", atomToken.text, true, atomToken.line))
-                                    sawAtom = true
-                                }
-                                else {
-                                    problem = format("line {}: unsupported parser-expression syntax", atomToken.line)
-                                }
-                            }
-                        }
-                    }
-                    if (problem.equals("") && !ended) {
-                        problem = format("line {}: parser rule must end with ';'", first.line)
-                    }
-                    if (rule.alternatives.length > 0) { grammar.parserRules.append(rule) }
+                            if (problem.equals("")) { take() }
+                            grammar.parserRules.append(rule)
                         }
                         else {
                             problem = format("line {}: expected '=' or ':' after declaration name", first.line)

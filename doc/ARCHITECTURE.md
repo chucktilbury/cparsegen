@@ -25,10 +25,10 @@ contract between parsing, analysis, and every emitter; target backends must
 not re-parse grammar text or infer syntax from generated code. Emitters
 consume only a model that has passed validation.
 
-The initial executable milestone proves this boundary with one small grammar,
-a Cwhip parser/AST/scanner emitter, and a DOT emitter. C, C++, and Python
-emitters remain future backends and should follow the model rather than define
-separate grammar semantics.
+The executable proves this boundary with small generated calculator and
+identifier-list examples, a Cwhip parser/AST/scanner emitter, and a DOT emitter.
+C, C++, and Python emitters remain future backends and should follow the model
+rather than define separate grammar semantics.
 
 ## Intermediate representation boundary
 
@@ -79,8 +79,8 @@ and [standard library reference](https://github.com/chucktilbury/cwhip/blob/mast
 
 ## Executable prototype boundary
 
-The current executable is a first bounded slice, not an implementation of
-the complete proposal. Its fixture uses interleaved declarations and a
+The current executable is a bounded example-oriented implementation, not the
+complete proposal. The original fixture uses interleaved declarations and a
 forward token reference:
 
 ```text
@@ -89,26 +89,54 @@ sum : INTEGER | INTEGER "+" INTEGER ;
 INTEGER = [0-9]+
 ```
 
-The prototype reader recognizes named directives as `@name payload;`; the
-payload is retained as opaque text and has no generation effect. This spelling
-and semicolon boundary are prototype-only until checked against the real
-grammar sample. Lexer regexes are limited to `[0-9]` with optional `+`; parser
-alternatives contain fixed sequences of lexer-token names and quoted
-terminals. Groups, parser quantifiers, parser-rule references, lexer-rule
-composition, recursion, regex escapes, and whitespace skipping in generated
-input are not implemented. Unsupported constructs fail with a diagnostic.
+The reader recognizes named directives as `@name payload;`. `@skip TOKEN;`
+marks a declared lexer token as discarded by the generated scanner; other
+directive payloads remain opaque and have no generation effect. Lexer
+patterns are single-line sequences of ASCII character classes, each optionally
+followed by `?`, `*`, or `+`. Classes support ranges and `\t`, `\r`, `\n`,
+`\\`, `\]`, and `\-` escapes. Negated classes, regex groups/alternation,
+lexer-rule composition, and escapes in quoted terminals remain unsupported.
+Lexer rules that can match empty input are rejected.
 
-Among successful fixed alternatives, the generated parser selects the one
-consuming the fewest input bytes; equal-length alternatives keep source order.
-The selected start rule returns its shortest matching prefix and does not
-require end-of-input yet. The generated scanner uses longest byte match,
-breaking ties by lexer declaration order and then literal appearance order.
-These details define this prototype only; regex matching and whole-input
-acceptance require refinement against representative grammars.
+Parser expressions now support token and parser-rule references, quoted
+terminals, sequences, ordered alternatives, groups, `?`/`*`/`+`, and explicit
+empty alternatives. Forward references and non-left recursion work.
+Validation computes rule nullability, rejects repetitions with nullable
+operands, and diagnoses direct/indirect left recursion including cycles
+through nullable prefixes. Left recursion is not transformed.
 
-The current reader records declaration line numbers, not full filename/line/
-column spans. The fuller `SourceSpan`, source-stack, and include contracts
-above remain design targets, not completed features.
+The generated parser retains candidate matches until surrounding sequences
+have matched; a locally shorter rule match cannot incorrectly hide a longer
+one required by its caller. Prefix APIs select the shortest successful match;
+equal-length alternatives keep source order. `parseAll()` instead selects a
+candidate that consumes every non-skipped token. The standalone runner keeps
+prefix mode by default, with `--complete` to request whole-input parsing.
+The calculator always uses the complete-input API.
+
+The generated scanner uses longest byte match across character-class patterns
+and quoted terminals. Ties favor lexer declaration order, then literal
+appearance order. A literal that also matches a named token therefore loses
+an equal-length tie to that token; keyword policy needs refinement before a
+larger language grammar. Skip rules participate in the same longest-match
+selection and are discarded only after winning.
+
+Backtracking is bounded and intended for small examples: the parser allows
+256 nested matcher calls, 100,000 calls per parse, and 4,096 results per
+intermediate set. The scanner allows 100,000 pattern calls per token.
+Exhaustion is an explicit failure, never a partial success.
+
+`cparsegen --library GRAMMAR OUTPUT.cw OUTPUT.dot` emits the same generated
+scanner, AST, parser, and visitor without a `start` block. The calculator's
+handwritten evaluator includes that library; its grammar has no semantic
+actions. Rule nodes retain nested rule structure, terminals are leaves, and
+groups/repetitions flatten their children in source order. See
+[Examples](../examples/README.md) for runnable commands.
+
+The current reader records declaration/expression line numbers, not full
+filename/line/column spans. Generated tokens record their starting byte
+offset, but AST spans and source stacks are not implemented. The fuller
+`SourceSpan`, source-stack, and include contracts above remain design targets,
+not completed features.
 
 ## Provisional declaration format
 
@@ -234,12 +262,13 @@ same model and be deterministic for the same grammar.
 
 ## Milestone and open decisions
 
-This document remains a design proposal with provisional fixtures, but the
-first executable milestone now establishes declaration collection, a small
-typed target-neutral model, reference validation, and Cwhip plus DOT
-emission. Later work adds C, C++, and Python emitters and expands the model
-and analysis to cover the full proposal. A real example grammar is needed to
-settle directive spelling and content boundaries, comment syntax, include
-semantics, regex composition and operators, equal-length match behavior,
-parser-expression choice/backtracking details, and supported left-recursion
-transformations without baking guesses into the format.
+This document remains a design proposal with provisional fixtures. The
+executable now establishes declaration collection, a typed expression model,
+reference/nullability/left-cycle validation, and Cwhip plus DOT emission for
+working small examples. Later work adds C, C++, and Python emitters, richer
+regexes and source tracking, efficient parser analysis, and supported
+left-recursion transformations. The calculator is a concrete grammar fixture;
+a SmallC grammar is a planned next exercise, not part of the current
+implementation. Larger grammars must refine directive boundaries, includes,
+keyword handling, regex composition, and backtracking/normalization semantics
+without silently changing the existing prefix or whole-input APIs.

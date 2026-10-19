@@ -26,6 +26,23 @@ generated/shortest-parser generated/input.txt
 The default build type is `debug`. Choose `release` or `profile` with
 `./scripts/setup release` or `./scripts/setup profile`.
 
+## Generated examples
+
+Build a calculator with variables and an interactive CLI:
+
+```sh
+cmake --build build --target calculator
+./bin/calculator
+```
+
+Try `x = 2 + 3 * 4`, `(x - 2) / 4`, and `:vars`. The calculator uses a
+generated scanner/parser and a separate Cwhip evaluator, with arithmetic
+precedence, parentheses, assignments, and complete-input checks.
+See [Examples](examples/README.md) for batch mode, a comma-separated identifier
+parser, the grammar files, and current limits.
+
+## SDK selection
+
 The project selects an installed SDK in this order: non-empty `CWHIP_SDK`,
 the registered top-level `sdk_prefix` in
 `$XDG_CONFIG_HOME/cwhip/sdk.toml` (or `$HOME/.config/cwhip/sdk.toml` when

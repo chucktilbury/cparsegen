@@ -148,6 +148,23 @@ python3 -m unittest discover -s ../tests -v
 The black-box tests also compile generated Cwhip and therefore need the SDK's
 `cwhip` executable on `PATH`, in `CWHIP_SDK`, or under `CMAKE_PREFIX_PATH`.
 
+## Build the calculator example
+
+From the repository root:
+
+```sh
+cmake --build build --target calculator
+./bin/calculator -e '(2 + 3) * 4'
+./bin/calculator
+```
+
+The optional target generates an includeable parser and DOT graph in
+`build/calculator/`, then compiles the separate evaluator/CLI with the selected
+SDK. Compilation uses private HOME/XDG directories in that build tree.
+The executable follows `CWHIP_BIN_DIR`, just like cparsegen. See
+[Examples](../examples/README.md) for the grammar, variables, batch input, error
+handling, and a smaller identifier-list example.
+
 ## Clean
 
 Use CMake's normal clean target to remove generated build artifacts:
