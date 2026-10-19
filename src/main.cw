@@ -13,12 +13,15 @@ class GeneratorCli {
     }
 
     int run() {
-        if (process.argc() != 4) {
-            io.writeErrorLine("usage: cparsegen GRAMMAR OUTPUT.cw OUTPUT.dot")
+        bool library = process.argc() == 5 && process.arg(1).equals("--library")
+        if (process.argc() != 4 && !library) {
+            io.writeErrorLine("usage: cparsegen [--library] GRAMMAR OUTPUT.cw OUTPUT.dot")
             return 2
         }
 
-        String grammarPath = process.arg(1)
+        int argument = 1
+        if (library) { argument = 2 }
+        String grammarPath = process.arg(argument)
         String source = Sys.File(grammarPath, "r").readAll()
         GrammarReader reader(source)
         GrammarModel grammar = reader.read()
@@ -28,10 +31,10 @@ class GeneratorCli {
         }
 
         GrammarEmitter emitter(grammar)
-        String program = emitter.emitProgram()
+        String program = emitter.emitProgram(library)
         String graph = emitter.emitDot()
-        String programPath = process.arg(2)
-        String graphPath = process.arg(3)
+        String programPath = process.arg(argument + 1)
+        String graphPath = process.arg(argument + 2)
         Sys.File programFile(programPath, "w")
         Sys.File graphFile(graphPath, "w")
         if (programFile.write(program) != program.length) {

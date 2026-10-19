@@ -1,0 +1,11 @@
+statement : IDENT "=" expression | expression ;
+expression : product (("+" | "-") product)* ;
+product : unary (("*" | "/") unary)* ;
+unary : ("+" | "-") unary | primary ;
+primary : number | IDENT | "(" expression ")" ;
+number : INTEGER ("." INTEGER)? ;
+
+INTEGER = [0-9]+
+IDENT = [A-Za-z_][A-Za-z0-9_]*
+SPACE = [ \t\r\n]+
+@skip SPACE;

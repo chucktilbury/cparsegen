@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Add generated calculator and identifier-list examples. The calculator has
+  variables, arithmetic precedence, decimals, parentheses, and interactive,
+  batch, and single-expression CLI modes, with a separate AST evaluator.
+- Extend grammar collection, validation, Cwhip generation, and DOT output for
+  parser-rule references, groups, optional/repeated expressions, empty
+  alternatives, ASCII lexer character-class sequences, and explicit skip
+  tokens. Add library emission and complete-input parsing without changing
+  the default shortest-prefix runner. Diagnose left recursion, nullable
+  repetitions, and parser/scanner resource exhaustion.
 - Propose a target-neutral parser-generator architecture and add a provisional
   expression grammar fixture; syntax and implementation scope remain subject
   to review and sample-driven refinement.
