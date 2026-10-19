@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# rebuild [TARGET...]: clean, then build, like scripts/build.
+dir=${_PROJECT_BUILD_DIR:-.}
+if (($#)); then
+    exec cmake --build "$dir" --parallel 12 --clean-first --target "$@"
+fi
+exec cmake --build "$dir" --parallel 12 --clean-first

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Remove the default in-tree build and staging outputs of this checkout.
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P) || exit 1
+cd -- "$root" && rm -rf bin/ build/ lib/ doc/out/ share/
