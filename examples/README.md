@@ -17,6 +17,15 @@ early stop, and cleanup. Build the standalone example with
 `cmake --build build --target visitor-c`, then run
 `./bin/visitor-c 'alpha, beta'`.
 
+## Expression-to-C compiler
+
+The [compiler example](compiler/README.md) takes the workflow end to end:
+grammar -> generated parser/AST -> handwritten visitor -> emitted C -> compiled,
+executed program. Build with `cmake --build build --target expression-compiler`;
+`./bin/expression-compiler '(2 + 3) * 4'` emits a C program that prints `20`
+when compiled and run. The guide gives explicit generation and compilation
+commands and distinguishes generated infrastructure from application code.
+
 ## Calculator with variables
 
 Build the generator, generate the calculator parser and DOT graph, and compile

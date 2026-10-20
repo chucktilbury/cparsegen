@@ -1,0 +1,8 @@
+expression : product (("+" | "-") product)* ;
+product : unary ("*" unary)* ;
+unary : ("+" | "-") unary | primary ;
+primary : INTEGER | "(" expression ")" ;
+
+INTEGER = [0-9]+
+SPACE = [ \t\r\n]+
+@skip SPACE;

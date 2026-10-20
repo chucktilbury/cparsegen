@@ -232,3 +232,24 @@ set_target_properties(visitor-c PROPERTIES
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(visitor-c PRIVATE -Wall -Wextra -Werror -pedantic)
 endif()
+
+set(compiler_work "${CMAKE_CURRENT_BINARY_DIR}/expression-compiler")
+add_custom_command(
+    OUTPUT "${compiler_work}/parser.c"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${compiler_work}"
+    COMMAND "${cparsegen_executable}" --target c
+        "${PROJECT_SOURCE_DIR}/examples/compiler/compiler.cpg"
+        "${compiler_work}/parser.c" "${compiler_work}/grammar.dot"
+    DEPENDS cparsegen "${cparsegen_executable}"
+        "${PROJECT_SOURCE_DIR}/examples/compiler/compiler.cpg"
+    BYPRODUCTS "${compiler_work}/grammar.dot"
+    VERBATIM)
+add_executable(expression-compiler EXCLUDE_FROM_ALL examples/compiler/compiler.c
+    "${compiler_work}/parser.c")
+set_source_files_properties("${compiler_work}/parser.c" PROPERTIES HEADER_FILE_ONLY TRUE)
+target_include_directories(expression-compiler PRIVATE "${compiler_work}")
+set_target_properties(expression-compiler PROPERTIES
+    C_STANDARD 99 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(expression-compiler PRIVATE -Wall -Wextra -Werror -pedantic)
+endif()

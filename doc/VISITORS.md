@@ -13,6 +13,11 @@ The runnable [C consumer](../examples/visitor/words.c) and
 application-defined name `forbidden`. This is a semantic policy, not a grammar
 restriction. Neither example is an interpreter.
 
+For an end-to-end compiler rather than a name-counting consumer, see the
+[expression compiler](../examples/compiler/README.md): a generated parser builds
+the AST, a handwritten validation walker and dispatch-based emitter produce C,
+and tests compile and execute that C and assert the arithmetic result.
+
 ## Build and run the standalone C consumer
 
 Run from the repository root, after selecting an installed SDK as described in
@@ -197,7 +202,8 @@ or passes where syntax order is not execution order. A generic DFS over an
 `if` node visits both syntactic branches; it must not be mistaken for executing
 the selected branch. An application handler can inspect children, compute its
 own result in user state, dispatch only the chosen subtree, and propagate any
-non-continue status. No evaluator or target-code backend is supplied here.
+non-continue status. Evaluation and target-code generation belong to the
+application, as demonstrated by the expression compiler, not the generated API.
 
 | Hook result | C / Cwhip value | Walker behavior |
 | --- | --- | --- |

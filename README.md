@@ -28,6 +28,12 @@ The default build type is `debug`. Choose `release` or `profile` with
 
 ## Generated examples
 
+The [expression compiler](examples/compiler/README.md) demonstrates the complete
+compiler workflow: grammar -> generated parser and AST -> handwritten visitor
+-> emitted C -> compiled, executed program. Build the optional
+`expression-compiler` target; the guide walks through every step and explains
+which pieces are generated versus handwritten.
+
 Build a calculator with variables and an interactive CLI:
 
 ```sh
@@ -115,7 +121,8 @@ cmake --build build --target test
 
 With Unix Makefiles, `make -C build test` (or `make test` inside `build/`)
 does the same thing. The target builds the generator first, then runs the
-generator, grammar-conformance, standalone-C differential, calculator, SmallC acceptance/differential, and SDK-discovery
+generator, grammar-conformance, standalone-C differential, visitor/compiler,
+calculator, SmallC acceptance/differential, and SDK-discovery
 tests with the configured SDK and private HOME/XDG directories. It honors
 `CWHIP_BIN_DIR`; test failures fail the build target.
 
