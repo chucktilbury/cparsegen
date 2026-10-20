@@ -46,7 +46,7 @@ class SmallCSymbol {
     }
 }
 
-class SmallCSemanticChecker {
+class SmallCSemanticChecker : GeneratedVisitor {
     list locations
     list globals
     SmallCScope currentScope
@@ -56,8 +56,11 @@ class SmallCSemanticChecker {
     list labels
     int loopDepth
     int switchDepth
+    list parameterNames
+    list checkedParameterTypes
 
     SmallCSemanticChecker() {
+        super GeneratedVisitor()
         locations = []
         globals = []
         currentScope = null
@@ -67,6 +70,8 @@ class SmallCSemanticChecker {
         labels = []
         loopDepth = 0
         switchDepth = 0
+        parameterNames = []
+        checkedParameterTypes = []
     }
 
     AstNode child(AstNode node, int index) {
@@ -439,27 +444,28 @@ class SmallCSemanticChecker {
     }
 
     list parameterTypes(AstNode parameters) {
-        list types = []
-        list names = []
+        parameterNames = []
+        checkedParameterTypes = []
+        if (walk(parameters) != VISIT_CONTINUE && problem.equals("")) {
+            fail(parameters, "parameter visitor failed")
+        }
+        return checkedParameterTypes
+    }
+
+    int enter_rule_parameter(AstNode node) {
+        String valueType = node.childAt(0).childAt(0).lexeme()
+        AstNode nameNode = node.childAt(1)
         int i = 0
-        while (i < parameters.children.length && problem.equals("")) {
-            AstNode parameter = child(parameters, i)
-            if (parameter.name.equals("parameter")) {
-                String valueType = child(child(parameter, 0), 0).text
-                AstNode nameNode = child(parameter, 1)
-                int n = 0
-                while (n < names.length) {
-                    if ((names[n] as String).equals(nameNode.text)) {
-                        fail(nameNode, format("duplicate parameter '{}'", nameNode.text))
-                    }
-                    n += 1
-                }
-                names.append(nameNode.text)
-                types.append(valueType)
+        while (i < parameterNames.length) {
+            if ((parameterNames[i] as String).equals(nameNode.lexeme())) {
+                fail(nameNode, format("duplicate parameter '{}'", nameNode.lexeme()))
+                return VISIT_ERROR
             }
             i += 1
         }
-        return types
+        parameterNames.append(nameNode.lexeme())
+        checkedParameterTypes.append(valueType)
+        return VISIT_SKIP
     }
 
     bool isLabel(AstNode node) {

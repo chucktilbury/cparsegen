@@ -2,14 +2,40 @@ class GrammarEmitter {
     GrammarModel grammar
     list literals
     list expressions
+    list visitorNames
+    list visitorSuffixes
 
     GrammarEmitter(GrammarModel model) {
         grammar = model
         literals = []
         expressions = []
+        visitorNames = []
+        visitorSuffixes = []
         int i = 0
         while (i < grammar.parserRules.length) {
             collect((grammar.parserRules[i] as ParserRule).expression)
+            i += 1
+        }
+        i = 0
+        while (i < grammar.parserRules.length) {
+            String name = (grammar.parserRules[i] as ParserRule).name
+            visitorNames.append(name)
+            visitorSuffixes.append(format("rule_{}", name))
+            i += 1
+        }
+        i = 0
+        while (i < grammar.lexerRules.length) {
+            LexerRule rule = grammar.lexerRules[i] as LexerRule
+            if (!rule.skip) {
+                visitorNames.append(rule.name)
+                visitorSuffixes.append(format("token_{}", rule.name))
+            }
+            i += 1
+        }
+        i = 0
+        while (i < literals.length) {
+            visitorNames.append(literalKind(i))
+            visitorSuffixes.append(format("literal_{}", i))
             i += 1
         }
     }
@@ -65,6 +91,7 @@ class GrammarEmitter {
         output.append("class LexToken {\n    String kind\n    String text\n    int offset\n    LexToken(String k, String t, int at) { kind = k\ntext = t\noffset = at }\n}\n\n")
         output.append("class AstNode {\n    String name\n    String text\n    list children\n")
         output.append("    AstNode(String n, String t) { name = n\ntext = t\nchildren = [] }\n")
+        output.append("    String kind() { return name }\n    String lexeme() { return text }\n    int childCount() { return children.length }\n    AstNode childAt(int index) { return children[index] as AstNode }\n")
         output.append("    String render() {\n        String result = \"\"\n        result.append(name)\n        result.append(\"(\")\n        if (children.length == 0) { result.append(text) }\n        int i = 0\n        while (i < children.length) {\n            if (i > 0) { result.append(\", \") }\n            result.append((children[i] as AstNode).render())\n            i += 1\n        }\n        result.append(\")\")\n        return result\n    }\n}\n\n")
         output.append("class ScanRange {\n    int first\n    int last\n    ScanRange(int a, int b) { first = a\nlast = b }\n}\n\n")
         output.append("class ScanPart {\n    list ranges\n    int minimum\n    int maximum\n    ScanPart(list r, int a, int b) { ranges = r\nminimum = a\nmaximum = b }\n")
@@ -183,7 +210,34 @@ class GrammarEmitter {
             output.append(format("    AstNode parse_{}() {{ return select({}, false) }}\n", rule.name, quoted(rule.name)))
             i += 1
         }
-        output.append("}\n\nclass GeneratedVisitor {\n    void visit(AstNode node) {\n")
+        output.append("}\n\nclass GeneratedVisitor {\n")
+        output.append("    enum { VISIT_CONTINUE = 0, VISIT_SKIP = 1, VISIT_STOP = 2, VISIT_ERROR = -1 }\n")
+        output.append("    int onNode(AstNode node) { return VISIT_CONTINUE }\n    int enter(AstNode node) { return VISIT_CONTINUE }\n    int leave(AstNode node) { return VISIT_CONTINUE }\n")
+        output.append("    int checkedResult(int result, int phase) {\n        if (result != VISIT_CONTINUE && result != VISIT_SKIP && result != VISIT_STOP && result != VISIT_ERROR) { return VISIT_ERROR }\n        if (phase == 2 && result == VISIT_SKIP) { return VISIT_ERROR }\n        return result\n    }\n")
+        list phases = ["on", "enter", "leave"]
+        int phase = 0
+        while (phase < phases.length) {
+            String prefix = phases[phase] as String
+            String fallback = prefix
+            String dispatcher = format("dispatch_{}", prefix)
+            if (phase == 0) { fallback = "onNode"
+dispatcher = "dispatch" }
+            output.append(format("    int {}(AstNode node) {{\n        if (node == null) {{ return VISIT_ERROR }}\n", dispatcher))
+            i = 0
+            while (i < visitorNames.length) {
+                output.append(format("        if (node.kind().equals({})) {{ return checkedResult({}_{}(node), {}) }}\n", quoted(visitorNames[i] as String), prefix, visitorSuffixes[i] as String, phase))
+                i += 1
+            }
+            output.append(format("        return checkedResult({}(node), {})\n    }}\n", fallback, phase))
+            i = 0
+            while (i < visitorNames.length) {
+                output.append(format("    int {}_{}(AstNode node) {{ return {}(node) }}\n", prefix, visitorSuffixes[i] as String, fallback))
+                i += 1
+            }
+            phase += 1
+        }
+        output.append("    int walk(AstNode node) {\n        int result = dispatch_enter(node)\n        if (result == VISIT_STOP || result == VISIT_ERROR) { return result }\n        if (result == VISIT_CONTINUE) {\n            int i = 0\n            while (i < node.childCount()) {\n                result = walk(node.childAt(i))\n                if (result != VISIT_CONTINUE) { return result }\n                i += 1\n            }\n        }\n        return dispatch_leave(node)\n    }\n")
+        output.append("    void visit(AstNode node) {\n")
         i = 0
         while (i < grammar.parserRules.length) {
             ParserRule rule = grammar.parserRules[i] as ParserRule

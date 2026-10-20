@@ -1,0 +1,6 @@
+entry : pair empty ;
+pair : NUMBER "+" NUMBER ;
+empty : ;
+NUMBER = [0-9]+
+SPACE = [ ]+
+@skip SPACE;

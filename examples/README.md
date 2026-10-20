@@ -7,6 +7,16 @@ as described in [Building](../doc/BUILDING.md).
 The older `expression.cpg` remains a provisional left-recursive grammar sketch,
 not a runnable example.
 
+## Visitor application integration
+
+[Application integration](../doc/VISITORS.md) walks through the runnable
+[C](visitor/words.c) and [Cwhip](visitor/words.cw) consumers of `words.cpg`.
+They demonstrate parsing, callback registration/subclass methods, application
+state and diagnostics, AST access, controlled walking, manual dispatch,
+early stop, and cleanup. Build the standalone example with
+`cmake --build build --target visitor-c`, then run
+`./bin/visitor-c 'alpha, beta'`.
+
 ## Calculator with variables
 
 Build the generator, generate the calculator parser and DOT graph, and compile
@@ -114,7 +124,9 @@ statement(expression(product(unary(primary(number(INTEGER(1))))), @literal1(+), 
 Omitting `--complete` selects the shortest successful prefix; the entire file
 is still scanned. `--target c` supports this grammar's character classes,
 skipped whitespace, and EBNF, as well as SmallC's lexical directives.
-It has no evaluator, variable store, library mode, or visitor API. See the
+It has no evaluator or variable store. Define `CPARSEGEN_NO_MAIN` when including
+the generated source to use its parser/visitor API from your own C application;
+see [Application integration](../doc/VISITORS.md) and the
 [C target contract](../doc/ARCHITECTURE.md#standalone-c-target-contract).
 
 ## Current limits

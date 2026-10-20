@@ -144,7 +144,42 @@ continue }
             i += 1
         }
         output.append("{NULL, 0}};\n")
+        emitVisitor(output)
         CParserRuntime().emitProgram(output)
         return output
+    }
+
+    void emitVisitor(String out) {
+        out.append("typedef enum { CPG_ERROR = -1, CPG_CONTINUE = 0, CPG_SKIP = 1, CPG_STOP = 2 } CpgVisit;\n")
+        out.append("typedef CpgVisit (*CpgHook)(const Node *, void *);\n")
+        out.append("typedef struct {\n    CpgHook on_node, enter, leave;\n")
+        int i = 0
+        while (i < shared.visitorNames.length) {
+            String suffix = shared.visitorSuffixes[i] as String
+            out.append(format("    CpgHook on_{}, enter_{}, leave_{};\n", suffix, suffix, suffix))
+            i += 1
+        }
+        out.append("} CpgVisitor;\n")
+        out.append("const char *cpg_node_kind(const Node *node) { return node->name; }\n")
+        out.append("size_t cpg_child_count(const Node *node) { return node->count; }\n")
+        out.append("const Node *cpg_child_at(const Node *node, size_t index) { return index < node->count ? node->children[index] : NULL; }\n")
+        out.append("const unsigned char *cpg_node_text(const Context *ctx, const Node *node) { return ctx->input + node->offset; }\n")
+        out.append("size_t cpg_node_text_length(const Node *node) { return node->length; }\n")
+        out.append("static CpgVisit cpg_hook(const Node *node, const CpgVisitor *visitor, void *user, int phase) {\n")
+        out.append("    if (!node || !visitor) return CPG_ERROR;\n    CpgHook hook = phase == 0 ? visitor->on_node : (phase == 1 ? visitor->enter : visitor->leave);\n")
+        i = 0
+        while (i < shared.visitorNames.length) {
+            String branch = "if"
+            if (i > 0) { branch = "else if" }
+            String suffix = shared.visitorSuffixes[i] as String
+            out.append(format("    {} (!strcmp(node->name, {})) {{\n        CpgHook specific = phase == 0 ? visitor->on_{} : (phase == 1 ? visitor->enter_{} : visitor->leave_{});\n        if (specific) hook = specific;\n    }}\n", branch, quoted(shared.visitorNames[i] as String), suffix, suffix, suffix))
+            i += 1
+        }
+        out.append("    CpgVisit result = hook ? hook(node, user) : CPG_CONTINUE;\n")
+        out.append("    if (result != CPG_CONTINUE && result != CPG_SKIP && result != CPG_STOP && result != CPG_ERROR) return CPG_ERROR;\n")
+        out.append("    return phase == 2 && result == CPG_SKIP ? CPG_ERROR : result;\n}\n")
+        out.append("CpgVisit cpg_dispatch(const Node *node, const CpgVisitor *visitor, void *user) { return cpg_hook(node, visitor, user, 0); }\n")
+        out.append("CpgVisit cpg_walk(const Node *node, const CpgVisitor *visitor, void *user) {\n    CpgVisit result = cpg_hook(node, visitor, user, 1);\n    if (result == CPG_STOP || result == CPG_ERROR) return result;\n")
+        out.append("    if (result == CPG_CONTINUE) {\n        for (size_t i = 0; i < node->count; ++i) {\n            result = cpg_walk(node->children[i], visitor, user);\n            if (result != CPG_CONTINUE) return result;\n        }\n    }\n    return cpg_hook(node, visitor, user, 2);\n}\n")
     }
 }

@@ -94,8 +94,13 @@ the Cwhip SmallC frontend, with source-located errors on stderr. The existing
 rendered-tree CLI and shortest-prefix default are unchanged. Unknown C-target
 directives fail with a source-line error before outputs are opened (`@note`
 is explicitly inert); malformed lexical directives also fail before output.
-There is no C library/visitor/evaluator API or SmallC semantic checking in the
-generated C backend; the opt-in checker exists only in the Cwhip app layer.
+Define `CPARSEGEN_NO_MAIN` and include the generated C source to use its
+parser/AST and visitor APIs from a handwritten application. Both targets offer
+single-node dispatch and a controlled depth-first walker with per-kind and
+generic hooks. See [Application integration](doc/VISITORS.md) for runnable C
+and Cwhip consumers, ownership, diagnostics, and stop/error semantics.
+There is no generated evaluator or SmallC semantic checking in the C backend;
+the opt-in SmallC checker exists only in the Cwhip app layer.
 See the [C target contract](doc/ARCHITECTURE.md#standalone-c-target-contract)
 for exact output, tie-breaking, diagnostics, and resource limits.
 
