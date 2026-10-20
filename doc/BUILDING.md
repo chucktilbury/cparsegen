@@ -96,8 +96,9 @@ registered selections fail rather than reuse a cached SDK.
 
 ## Configure and build
 
-The optional `calculator-c` target generates and compiles a standalone ISO
-C99 syntax parser with CMake's host C compiler. The Cwhip SDK is needed to
+The optional `calculator-c` and `smallc-c` targets generate and compile standalone
+ISO C99 syntax parsers with CMake's host C compiler (strict warnings-as-errors
+on GCC/Clang). The Cwhip SDK is needed to
 build/run cparsegen, but not to compile or execute its generated C source.
 `cmake --build build --target test` (or `make -C build test`) also compiles C
 fixtures with this host compiler and compares them with Cwhip under private
@@ -216,6 +217,30 @@ directories. Its executable follows `CWHIP_BIN_DIR`. The JSON output is a
 syntax AST, not a compiled/executed program. See
 [SmallC](../examples/smallc/README.md) for the language subset, valid/invalid
 samples, and the semantic/bytecode boundary.
+
+For the standalone C99 frontend with the same JSON AST and source diagnostics:
+
+```sh
+cmake --build build --target smallc-c
+./bin/smallc-c --json examples/smallc/valid/functions.c
+```
+
+The target generates `build/smallc-c/parser.c` and `grammar.dot`, then compiles
+`bin/smallc-c` (`CWHIP_BIN_DIR` applies). Compilation/execution of the generated
+source needs no SDK/runtime library. `--json` always requires complete input.
+`make test` includes all SmallC samples and shared syntax checks against both
+backends, comparing full JSON ASTs and lexical/parser diagnostic locations.
+There is no semantic checking or execution.
+
+Optional host-C sanitizer validation, using the same test runner:
+
+```sh
+CPARSEGEN_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer -g' \
+  cmake --build build --target test
+```
+
+Use the configured SDK and private HOME/XDG environment as for `make test`;
+the flag affects generated C fixtures, not SDK binaries.
 
 ## Clean
 

@@ -56,13 +56,15 @@ compiler, or VM.
 
 ## Standalone C target
 
-The first non-Cwhip backend generates a standalone ISO C99 parser for the
-existing calculator grammar, without embedding or invoking Cwhip:
+The C backend generates standalone ISO C99 parsers for the calculator and
+SmallC grammars, without embedding or invoking Cwhip:
 
 ```sh
 cmake --build build --target calculator-c
 printf 'x = 2 + 3 * 4' > build/calculator-c/input.txt
 ./bin/calculator-c --complete build/calculator-c/input.txt
+cmake --build build --target smallc-c
+./bin/smallc-c --json examples/smallc/valid/functions.c
 ```
 
 This prints the syntax tree, **not** the calculated value. The optional target
@@ -84,10 +86,14 @@ The generator itself still requires the Cwhip SDK. Default generation and
 `--library` remain Cwhip-only and unchanged.
 
 The C slice supports the shared character-class regex/EBNF subset, including
-`@skip`, forward references, non-left recursion, and empty rules. It rejects
-keyword/reserved-word, quoted-token, and input-comment directives before
-writing outputs; SmallC is deliberately outside this milestone. There is no C
-library/visitor/evaluator API yet. See the
+`@skip`, forward references, non-left recursion, empty rules, keyword/reserved
+discrimination, ASCII quoted character/string tokens, and line/block comments.
+`--json` requires complete input and prints the same syntax-node schema as
+the Cwhip SmallC frontend, with source-located errors on stderr. The existing
+rendered-tree CLI and shortest-prefix default are unchanged. Unknown C-target
+directives fail with a source-line error before outputs are opened (`@note`
+is explicitly inert); malformed lexical directives also fail before output.
+There is no C library/visitor/evaluator API or SmallC semantic checking. See the
 [C target contract](doc/ARCHITECTURE.md#standalone-c-target-contract) for exact
 output, tie-breaking, diagnostics, and resource limits.
 
@@ -102,7 +108,7 @@ cmake --build build --target test
 
 With Unix Makefiles, `make -C build test` (or `make test` inside `build/`)
 does the same thing. The target builds the generator first, then runs the
-generator, grammar-conformance, standalone-C differential, calculator, SmallC acceptance, and SDK-discovery
+generator, grammar-conformance, standalone-C differential, calculator, SmallC acceptance/differential, and SDK-discovery
 tests with the configured SDK and private HOME/XDG directories. It honors
 `CWHIP_BIN_DIR`; test failures fail the build target.
 
@@ -122,8 +128,14 @@ suite against C, and compare status/stdout/stderr and DOT output with Cwhip.
 They cover calculator syntax, scanner longest match and equal-length ties,
 shortest viable prefixes and caller continuations, complete input, EBNF,
 empty rules, source-order ambiguity, malformed grammars, and explicit limits.
+Every existing SmallC valid/invalid sample runs through both backends: tests
+compare full JSON ASTs (rule/terminal names, nesting, and source spellings),
+acceptance, and lexical/parser diagnostics including byte-oriented locations.
+No unsupported sample is silently skipped. Both frontends also run the existing
+SmallC precedence, dangling-else, quote/comment, and larger-input checks.
 For direct unittest runs, `CPARSEGEN_C_COMPILER` overrides the compiler
 (otherwise `CC`, then `cc`); `make test` supplies CMake's host compiler.
+`CPARSEGEN_C_FLAGS` adds host compiler/linker flags for optional sanitizer runs.
 
 ## SDK selection
 

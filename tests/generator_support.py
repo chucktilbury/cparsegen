@@ -13,6 +13,16 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests/fixtures/shortest.cpg"
 
 
+def c_compile_command(source, executable):
+    compiler = os.environ.get("CPARSEGEN_C_COMPILER")
+    return [
+        *([compiler] if compiler else shlex.split(os.environ.get("CC", "cc"))),
+        "-std=c99", "-Wall", "-Wextra", "-Werror", "-pedantic",
+        *shlex.split(os.environ.get("CPARSEGEN_C_FLAGS", "")),
+        str(source), "-o", str(executable),
+    ]
+
+
 class GeneratorTestCase(unittest.TestCase):
     backend = "cwhip"
 
@@ -73,12 +83,7 @@ class GeneratorTestCase(unittest.TestCase):
         executable = self.directory / f"parser-{backend}"
         generated = self.generated.with_suffix(".c" if backend == "c" else ".cw")
         if backend == "c":
-            compiler = os.environ.get("CPARSEGEN_C_COMPILER")
-            command = [
-                *([compiler] if compiler else shlex.split(os.environ.get("CC", "cc"))),
-                "-std=c99", "-Wall", "-Wextra", "-Werror", "-pedantic",
-                str(generated), "-o", str(executable),
-            ]
+            command = c_compile_command(generated, executable)
         else:
             command = [str(self.compiler), str(generated), "-o", str(executable)]
         result = subprocess.run(

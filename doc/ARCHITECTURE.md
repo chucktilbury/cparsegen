@@ -42,21 +42,33 @@ grammar text, invoke another compiler, or load templates at runtime.
 bounded scanner/parser implementation in each generated translation unit.
 The DOT output is identical for both targets.
 
-This first slice targets `examples/calculator/calculator.cpg` as a syntax
-parser, not its Cwhip evaluator. It supports all currently validated parser
+This slice targets `examples/calculator/calculator.cpg` and
+`examples/smallc/smallc.cpg` as syntax parsers, not evaluators or semantic
+checkers. It supports all currently validated parser
 expressions (references, literals, sequences, choices, groups, `?`/`*`/`+`,
 empty alternatives, non-left recursion), character-class regex sequences,
 and `@skip`. Declaration interleaving and forward references are resolved
 by the shared reader. Shared invalid-grammar diagnostics still apply.
 `@keywords`, `@reserved`, `@quoted`, `@line_comment`, and `@block_comment`
-are unsupported for C and receive a source-line diagnostic before either
-output is opened. Other opaque directives remain inert, as in Cwhip.
+use the same validated lexical model and semantics as Cwhip. Quote spellings
+and escapes are preserved, not decoded. Comments are recognized at token
+boundaries before token competition, in line-comment then block-comment
+declaration order; quotes consume embedded comment markers as ordinary text.
+Keyword remapping applies only when the designated identifier token wins;
+reserved spellings override literal remapping.
+
+For C, directives outside this list and `@note` are rejected with source-line
+diagnostics before either output is opened, rather than silently ignoring an
+unsupported lexical extension. `@note` remains explicitly inert. Malformed
+supported lexical directives are rejected by the shared reader. This stricter
+C-target allowlist does not change default Cwhip generation or its handling
+of opaque directives.
 There is no `--library --target c`, public C AST/visitor API, semantic action,
-arithmetic evaluation, SmallC frontend, optimization, or new DOT behavior.
+arithmetic evaluation, SmallC semantic checking, optimization, or new DOT behavior.
 
 The generated artifact is one ISO C99 source file with `main` and only
 standard-library dependencies. Compile it with `cc -std=c99 OUTPUT.c -o parser`.
-Its CLI is `parser [--complete] INPUT`, where `INPUT` is a binary-read file:
+Its CLI is `parser [--complete | --json] INPUT`, where `INPUT` is a binary-read file:
 
 | Contract | Behavior |
 | --- | --- |
@@ -66,6 +78,8 @@ Its CLI is `parser [--complete] INPUT`, where `INPUT` is a binary-read file:
 | Success | Exit `0`, one rendered syntax tree plus newline on stdout, identical to Cwhip `AstNode.render()` |
 | Tree format | `rule(child, child)` and `TOKEN(raw text)`; empty rules render `rule()`; literals use shared `@literalN` names; text is not escaped or normalized, so this is a human-readable format, not JSON |
 | Lex/parse error | Exit `1`, `lex error at byte N` or `parse error at token N` plus newline on stdout, with zero-based indices matching Cwhip |
+| JSON mode | `--json` always requires complete input; exit `0` prints one JSON object with exactly `name`, `text`, `children` per node, matching the Cwhip SmallC frontend's rule names/nesting and original terminal spellings |
+| JSON diagnostics | Lexical/parser errors exit `1`, with empty stdout and `file:line:column: diagnostic` on stderr; one-based byte-oriented locations count LF as a line break, matching SmallC, including EOF and CRLF behavior |
 | Usage / I/O | Usage errors exit `2` on stderr; file and output-write errors exit `1` on stderr |
 
 Like the Cwhip prototype, the C runtime enumerates alternatives rather than
@@ -73,11 +87,20 @@ using PEG first-success semantics. It limits matching to 100,000 scanner
 calls per token, 100,000 parser calls per parse, depth 256 for nested rule
 matches, and 4,096 results per intermediate set. C additionally bounds
 scanner-part recursion to 256, input to 1 MiB, and cumulative arena data to
-64 MiB. All limits produce explicit errors (exit `1`, stdout); they do not
+64 MiB. All limits produce explicit errors (exit `1`, stdout in rendered mode,
+stderr with a source location in JSON mode); they do not
 silently truncate input/results. These C-specific budgets can reject inputs
 that Cwhip accepts; differential equivalence is asserted within both
 runtimes' budgets. Arena memory is reclaimed at normal process completion;
-fatal allocation/resource errors terminate the standalone process.
+fatal allocation/resource errors terminate the standalone process. Resource
+error locations are the farthest parser position (or EOF before parsing);
+they are not promised to identify the cause of exhaustion.
+
+SmallC differential tests run every existing valid/invalid sample, compare
+entire JSON objects and DOT output on success, and compare exit status and
+exact source diagnostics on lexical/parser failure. They also exercise the
+existing SmallC structural, precedence, nearest-`if`, and quote/comment cases.
+This is a bounded syntax-only milestone, not a complete C compiler.
 
 ## Intermediate representation boundary
 

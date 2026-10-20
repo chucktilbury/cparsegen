@@ -113,7 +113,7 @@ statement(expression(product(unary(primary(number(INTEGER(1))))), @literal1(+), 
 
 Omitting `--complete` selects the shortest successful prefix; the entire file
 is still scanned. `--target c` supports this grammar's character classes,
-skipped whitespace, and EBNF, but not SmallC's extended lexical directives.
+skipped whitespace, and EBNF, as well as SmallC's lexical directives.
 It has no evaluator, variable store, library mode, or visitor API. See the
 [C target contract](../doc/ARCHITECTURE.md#standalone-c-target-contract).
 
@@ -147,10 +147,23 @@ cmake --build build --target smallc
 Output is a complete-input **JSON syntax AST**, not bytecode or an executed
 program. The example documents the single-pass semantic/VM work still needed.
 
+For a standalone C99 version of the same syntax frontend:
+
+```sh
+cmake --build build --target smallc-c
+./bin/smallc-c --json examples/smallc/valid/functions.c > build/smallc-c/functions.ast.json
+```
+
+The generated `build/smallc-c/parser.c` compiles and runs without the SDK.
+`--json` requires complete input and uses the Cwhip frontend's JSON schema and
+source-located diagnostics. Without it, the executable retains the generic
+rendered-tree/shortest-prefix CLI; use `--complete` for a complete rendered tree.
+Neither backend evaluates SmallC or performs semantic checks.
+
 ## Additional lexical directives
 
 SmallC needs lexical behavior beyond the calculator's character classes.
-The following additional directives are currently Cwhip-only.
+The following additional directives work in both Cwhip and standalone C.
 These features are generic and opt-in; existing grammars keep their old
 literal-versus-token tie behavior:
 
