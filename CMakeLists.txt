@@ -211,3 +211,24 @@ endfunction()
 
 cparsegen_add_c_example(calculator)
 cparsegen_add_c_example(smallc)
+
+set(visitor_work "${CMAKE_CURRENT_BINARY_DIR}/visitor-c")
+add_custom_command(
+    OUTPUT "${visitor_work}/parser.c"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${visitor_work}"
+    COMMAND "${cparsegen_executable}" --target c
+        "${PROJECT_SOURCE_DIR}/examples/words.cpg"
+        "${visitor_work}/parser.c" "${visitor_work}/grammar.dot"
+    DEPENDS cparsegen "${cparsegen_executable}"
+        "${PROJECT_SOURCE_DIR}/examples/words.cpg"
+    BYPRODUCTS "${visitor_work}/grammar.dot"
+    VERBATIM)
+add_executable(visitor-c EXCLUDE_FROM_ALL examples/visitor/words.c
+    "${visitor_work}/parser.c")
+set_source_files_properties("${visitor_work}/parser.c" PROPERTIES HEADER_FILE_ONLY TRUE)
+target_include_directories(visitor-c PRIVATE "${visitor_work}")
+set_target_properties(visitor-c PROPERTIES
+    C_STANDARD 99 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(visitor-c PRIVATE -Wall -Wextra -Werror -pedantic)
+endif()

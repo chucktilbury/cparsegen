@@ -20,6 +20,8 @@ class SdkDiscoveryTests(unittest.TestCase):
         self.project = self.root / "project"
         (self.project / "scripts").mkdir(parents=True)
         (self.project / "src").mkdir()
+        (self.project / "examples/visitor").mkdir(parents=True)
+        shutil.copy2(ROOT / "examples/visitor/words.c", self.project / "examples/visitor")
         shutil.copy2(ROOT / "CMakeLists.txt", self.project)
         shutil.copy2(ROOT / ".project_env", self.project)
         shutil.copy2(ROOT / "scripts/setup", self.project / "scripts")

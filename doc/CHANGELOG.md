@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add read-only generated visitor interfaces on both backends: per-rule/token/
+  literal dispatch, generic fallback, AST accessors, and a separate enter/leave
+  walker with explicit skip/stop/error behavior. Retain the legacy Cwhip
+  pre/post traversal. Expose include-based C parsing with caller-owned contexts,
+  arena cleanup, and non-terminating library errors. Adopt the visitor for
+  SmallC's existing duplicate-parameter check. Add runnable C/Cwhip consumers,
+  the optional strict-C99 `visitor-c` target, public-contract regressions,
+  and an end-to-end application integration guide.
 - Extend standalone C generation to the existing SmallC grammar: keyword/
   reserved discrimination, quoted characters/strings, and skipped comments.
   Add optional `smallc-c`, complete-input `--json` AST/source diagnostics,
@@ -12,7 +20,7 @@
   grammar IR. Add the optional `calculator-c` syntax-tree target and host-C
   conformance/differential tests under `make test`. Keep Cwhip as the default;
   the first C slice supports character-class regexes, EBNF, and `@skip`.
-  C library mode remains unsupported.
+  The initial C slice did not yet expose a library interface.
 - Add a generated SmallC JSON AST frontend, grammar, and valid/invalid source
   samples covering `int`/`char`, initializers, arrays, functions/prototypes/
   calls, and structured/unstructured control flow. Semantic checks, bytecode,

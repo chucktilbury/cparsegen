@@ -64,9 +64,12 @@ unsupported lexical extension. `@note` remains explicitly inert. Malformed
 supported lexical directives are rejected by the shared reader. This stricter
 C-target allowlist does not change default Cwhip generation or its handling
 of opaque directives.
-There is no `--library --target c`, public C AST/visitor API, semantic action,
+There is no `--library --target c`, semantic action,
 arithmetic evaluation, SmallC semantic checking in the generated backend,
 optimization, or new DOT behavior.
+The generated C file can instead be included with `CPARSEGEN_NO_MAIN` for
+the public parser, AST accessors, and read-only visitor API documented in
+[Application integration](VISITORS.md).
 
 The generated artifact is one ISO C99 source file with `main` and only
 standard-library dependencies. Compile it with `cc -std=c99 OUTPUT.c -o parser`.
@@ -93,8 +96,10 @@ scanner-part recursion to 256, input to 1 MiB, and cumulative arena data to
 stderr with a source location in JSON mode); they do not
 silently truncate input/results. These C-specific budgets can reject inputs
 that Cwhip accepts; differential equivalence is asserted within both
-runtimes' budgets. Arena memory is reclaimed at normal process completion;
-fatal allocation/resource errors terminate the standalone process. Resource
+runtimes' budgets. Arena memory is reclaimed on both success and failure.
+In include-based library use, allocation/resource errors return NULL from
+`cpg_parse` with a diagnostic in the caller's context, rather than terminating
+the host process; the standalone CLI still exits `1`. Resource
 error locations are the farthest parser position (or EOF before parsing);
 they are not promised to identify the cause of exhaustion.
 
@@ -295,11 +300,22 @@ The root span runs from the first consumed token through the last consumed
 token. Handling unconsumed trailing input is parser API behavior and is not
 specified here.
 
-Generated visitors expose normal target-language APIs with a pre-hook and a
-post-hook for every parser rule. A pre-hook runs before child traversal and a
-post-hook after it; the default visitor walks children in order. Hooks are
-visitor customization points, not parser actions, and do not change parse
-semantics.
+The implemented read-only visitor layer exposes per-rule, named-token, and
+literal hooks on both targets. Single-node dispatch invokes one selected
+handler without implicit traversal. A separate depth-first walker uses
+enter/leave hooks and stored child order; enter can descend, skip children
+(still calling leave), stop, or report an error. Stop/error propagates
+immediately without leave-hook unwinding. Specific hooks fall back to generic
+hooks. C uses a callback table and caller-owned context; Cwhip uses a visitor
+object. The original Cwhip rule-only pre/post visitor remains available.
+See [Application integration](VISITORS.md) for exact APIs, error/lifetime
+contracts, executable examples, and incremental SmallC adoption. Hooks are
+application customization points, not parser actions, and do not change parse
+semantics. AST mutation/replacement and ownership transfer are not supported.
+
+The spans described above remain an architectural goal: current Cwhip nodes
+store name/text/children, and C nodes store source offsets/lengths only for
+terminals (rule offsets/lengths are zero). Neither visitor synthesizes spans.
 
 ## Directives and target code
 

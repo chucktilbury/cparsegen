@@ -245,6 +245,19 @@ CPARSEGEN_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer -g' \
 Use the configured SDK and private HOME/XDG environment as for `make test`;
 the flag affects generated C fixtures, not SDK binaries.
 
+## Build the visitor integration example
+
+```sh
+cmake --build build --target visitor-c
+./bin/visitor-c 'alpha, beta, gamma'
+```
+
+This optional target generates `build/visitor-c/parser.c` from `examples/words.cpg`
+and compiles the handwritten `examples/visitor/words.c` with strict C99 settings.
+The executable follows `CWHIP_BIN_DIR`. See [Application integration](VISITORS.md)
+for equivalent direct generation/build commands, a runnable Cwhip subclass
+example, and the public API's traversal, error, and lifetime contracts.
+
 ## Clean
 
 Use CMake's normal clean target to remove generated build artifacts:

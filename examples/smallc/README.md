@@ -40,8 +40,11 @@ The generator itself still requires the SDK. `--json` selects complete-input
 JSON and source-located syntax errors matching the Cwhip frontend below.
 Without `--json`, the generic C CLI prints a rendered tree and selects the
 shortest prefix; `--complete` requires all tokens but retains rendered output.
-It has no C library/visitor API, evaluation, or semantic checker; semantic
-checking is available only through the Cwhip `smallc-ast --check` app.
+The generated C parser can be included with `CPARSEGEN_NO_MAIN` to use its
+parser/visitor API in a handwritten application. It supplies no evaluation or
+semantic checker; semantic checking is available only through the Cwhip
+`smallc-ast --check` app. See [Application integration](../../doc/VISITORS.md)
+for the public APIs and runnable C/Cwhip consumers.
 
 The Cwhip CLI accepts `smallc-ast INPUT.c` for syntax-only parsing or
 `smallc-ast --check INPUT.c` to run semantic checks on the parsed AST. Both
@@ -150,6 +153,14 @@ prints the same JSON AST as syntax-only mode. The default
 syntactically valid programs with undeclared names or invalid types. The
 standalone `smallc-c` executable remains syntax-only; the checker is in the
 SmallC Cwhip application layer, not either parser backend.
+
+The checker incrementally adopts the generated visitor for its existing
+duplicate-parameter check and signature collection: `parameterTypes` walks
+the parameter list, while `enter_rule_parameter` accesses each name/type,
+updates application-owned lists, and returns skip or error. Other semantic
+checks retain direct AST access. See the
+[integration walkthrough](../../doc/VISITORS.md#diagnostics-and-compiler-integration)
+for failure propagation, source-location handling, and application ownership.
 
 The implemented semantic slice is:
 
