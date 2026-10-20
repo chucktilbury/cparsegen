@@ -14,8 +14,10 @@ ROOT = Path(__file__).resolve().parents[1]
 class CalculatorTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        generator = ROOT / "bin/cparsegen"
+        generator = Path(os.environ.get("CPARSEGEN_EXECUTABLE", ROOT / "bin/cparsegen"))
         if not generator.is_file():
+            if "CPARSEGEN_EXECUTABLE" in os.environ:
+                raise FileNotFoundError(generator)
             raise unittest.SkipTest("build cparsegen before running calculator tests")
         prefix = os.environ.get("CWHIP_SDK", "")
         if not prefix:

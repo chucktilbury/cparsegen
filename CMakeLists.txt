@@ -117,6 +117,33 @@ cwhip_add_program(cparsegen
 get_target_property(cparsegen_executable cparsegen CWHIP_EXECUTABLE)
 install(PROGRAMS "${cparsegen_executable}" DESTINATION bin)
 
+find_package(Python3 3.11 REQUIRED COMPONENTS Interpreter)
+set(test_work "${CMAKE_CURRENT_BINARY_DIR}/tests")
+get_filename_component(cwhip_runtime_directory "${Cwhip_RUNTIME_LIBRARY}" DIRECTORY)
+add_custom_target(test
+    COMMAND "${CMAKE_COMMAND}" -E make_directory
+        "${test_work}/home" "${test_work}/config" "${test_work}/data"
+        "${test_work}/cache" "${test_work}/state"
+    COMMAND "${CMAKE_COMMAND}" -E env
+        --unset=CWHIP_MODULE_DIR --unset=CWHIP_PACKAGE_PATH
+        --unset=CWHIP_MODULE_REGISTRY --unset=DESTDIR --unset=XDG_RUNTIME_DIR
+        "HOME=${test_work}/home" "XDG_CONFIG_HOME=${test_work}/config"
+        "XDG_DATA_HOME=${test_work}/data" "XDG_CACHE_HOME=${test_work}/cache"
+        "XDG_STATE_HOME=${test_work}/state"
+        "CWHIP_SDK=${Cwhip_PREFIX}" "CWHIP_REGISTER_SDK=OFF"
+        "CWHIP_HOME=${Cwhip_PREFIX}" "CWHIP_INCLUDE_DIR=${Cwhip_INCLUDE_DIR}"
+        "CWHIP_RUNTIME_DIR=${cwhip_runtime_directory}"
+        "CWHIP_BUILTIN_DIR=${Cwhip_BUILTIN_DIR}"
+        "CWHIP_STDLIB_MODULE_DIR=${Cwhip_MODULE_DIR}"
+        "CC=${Cwhip_CLANG_EXECUTABLE}"
+        "CPARSEGEN_EXECUTABLE=${cparsegen_executable}"
+        "${Python3_EXECUTABLE}" -m unittest discover
+            -s "${PROJECT_SOURCE_DIR}/tests" -v
+    DEPENDS cparsegen
+    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+    USES_TERMINAL
+    VERBATIM)
+
 # The SDK application helper currently accepts only non-generated sources.
 function(cparsegen_add_example target output_name)
     set(example_work "${CMAKE_CURRENT_BINARY_DIR}/${target}")
