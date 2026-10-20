@@ -222,6 +222,8 @@ class SmallCTests(unittest.TestCase):
             'char s[] = "unterminated;', r"char c = '\q';",
             "char c = '';", "char c = 'xy';", 'char s[] = "a\nb";',
             "do {} while (1);", "1 = 2;", "return 1 + ;",
+            "switch(0){case 1+1: ;}", "switch(0){case (1): ;}",
+            "switch(0){case +'a': ;}", "switch(0){case value: ;}",
         ]
         for body in bodies:
             with self.subTest(body=body):
@@ -234,7 +236,7 @@ class SmallCTests(unittest.TestCase):
                 self.assertEqual(self.parse(source).returncode, 1)
 
     def test_syntax_only_boundary_is_explicit(self):
-        # Symbols, types, and jump/call validity belong to the next semantic milestone.
+        # Semantic validity is deliberately independent of syntax-only parsing.
         self.ast("int main(){ int a[2]; goto absent; return undeclared(a + 1); }")
 
     def test_semantic_positive_cases(self):
@@ -319,6 +321,123 @@ class SmallCTests(unittest.TestCase):
         syntax = self.parse("int main(){ return missing; }")
         self.assertEqual(syntax.returncode, 0, syntax.stderr)
 
+    def test_control_flow_semantic_positive_cases(self):
+        cases = [
+            "int f(){while(1) break; for(;;) continue; return 0;}",
+            "int f(){for(;;) if(1) break; else continue; return 0;}",
+            "int f(){while(1) if(1) continue; return 0;}",
+            "int f(){while(1){switch(1){case 1: continue; default: break;} break;} return 0;}",
+            "int f(){switch(1){case 1: while(1){break;} break; default: for(;;) continue;} return 0;}",
+            "int f(){while(1){while(1) break; continue;} return 0;}",
+            "int f(){goto done; done: return 0;}",
+            "int f(){again: ; goto again; return 0;}",
+            "int f(){goto done; {done: return 0;}}",
+            "int f(){int done=1; goto done; done: return done;}",
+            "int f(){label: return 0;} int g(){goto label; label: return 1;}",
+            "int f(){goto block; block: {} empty: ; expr: 1; "
+            "cond: if(1) return 0; else return 1; loop: while(0) break; "
+            "count: for(;;) break; choice: switch(0){} jump: goto end; end: return 0;}",
+            "int f(){if(1) label: while(0) if(1) return 0; return 1;}",
+            "int f(){switch(1){case 1: case 2: break; default: break;} "
+            "switch(1){case 1: default: break;} return 0;}",
+            "int f(){switch(1){case 1: switch(1){case 1: default: break;} "
+            "default: break;} return 0;}",
+            "int f(){switch(1){case -1: case 1: case 0: break;} return 0;}",
+            "int f(){switch(0){case -97: case 'a': case 'b': break;} return 0;}",
+            "char f(){return 'a';} int g(){return 1;}",
+            # This slice checks individual returns, not guaranteed completion.
+            "int f(){} char g(){if(1) return 'a';}",
+            "int f(){goto end; return 1; end: ;}",
+        ]
+        for source in cases:
+            with self.subTest(source=source):
+                syntax = self.parse(source)
+                self.assertEqual(syntax.returncode, 0, syntax.stderr)
+                result = self.check(source)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stderr, "")
+                self.assertEqual(json.loads(result.stdout), json.loads(syntax.stdout))
+
+    def assert_control_flow_error(self, source, diagnostic, token):
+        syntax = self.parse(source)
+        self.assertEqual(syntax.returncode, 0, syntax.stderr)
+        result = self.check(source)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertEqual(result.stdout, "")
+        offset = source.rindex(token)
+        line = source.count("\n", 0, offset) + 1
+        column = offset - source.rfind("\n", 0, offset)
+        self.assertEqual(
+            result.stderr,
+            f"{self.directory / 'semantic-input.c'}:{line}:{column}: {diagnostic}\n",
+        )
+
+    def test_control_flow_semantic_negative_cases(self):
+        cases = [
+            ("break;", "break requires an enclosing loop or switch", "break"),
+            ("continue;", "continue requires an enclosing loop", "continue"),
+            ("if(1) break;", "break requires an enclosing loop or switch", "break"),
+            ("if(1) label: continue;", "continue requires an enclosing loop", "continue"),
+            ("while(1) break; break;", "break requires an enclosing loop or switch", "break"),
+            ("for(;;) continue; continue;", "continue requires an enclosing loop", "continue"),
+            ("switch(0){default: break;} break;",
+             "break requires an enclosing loop or switch", "break"),
+            ("switch(0){default: continue;}", "continue requires an enclosing loop", "continue"),
+            ("switch(0){case 0: while(1) break; continue;}",
+             "continue requires an enclosing loop", "continue"),
+            ("goto absent;", "unresolved goto label 'absent'", "absent"),
+            ("int absent=0; goto absent;", "unresolved goto label 'absent'", "absent"),
+            ("label: ; {label: ;}", "duplicate label 'label'", "label"),
+            ("label: label: return 0;", "duplicate label 'label'", "label"),
+            ("if(1) label: ; else label: ;", "duplicate label 'label'", "label"),
+            ("switch(0){default: default: ;}", "duplicate default label", "default"),
+            ("switch(0){case 1: case 1: ;}", "duplicate case constant 1", "1:"),
+            ("switch(0){case 1: ; case +001: ;}", "duplicate case constant 1", "+001"),
+            ("switch(0){case -01: ; case -1: ;}", "duplicate case constant -1", "-1"),
+            ("switch(0){case +0: case -000: ;}", "duplicate case constant 0", "-000"),
+            ("switch(0){case 1: switch(0){case 1: case +1: ;}}",
+             "duplicate case constant 1", "+1"),
+            ("return;", "function returning int requires a return value", "return"),
+            ("return 'a';", "return value requires int, got char", "'a'"),
+        ]
+        for body, diagnostic, token in cases:
+            source = f"int main(){{\n  {body}\n}}\n"
+            with self.subTest(source=source):
+                self.assert_control_flow_error(source, diagnostic, token)
+        for source, diagnostic, token in [
+            ("int f(){label: return 0;}\nint g(){goto label;}",
+             "unresolved goto label 'label'", "label"),
+            ("int f(){while(1) break; return 0;}\nint g(){break;}",
+             "break requires an enclosing loop or switch", "break"),
+            ("int f(){switch(0){default: break;} return 0;}\nint g(){continue;}",
+             "continue requires an enclosing loop", "continue"),
+            ("char f(){\n return;\n}", "function returning char requires a return value", "return"),
+            ("char f(){\n return 1;\n}", "return value requires char, got int", "1"),
+            ("char f(){return +'a';}", "return value requires char, got int", "+"),
+        ]:
+            with self.subTest(source=source):
+                self.assert_control_flow_error(source, diagnostic, token)
+
+    def test_switch_literal_normalization(self):
+        pairs = [
+            ("00097", "'a'", "97"),
+            ("'a'", "+097", "97"),
+            (r"'\n'", "10", "10"),
+            (r"'\r'", "13", "13"),
+            (r"'\t'", "9", "9"),
+            (r"'\0'", "-0", "0"),
+            (r"'\\'", "92", "92"),
+            (r"'\''", "39", "39"),
+            (r"'\"'", "34", "34"),
+            ("'\"'", r"'\"'", "34"),
+            ("999999999999999999999999999999", "+0999999999999999999999999999999",
+             "999999999999999999999999999999"),
+        ]
+        for first, second, key in pairs:
+            source = f"int f(){{\n switch(0){{case {first}: case {second}: break;}}\n return 0;\n}}"
+            with self.subTest(first=first, second=second):
+                self.assert_control_flow_error(source, f"duplicate case constant {key}", second)
+
     def test_larger_input_and_nested_expressions(self):
         source = "int main(){ int total=0;\n" + "total = total + 1;\n" * 100 + "return total; }\n"
         tree = self.ast(source)
@@ -358,11 +477,14 @@ class SmallCTests(unittest.TestCase):
 
     def test_usage_and_missing_file(self):
         result = subprocess.run(
-            [str(self.executable), "--help"], capture_output=True, text=True, timeout=30,
+            [str(self.executable), "--help"], env=self.env,
+            capture_output=True, text=True, timeout=30,
         )
         self.assertEqual(result.returncode, 0)
         self.assertIn("JSON syntax AST", result.stdout)
-        result = subprocess.run([str(self.executable)], capture_output=True, text=True, timeout=30)
+        result = subprocess.run(
+            [str(self.executable)], env=self.env, capture_output=True, text=True, timeout=30,
+        )
         self.assertEqual(result.returncode, 2)
         result = self.run_file(self.directory / "absent.c")
         self.assertEqual(result.returncode, 1)
