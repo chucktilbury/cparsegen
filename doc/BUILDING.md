@@ -258,6 +258,25 @@ The executable follows `CWHIP_BIN_DIR`. See [Application integration](VISITORS.m
 for equivalent direct generation/build commands, a runnable Cwhip subclass
 example, and the public API's traversal, error, and lifetime contracts.
 
+## Build the compiler examples
+
+```sh
+cmake --build build --target expression-compiler statement-compiler
+./bin/statement-compiler examples/compiler/statements/basic.stmt \
+  > build/statement-compiler/program.c
+cc -std=c99 -Wall -Wextra -Werror -pedantic \
+  build/statement-compiler/program.c -o build/statement-compiler/program
+./build/statement-compiler/program
+```
+
+These optional host-C targets honor `CWHIP_BIN_DIR` and generate parsers under
+`build/expression-compiler/` and `build/statement-compiler/`. They use strict C99
+settings and need no new dependencies. See the
+[expression guide](../examples/compiler/README.md) and
+[statement guide](../examples/compiler/STATEMENTS.md) for explicit generation,
+syntax-only parsing, visitor state, generated C, and diagnostics.
+Both end-to-end suites are discovered by `make test`.
+
 ## Clean
 
 Use CMake's normal clean target to remove generated build artifacts:

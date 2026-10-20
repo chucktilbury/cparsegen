@@ -24,6 +24,7 @@ class SdkDiscoveryTests(unittest.TestCase):
         shutil.copy2(ROOT / "examples/visitor/words.c", self.project / "examples/visitor")
         (self.project / "examples/compiler").mkdir()
         shutil.copy2(ROOT / "examples/compiler/compiler.c", self.project / "examples/compiler")
+        shutil.copy2(ROOT / "examples/compiler/statements.c", self.project / "examples/compiler")
         shutil.copy2(ROOT / "CMakeLists.txt", self.project)
         shutil.copy2(ROOT / ".project_env", self.project)
         shutil.copy2(ROOT / "scripts/setup", self.project / "scripts")

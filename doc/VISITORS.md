@@ -17,6 +17,10 @@ For an end-to-end compiler rather than a name-counting consumer, see the
 [expression compiler](../examples/compiler/README.md): a generated parser builds
 the AST, a handwritten validation walker and dispatch-based emitter produce C,
 and tests compile and execute that C and assert the arithmetic result.
+Its incremental [statement compiler](../examples/compiler/STATEMENTS.md)
+demonstrates an application-owned symbol table surviving across declarations,
+assignments, and print statements, with source-order semantic validation and
+C emission. Generated parsers remain syntax-only.
 
 ## Build and run the standalone C consumer
 

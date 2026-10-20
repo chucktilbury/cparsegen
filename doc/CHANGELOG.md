@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Extend the arithmetic compiler workflow with an optional `statement-compiler`
+  example: declarations, assignments, printing, persistent visitor symbols,
+  source-order C emission, and source-located semantic diagnostics. Add strict
+  C99 compile/run tests, syntax-only boundary checks, samples, and a complete
+  generation-to-execution guide; preserve the arithmetic example unchanged.
+
 - Add an optional expression-to-C compiler example using generated AST visitor
   validation and dispatch, with explicit generation-to-execution documentation
   and end-to-end tests that compile emitted C and assert the program's result.
