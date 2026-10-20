@@ -79,24 +79,33 @@ executable. Only generating the parser needs Cwhip; the consumer and emitted
 program need only a C99 compiler and standard library.
 
 The standalone generated parser is **syntax-only**. It does not invoke the
-compiler's semantic visitor or emit executable code.
+compiler's semantic visitor or emit executable code. Definite-assignment
+checking is opt-in application/compiler behavior: running `statement-compiler`
+enables it; generated parser modes do not.
 
 ## Visitor state and generated C
 
 The compiler first parses the entire source file, then uses `cpg_dispatch` and
 per-rule/token hooks for a semantic pass. A caller-owned `Compiler` context
-holds an ordered symbol table of borrowed `IDENT` nodes. Generic callbacks
+holds an ordered symbol table of borrowed `IDENT` nodes and definite-initialization
+flags. Generic callbacks
 dispatch children in stored AST order; no generated walker is reimplemented.
-Declaration callbacks check for duplicates, dispatch the initializer with the
+Declaration callbacks check for duplicates, dispatch any initializer with the
 current symbols, and only then add the new binding. Assignment callbacks
-require an existing binding and validate the right-hand side. Identifier
+require an existing binding, validate the right-hand side, and only then mark
+the binding initialized. Identifier
 callbacks reject names not yet declared, including self-reference in an
-initializer. The context survives all statement callbacks, rather than being
+initializer, and reads of declared but not definitely initialized bindings.
+Control-flow callbacks snapshot entry flags, validate each arm from that entry
+state, and intersect the flags after `if`/`else`. Loops and conditionals without
+`else` restore the entry flags. Snapshots never remove textual declarations.
+The context survives all statement callbacks, rather than being
 recreated for each node. It is freed before destroying the parser and input.
 
 Only a successful semantic pass starts output. A second visitor reuses the
 completed symbol table and dispatches statements in source order. Declarations
-and assignments emit stores; print callbacks emit checked `printf` calls,
+with initializers and assignments emit stores; declarations without initializers
+emit no store. Print callbacks emit checked `printf` calls,
 converting comparison results to `double` for the variadic format.
 The block callback dispatches its statement children between C braces.
 Conditional and loop callbacks dispatch the condition and body blocks, emitting
@@ -108,7 +117,9 @@ constants (`000008` becomes `8.0`, never C octal). Identifiers map to stable
 `cpg_v0`, `cpg_v1`, ... slots, so C keywords and names such as `printf` or `main`
 are safe source-language variables. All slots are declared and zero-initialized
 at the start of `main`, with an explicit `(void)` read to keep unused bindings
-warning-free under strict C99. Initializer expressions remain at their source
+warning-free under strict C99. This storage initialization is a C-emission
+detail, **not** a source-language fallback: the semantic visitor rejects reads
+that would depend on it. Initializer expressions remain at their source
 positions, so loop-body declarations reassign their slots on every iteration.
 
 For example, `let x = 2; print x; x = x + 3; print x;` emits this shape
@@ -138,6 +149,7 @@ dispatch behavior, AST lifetimes, and terminal source positions.
 Programs contain zero or more statements:
 
 ```text
+let name;
 let name = expression;
 name = expression;
 print expression;
@@ -150,7 +162,7 @@ while (expression) { statements }
 There is one program-wide scope. Names are case-sensitive ASCII identifiers
 matching `[a-zA-Z_][a-zA-Z0-9_]*`; `let`, `print`, `if`, `else`, and `while`
 are keywords.
-Declarations require initializers and cannot redeclare a name. Assignment does
+Declarations may omit initializers and cannot redeclare a name. Assignment does
 not declare names. Arithmetic supports one-to-nine-digit integer literals,
 unary `+`/`-`, binary `+`/`-`/`*`, and parentheses, just like the expression
 example. Comparisons add `<`, `<=`, `>`, `>=`, `==`, and `!=`; their results
@@ -170,11 +182,32 @@ nested blocks are supported within the parser's existing resource limits.
 Name visibility still follows **textual declaration order**, not execution
 order. A binding declared inside a block remains visible after the block;
 shadowing or redeclaring it in any other block is an error, even in mutually
-exclusive branches. Skipped initializers leave their slots at zero, for example
-`if (0) { let x = 9; } print x;` prints `0`. A later `else` arm can assign `x`.
-This is a deliberately simple single-scope model, not lexical scope or
-definite-assignment analysis. Every `let` still requires an initializer, and
-references textually before a declaration (or in its own initializer) fail.
+exclusive branches. References textually before a declaration (or in its own
+initializer) fail. A later `else` arm can assign a name declared in the first arm,
+but cannot assume that arm's initializer executed.
+
+Definite-assignment checking follows control flow, separately from visibility:
+
+- `let x;` declares an uninitialized binding. An initializer initializes a
+  binding only when its declaration executes. Assignment initializes only
+  after its right-hand side has been checked, so `let x; x = x + 1;` fails.
+- Every read, including expressions, initializers, assignment right-hand sides,
+  prints, and conditions, requires definite initialization.
+- An `if`/`else` guarantees initialization afterward only if both arms guarantee
+  it. Each arm starts from the same incoming initialization state.
+- An `if` without `else` cannot establish initialization after the conditional.
+  Conditions are not constant-folded: even `if (1) { x = 1; }` is conservative.
+- A `while` may execute zero times. Its condition and body are checked using
+  the incoming state; earlier assignments within that iteration count for later
+  statements, but body assignments do not establish initialization afterward
+  or justify a read before an assignment on the first iteration.
+- Nested blocks share the same scope and propagate initialization in source
+  order; nested branches and loops apply these same rules recursively.
+
+For example, `let x; if (1) { x = 2; } else { x = 3; } print x;` is valid.
+`if (0) { let x = 9; } print x;` and
+`while (0) { let x = 9; } print x;` are semantic errors, not zero-valued reads.
+Unreachable bodies are still checked.
 
 ```sh
 ./bin/statement-compiler examples/compiler/statements/use-before.stmt
@@ -187,6 +220,8 @@ references textually before a declaration (or in its own initializer) fail.
 
 An assignment to an undeclared name reports `assignment to unknown name`.
 An unknown right-hand-side name also reports use before declaration.
+Reading a known but not definitely initialized binding reports
+`read before definite initialization`.
 These diagnostics include the file, one-based line/byte-column, zero-based
 byte offset, and offending name. Lexical and parse errors also report source
 locations. Syntax/semantic errors return `1` and emit **no C**, even if earlier
@@ -205,8 +240,7 @@ build/statements-manual/syntax-parser --json \
 
 This is deliberately not SmallC or the calculator CLI. There are no functions,
 classes, nested scopes, logical `&&`/`||`/`!`, `break`/`continue`, comments,
-strings, division, fractions,
-or uninitialized declarations. Numbers use host C `double`; arithmetic
+strings, division, or fractions. Numbers use host C `double`; arithmetic
 rounding, overflow, and finite-range checks are not implemented. Keep values
 small enough for the host's range. The generated parser's existing input,
 allocation, nesting, work, and result-count limits apply unchanged; this is a
@@ -224,10 +258,13 @@ and standalone syntax parser, compile emitted programs with strict C99
 warnings-as-errors, and compare exact execution output. They cover persistent
 symbols and table growth, source order, arithmetic, all comparisons and their
 precedence, true/false and nested branches, zero/one/many-iteration loops,
-nested loops/blocks, block declarations and skipped initializers, C-safe identifier mapping,
+nested loops/blocks, optional initializers, initializer/assignment ordering,
+both-arm intersection, one-arm/no-else rejection, zero-iteration conservatism,
+block declarations and skipped initializers, C-safe identifier mapping,
 unused bindings, empty programs, exact semantic locations, malformed syntax,
 malformed conditions with source locations, file/usage errors, and syntax-only
-acceptance of semantic failures inside control flow. Existing
+acceptance of semantic failures inside control flow in C default, `--complete`,
+and `--json` modes and Cwhip default/`--complete` modes. Existing
 arithmetic tests run unchanged. The full target discovers both suites.
 Direct test runs use the same SDK discovery and `CPARSEGEN_C_COMPILER`,
 `CC`, and optional `CPARSEGEN_C_FLAGS` conventions as the expression tests.

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add opt-in definite-assignment checking to the statement compiler visitor,
+  with optional declaration initializers, both-arm `if`/`else` intersection,
+  conservative no-else/zero-iteration loop handling, and source-located
+  uninitialized-read errors. Preserve textual single-scope visibility and
+  syntax-only parser acceptance. Add semantic tables and strict C99 execution
+  regressions, including nested control flow and symbol-table growth.
+
 - Extend the optional statement compiler with braced `if`/`else`, `while`,
   nested blocks, and all six relational/equality comparisons. Preserve textual
   single-scope name checking with hoisted zero-initialized storage and

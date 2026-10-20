@@ -1,6 +1,6 @@
 program : statement* ;
 statement : declaration | assignment | output | conditional | loop | block ;
-declaration : "let" IDENT "=" expression ";" ;
+declaration : "let" IDENT ("=" expression)? ";" ;
 assignment : IDENT "=" expression ";" ;
 output : "print" expression ";" ;
 conditional : "if" "(" expression ")" block ("else" block)? ;

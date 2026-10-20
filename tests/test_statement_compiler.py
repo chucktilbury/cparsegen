@@ -150,11 +150,11 @@ class StatementCompilerTests(GeneratorTestCase):
     def test_nested_declarations_keep_one_source_order_scope(self):
         self.assert_program(
             "{ let x = 2; } print x; "
-            "if (0) { let skipped = 9; } print skipped; "
+            "if (0) { let skipped = 9; } skipped = x; print skipped; "
             "if (0) { let shared = 8; } else { shared = x + 1; } print shared; "
-            "while (0) { let never = 7; } print never; "
+            "while (0) { let never = 7; } never = 4; print never; "
             "let i = 0; while (i < 2) { let local = i; print local; i = i + 1; } "
-            "print local;", "2\n0\n3\n0\n0\n1\n1\n",
+            "local = i; print local;", "2\n2\n3\n4\n0\n1\n2\n",
         )
         for text, diagnostic in [
             ("{ let x = 1; } let x = 2;", "duplicate declaration"),
@@ -173,6 +173,118 @@ class StatementCompilerTests(GeneratorTestCase):
                 self.assertRegex(result.stderr, r"source\.stmt:1:\d+: byte \d+:")
                 syntax = self.parse(self.syntax_parser, text)
                 self.assertEqual(syntax.returncode, 0, syntax.stderr)
+
+    def test_definite_assignment_valid_programs(self):
+        for text, expected in [
+            ("let x;", ""),
+            ("let x; let y; x = 2; y = x + 1; print y;", "3\n"),
+            ("let x = 1; let y = x; x = x + y; print x;", "2\n"),
+            ("let x; { { x = 3; } print x; } print x;", "3\n3\n"),
+            ("let x; if (1) { x = 2; } else { x = 3; } print x;", "2\n"),
+            ("let x; if (0) { x = 2; } else { x = 3; } print x;", "3\n"),
+            ("let x = 1; if (0) { x = 2; } print x; "
+             "while (0) { x = 3; } print x;", "1\n1\n"),
+            ("if (0) { let x = 2; } else { x = 3; } print x;", "3\n"),
+            ("if (1) { let x = 2; } else { x = 3; } print x;", "2\n"),
+            ("let x; if (1) { if (0) { x = 1; } else { x = 2; } } "
+             "else { { x = 3; } } print x;", "2\n"),
+            ("let x; let i = 0; while (i < 2) { x = i; print x; i = i + 1; } "
+             "x = 9; print x;", "0\n1\n9\n"),
+            ("let i = 0; while (i < 2) { let x; x = i; print x; "
+             "i = i + 1; }", "0\n1\n"),
+            ("let x; let i = 0; while (i < 1) { if (i == 0) { x = 4; } "
+             "else { x = 5; } print x; i = i + 1; }", "4\n"),
+            ("let x; let i = 0; while (i < 1) { x = 6; let j = 0; "
+             "while (j < 1) { print x; j = j + 1; } print x; i = i + 1; }",
+             "6\n6\n"),
+            ("let x; if (0) { let y = 1; x = y; } "
+             "else { y = 2; x = y; } print x;", "2\n"),
+        ]:
+            with self.subTest(text=text):
+                self.assert_program(text, expected)
+
+    def assert_syntax_modes_accept(self, parser, text, json_mode=True):
+        source = self.directory / "semantic-invalid.stmt"
+        source.write_text(text)
+        modes = [[], ["--complete"]]
+        if json_mode:
+            modes.append(["--json"])
+        for mode in modes:
+            with self.subTest(mode=mode):
+                result = subprocess.run(
+                    [str(parser), *mode, str(source)],
+                    capture_output=True, text=True, timeout=30,
+                )
+                self.assertEqual((result.returncode, result.stderr), (0, ""))
+                if mode == ["--json"]:
+                    self.assertEqual(json.loads(result.stdout)["name"], "program")
+
+    def test_definite_assignment_errors_and_syntax_only_modes(self):
+        for text, occurrence in [
+            ("let x; print x;", "x;"),
+            ("let x; print 1 + x * 2;", "x *"),
+            ("let x; if (x) {}", "x)"),
+            ("let x; while (x < 1) {}", "x <"),
+            ("let x; let y = x;", "x;"),
+            ("let x; x = x + 1;", "x +"),
+            ("let x; let y; y = x;", "x;"),
+            ("let x;\nprint x;", "x;"),
+            ("let x; if (1) { x = 1; } print x;", "x;"),
+            ("let x; if (0) {} else { x = 1; } print x;", "x;"),
+            ("let x; if (1) { x = 1; } else { print x; }", "x;"),
+            ("let x; if (1) { print x; } else { x = 1; }", "x;"),
+            ("if (0) { let x = 1; } print x;", "x;"),
+            ("if (1) {} else { let x = 1; } print x;", "x;"),
+            ("if (1) { let x = 1; } else { print x; }", "x;"),
+            ("let x; if (1) { if (1) { x = 1; } } else { x = 2; } print x;",
+             "x;"),
+            ("let x; while (0) { x = 1; } print x;", "x;"),
+            ("let x; while (1) { x = 1; } print x;", "x;"),
+            ("while (0) { let x = 1; } print x;", "x;"),
+            ("let x; while (0) { print x; x = 1; }", "x;"),
+            ("let x; while (0) { if (1) { x = 1; } print x; }", "x;"),
+            ("let x; while (0) { while (0) { x = 1; } print x; }", "x;"),
+            ("let x; if (1) { while (0) { x = 1; } } "
+             "else { x = 2; } print x;", "x;"),
+            ("let x; if (0) { x = 1; } else { let y = x; }", "x;"),
+            ("let x; { let y = x; } x = 1;", "x;"),
+        ]:
+            with self.subTest(text=text):
+                offset = text.rindex(occurrence)
+                line = text.count("\n", 0, offset) + 1
+                column = offset - text.rfind("\n", 0, offset)
+                result = self.invoke(text)
+                self.assertEqual((result.returncode, result.stdout), (1, ""))
+                self.assertEqual(
+                    result.stderr,
+                    f"{self.directory / 'source.stmt'}:{line}:{column}: "
+                    f"byte {offset}: read before definite initialization: 'x'\n",
+                )
+                self.assert_syntax_modes_accept(self.syntax_parser, text)
+
+    def test_control_flow_state_survives_symbol_table_growth(self):
+        declarations = "".join(f"let x{i} = {i};" for i in range(24))
+        assignments = "".join(f"x{i} = {i + 1};" for i in range(24))
+        self.assert_program(
+            f"if (0) {{ {declarations} }} else {{ {assignments} }} print x23;",
+            "24\n",
+        )
+        result = self.invoke(f"while (0) {{ {declarations} }} print x23;")
+        self.assertEqual((result.returncode, result.stdout), (1, ""))
+        self.assertIn("read before definite initialization: 'x23'", result.stderr)
+
+    def test_cwhip_parser_remains_syntax_only(self):
+        parser = self.compile_grammar(
+            (EXAMPLES / "statements.cpg").read_text(), backend="cwhip",
+        )
+        for text in [
+            "let x; print x;",
+            "let x; if (1) { x = 1; } print x;",
+            "let x; while (0) { x = 1; } print x;",
+            "let x = x; let x;",
+        ]:
+            with self.subTest(text=text):
+                self.assert_syntax_modes_accept(parser, text, json_mode=False)
 
     def test_malformed_control_flow_has_source_locations_and_no_c(self):
         result = self.invoke(
@@ -240,7 +352,7 @@ class StatementCompilerTests(GeneratorTestCase):
     def test_syntax_and_lexical_errors(self):
         for text, diagnostic in [
             ("let x = 1", "parse error"),
-            ("let x; print x;", "parse error"),
+            ("let x = ;", "parse error"),
             ("print 1; 2", "parse error"),
             ("print 1 / 2;", "lex error"),
             ("let print = 1;", "parse error"),
