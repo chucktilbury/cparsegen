@@ -65,9 +65,19 @@ cmake --build build --target test
 
 With Unix Makefiles, `make -C build test` (or `make test` inside `build/`)
 does the same thing. The target builds the generator first, then runs the
-generator, calculator, SmallC acceptance, and SDK-discovery tests with the
-configured SDK and private HOME/XDG directories. It honors `CWHIP_BIN_DIR`;
-test failures fail the build target.
+generator, grammar-conformance, calculator, SmallC acceptance, and SDK-discovery
+tests with the configured SDK and private HOME/XDG directories. It honors
+`CWHIP_BIN_DIR`; test failures fail the build target.
+
+`tests/test_grammar_conformance.py` covers interleaved declaration collection
+and forward references, opaque directive payloads, parser-rule whitespace and
+comments through the terminating `;`, scanner longest-match competition, and
+shortest-prefix selection with a longer alternative listed first. It also
+checks source-located rejection of mixed declarations, embedded actions,
+unsupported regex forms, and malformed grammar without creating either output.
+The generator suite separately covers longer rule matches required by a
+caller's continuation. These tests exercise the supported provisional subset,
+not the architecture proposal's unimplemented grammar features.
 
 ## SDK selection
 

@@ -1,0 +1,7 @@
+@skip SPACE;
+END = [!]
+entry : value END ;
+@note MISSING = (not parser syntax) {payload};
+WORD = [a-z]+
+value : WORD ;
+SPACE = [ \t\r\n]+
