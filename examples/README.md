@@ -142,10 +142,13 @@ comments, and `if`, `for`, `while`, `switch`, and `goto`. Build/run it with:
 ```sh
 cmake --build build --target smallc
 ./bin/smallc-ast examples/smallc/valid/functions.c > build/smallc/functions.ast.json
+./bin/smallc-ast --check examples/smallc/valid/functions.c > build/smallc/functions.checked.ast.json
 ```
 
 Output is a complete-input **JSON syntax AST**, not bytecode or an executed
-program. The example documents the single-pass semantic/VM work still needed.
+program. `--check` runs the Cwhip app's source-order semantic checker on the
+AST; the default command remains syntax-only. See the SmallC documentation
+for checked rules and deferred control-flow, array-bound, and runtime checks.
 
 For a standalone C99 version of the same syntax frontend:
 
@@ -158,7 +161,8 @@ The generated `build/smallc-c/parser.c` compiles and runs without the SDK.
 `--json` requires complete input and uses the Cwhip frontend's JSON schema and
 source-located diagnostics. Without it, the executable retains the generic
 rendered-tree/shortest-prefix CLI; use `--complete` for a complete rendered tree.
-Neither backend evaluates SmallC or performs semantic checks.
+The standalone C parser does not evaluate SmallC or perform semantic checks;
+`smallc-ast --check` is an app-layer feature and does not change either parser.
 
 ## Additional lexical directives
 

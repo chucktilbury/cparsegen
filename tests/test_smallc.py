@@ -87,6 +87,15 @@ class SmallCTests(unittest.TestCase):
         path.write_text(text)
         return self.run_file(path)
 
+    def check(self, text):
+        path = self.directory / "semantic-input.c"
+        path.write_text(text)
+        executable = getattr(self, "cwhip_executable", self.executable)
+        return subprocess.run(
+            [str(executable), "--check", str(path)], env=self.env,
+            capture_output=True, text=True, timeout=30,
+        )
+
     def ast(self, text):
         result = self.parse(text)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -227,6 +236,88 @@ class SmallCTests(unittest.TestCase):
     def test_syntax_only_boundary_is_explicit(self):
         # Symbols, types, and jump/call validity belong to the next semantic milestone.
         self.ast("int main(){ int a[2]; goto absent; return undeclared(a + 1); }")
+
+    def test_semantic_positive_cases(self):
+        cases = [
+            "int main(){ return 0; }",
+            "int first=2; int second=first; int main(){ int value=second; return value; }",
+            "int main(){ int value=1; { char value='a'; value='b'; } return value; }",
+            "int add(int left, int right); int main(){ return add(1, 2); } "
+            "int add(int a, int b){ return a+b; }",
+            "int factorial(int n); int factorial(int n){ if(n<2) return 1; "
+            "return n*factorial(n-1); } int main(){ return factorial(4); }",
+            "char echo(char input); char echo(char value){ return value; } "
+            "int main(){ char letter=echo('x'); return letter=='x'; }",
+            "char letters[]=\"abc\"; int values[2]={1,2}; "
+            "int main(){ char letter=letters[0]; letter++; return values[0]+letter; }",
+            "int main(){ char value='a'; int result=value+1; "
+            "if(value && result) result++; for(int i=0;i<2;i++) result+=i; "
+            "switch(value){case 'a': result+=1; break; default: result+=2;} return result; }",
+            "int main(){ int value=1; { int value=2; value++; } return value; }",
+            "int main(){ int value=0; char character='a'; value+=character; return value; }",
+        ]
+        for source in cases:
+            with self.subTest(source=source):
+                result = self.check(source)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stderr, "")
+                self.assertEqual(json.loads(result.stdout)["name"], "translationUnit")
+
+    def test_semantic_negative_cases(self):
+        cases = [
+            ("undeclared variable", "int main(){ return missing; }"),
+            ("use before local declaration", "int main(){ int value=missing; int missing=1; return value; }"),
+            ("use before global declaration", "int first=second; int second=1; int main(){return first;}"),
+            ("duplicate local", "int main(){ int value; int value; return 0; }"),
+            ("local duplicates parameter", "int f(int value){int value; return 0;}"),
+            ("duplicate global", "int value; int value; int main(){ return 0; }"),
+            ("duplicate parameter", "int f(int value, char value);"),
+            ("duplicate prototype", "int f(int value); int f(int other);"),
+            ("duplicate definition", "int f(){return 0;} int f(){return 1;}"),
+            ("incompatible prototype", "int f(int value); char f(int value){return 'x';}"),
+            ("incompatible parameter signature", "int f(int value); int f(char value){return 0;}"),
+            ("function before prototype", "int first(){return later();} int later(){return 0;}"),
+            ("undeclared call", "int main(){return missing();}"),
+            ("call variable", "int main(){int value=1; return value();}"),
+            ("global variable called", "int value; int main(){return value();}"),
+            ("function used as variable", "int f(){return 0;} int main(){return f;}"),
+            ("wrong argument count", "int f(int value); int main(){return f();}"),
+            ("too many arguments", "int f(int value); int main(){return f(1,2);}"),
+            ("argument type mismatch", "int f(char value); int main(){return f(1);}"),
+            ("global function and variable conflict", "int value; int value();"),
+            ("array scalar value", "int main(){int values[2]; return values;}"),
+            ("array assignment", "int main(){int values[2]; values=1; return 0;}"),
+            ("indexing a scalar", "int main(){int value=1; return value[0];}"),
+            ("array index is an array", "int main(){int values[2]; int other[1]; return values[other];}"),
+            ("array initializer type", "int main(){int values[2]={1,'a'}; return 0;}"),
+            ("string needs char array", "int value=\"x\"; int main(){return 0;}"),
+            ("scalar brace initializer", "int main(){int value={1}; return 0;}"),
+            ("initializer type mismatch", "int main(){char value=1; return 0;}"),
+            ("promoted arithmetic needs exact initializer type", "int main(){char value='a'+'b'; return 0;}"),
+            ("assignment type mismatch", "int main(){char value='a'; value=1; return 0;}"),
+            ("compound assignment conversion", "int main(){char value='a'; value+='b'; return 0;}"),
+            ("return type mismatch", "char value(){return 1;}"),
+            ("missing return value", "int main(){return;}"),
+            ("array arithmetic", "int main(){int values[2]; return values+1;}"),
+            ("for declaration scope", "int main(){for(int i=0;i<1;i++){} return i;}"),
+            ("function conflicts with global variable", "int f; int f(){return 0;}"),
+        ]
+        for description, source in cases:
+            with self.subTest(description=description):
+                syntax = self.parse(source)
+                self.assertEqual(syntax.returncode, 0, syntax.stderr)
+                result = self.check(source)
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertEqual(result.stdout, "")
+                self.assertRegex(result.stderr, r":\d+:\d+: ")
+
+    def test_semantic_error_location_and_syntax_mode_regression(self):
+        source = "int main(){\n  return missing;\n}\n"
+        result = self.check(source)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(":2:10: undeclared variable 'missing'", result.stderr)
+        syntax = self.parse("int main(){ return missing; }")
+        self.assertEqual(syntax.returncode, 0, syntax.stderr)
 
     def test_larger_input_and_nested_expressions(self):
         source = "int main(){ int total=0;\n" + "total = total + 1;\n" * 100 + "return total; }\n"

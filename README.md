@@ -43,16 +43,17 @@ parser, the grammar files, and current limits.
 
 The SmallC example generates a syntax AST for a C subset with `int`/`char`,
 arrays and initializers, functions/prototypes/calls, comments, and control
-flow:
+flow. Its Cwhip app also offers an opt-in AST-based semantic check:
 
 ```sh
 cmake --build build --target smallc
 ./bin/smallc-ast examples/smallc/valid/functions.c > build/smallc/functions.ast.json
+./bin/smallc-ast --check examples/smallc/valid/functions.c
 ```
 
 See [SmallC](examples/smallc/README.md) for the supported syntax and JSON
-format. This is a parser frontend, not yet a semantic checker, bytecode
-compiler, or VM.
+format, checked/deferred semantic rules, and type-conversion policy. It is not
+a bytecode compiler or VM; the default CLI remains syntax-only.
 
 ## Standalone C target
 
@@ -93,9 +94,10 @@ the Cwhip SmallC frontend, with source-located errors on stderr. The existing
 rendered-tree CLI and shortest-prefix default are unchanged. Unknown C-target
 directives fail with a source-line error before outputs are opened (`@note`
 is explicitly inert); malformed lexical directives also fail before output.
-There is no C library/visitor/evaluator API or SmallC semantic checking. See the
-[C target contract](doc/ARCHITECTURE.md#standalone-c-target-contract) for exact
-output, tie-breaking, diagnostics, and resource limits.
+There is no C library/visitor/evaluator API or SmallC semantic checking in the
+generated C backend; the opt-in checker exists only in the Cwhip app layer.
+See the [C target contract](doc/ARCHITECTURE.md#standalone-c-target-contract)
+for exact output, tie-breaking, diagnostics, and resource limits.
 
 ## Tests
 
