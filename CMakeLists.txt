@@ -188,17 +188,26 @@ endfunction()
 cparsegen_add_example(calculator calculator)
 cparsegen_add_example(smallc smallc-ast)
 
-set(calculator_c_work "${CMAKE_CURRENT_BINARY_DIR}/calculator-c")
-add_custom_command(
-    OUTPUT "${calculator_c_work}/parser.c"
-    COMMAND "${CMAKE_COMMAND}" -E make_directory "${calculator_c_work}"
-    COMMAND "${cparsegen_executable}" --target c
-        "${PROJECT_SOURCE_DIR}/examples/calculator/calculator.cpg"
-        "${calculator_c_work}/parser.c" "${calculator_c_work}/grammar.dot"
-    DEPENDS cparsegen "${cparsegen_executable}"
-        "${PROJECT_SOURCE_DIR}/examples/calculator/calculator.cpg"
-    BYPRODUCTS "${calculator_c_work}/grammar.dot"
-    VERBATIM)
-add_executable(calculator-c EXCLUDE_FROM_ALL "${calculator_c_work}/parser.c")
-set_target_properties(calculator-c PROPERTIES
-    C_STANDARD 99 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+function(cparsegen_add_c_example example)
+    set(target "${example}-c")
+    set(example_work "${CMAKE_CURRENT_BINARY_DIR}/${target}")
+    add_custom_command(
+        OUTPUT "${example_work}/parser.c"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${example_work}"
+        COMMAND "${cparsegen_executable}" --target c
+            "${PROJECT_SOURCE_DIR}/examples/${example}/${example}.cpg"
+            "${example_work}/parser.c" "${example_work}/grammar.dot"
+        DEPENDS cparsegen "${cparsegen_executable}"
+            "${PROJECT_SOURCE_DIR}/examples/${example}/${example}.cpg"
+        BYPRODUCTS "${example_work}/grammar.dot"
+        VERBATIM)
+    add_executable(${target} EXCLUDE_FROM_ALL "${example_work}/parser.c")
+    set_target_properties(${target} PROPERTIES
+        C_STANDARD 99 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Werror -pedantic)
+    endif()
+endfunction()
+
+cparsegen_add_c_example(calculator)
+cparsegen_add_c_example(smallc)

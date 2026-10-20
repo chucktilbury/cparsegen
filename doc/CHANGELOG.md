@@ -2,11 +2,17 @@
 
 ## Unreleased
 
+- Extend standalone C generation to the existing SmallC grammar: keyword/
+  reserved discrimination, quoted characters/strings, and skipped comments.
+  Add optional `smallc-c`, complete-input `--json` AST/source diagnostics,
+  and all-sample Cwhip differential coverage. Reject unsupported C directives
+  before outputs (`@note` remains inert); retain the rendered CLI, default
+  Cwhip generation, and syntax-only boundary.
 - Add `--target c` with a standalone ISO C99 scanner/parser through the shared
   grammar IR. Add the optional `calculator-c` syntax-tree target and host-C
   conformance/differential tests under `make test`. Keep Cwhip as the default;
-  the first C slice supports character-class regexes, EBNF, and `@skip`, and
-  explicitly rejects the extended lexical directives and library mode.
+  the first C slice supports character-class regexes, EBNF, and `@skip`.
+  C library mode remains unsupported.
 - Add a generated SmallC JSON AST frontend, grammar, and valid/invalid source
   samples covering `int`/`char`, initializers, arrays, functions/prototypes/
   calls, and structured/unstructured control flow. Semantic checks, bytecode,

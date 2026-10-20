@@ -8,6 +8,8 @@ import subprocess
 import tempfile
 import unittest
 
+from generator_support import c_compile_command
+
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE = ROOT / "examples/smallc"
@@ -66,12 +68,13 @@ class SmallCTests(unittest.TestCase):
         subprocess.run(
             [str(generator), "--library", str(EXAMPLE / "smallc.cpg"),
              str(cls.directory / "parser.cw"), str(cls.directory / "grammar.dot")],
-            check=True, capture_output=True, text=True, timeout=60,
+            env=cls.env, check=True, capture_output=True, text=True, timeout=60,
         )
         subprocess.run(
             [str(compiler), str(cls.directory / "smallc.cw"), "-o", str(cls.executable)],
             env=cls.env, check=True, capture_output=True, text=True, timeout=120,
         )
+        cls.generator = generator
 
     def run_file(self, path):
         return subprocess.run(
@@ -93,7 +96,9 @@ class SmallCTests(unittest.TestCase):
         return tree
 
     def test_all_valid_samples(self):
-        for path in sorted((EXAMPLE / "valid").glob("*.c")):
+        paths = sorted((EXAMPLE / "valid").glob("*.c"))
+        self.assertTrue(paths, "SmallC valid sample corpus is missing")
+        for path in paths:
             with self.subTest(path=path.name):
                 result = self.run_file(path)
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -107,7 +112,9 @@ class SmallCTests(unittest.TestCase):
                     self.assertIsInstance(node["children"], list)
 
     def test_all_invalid_samples(self):
-        for path in sorted((EXAMPLE / "invalid").glob("*.c")):
+        paths = sorted((EXAMPLE / "invalid").glob("*.c"))
+        self.assertTrue(paths, "SmallC invalid sample corpus is missing")
+        for path in paths:
             with self.subTest(path=path.name):
                 result = self.run_file(path)
                 self.assertEqual(result.returncode, 1)
@@ -241,6 +248,23 @@ class SmallCTests(unittest.TestCase):
         self.assertIn(":2:14: parse error", result.stderr)
         self.ast("int main(){ return 0; }// no final newline")
 
+    def test_eof_crlf_and_quoted_error_locations(self):
+        for source in [
+            "int main(){\r\n  return @;\r\n}",
+            "int main(){\r\n  return 1 + ;\r\n}",
+            "int main(){\n  return 1;",
+            'char s[] = "unterminated',
+            "char c = '\\q';",
+            "char c = '';",
+            "char c = 'ab';",
+            'char s[] = "raw\nnewline";',
+        ]:
+            with self.subTest(source=source):
+                result = self.parse(source)
+                self.assertEqual(result.returncode, 1)
+                self.assertEqual(result.stdout, "")
+                self.assertRegex(result.stderr, r":\d+:\d+: ")
+
     def test_usage_and_missing_file(self):
         result = subprocess.run(
             [str(self.executable), "--help"], capture_output=True, text=True, timeout=30,
@@ -252,6 +276,73 @@ class SmallCTests(unittest.TestCase):
         result = self.run_file(self.directory / "absent.c")
         self.assertEqual(result.returncode, 1)
         self.assertIn("existing file", result.stderr)
+
+
+class SmallCStandaloneTests(SmallCTests):
+    """Run the same frontend checks, comparing every source to Cwhip as well."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.cwhip_executable = cls.executable
+        cls.executable = cls.directory / "smallc-c"
+        source = cls.directory / "parser.c"
+        graph = cls.directory / "grammar-c.dot"
+        subprocess.run(
+            [str(cls.generator), "--target", "c", str(EXAMPLE / "smallc.cpg"),
+             str(source), str(graph)],
+            env=cls.env, check=True, capture_output=True, text=True, timeout=60,
+        )
+        if graph.read_bytes() != (cls.directory / "grammar.dot").read_bytes():
+            raise AssertionError("SmallC DOT differs between backends")
+        subprocess.run(
+            c_compile_command(source, cls.executable),
+            env=cls.env, check=True, capture_output=True, text=True, timeout=120,
+        )
+
+    def run_file(self, path):
+        expected = subprocess.run(
+            [str(self.cwhip_executable), str(path)], env=self.env,
+            capture_output=True, text=True, timeout=30,
+        )
+        actual = subprocess.run(
+            [str(self.executable), "--json", str(path)], env=self.env,
+            capture_output=True, text=True, timeout=30,
+        )
+        if path.is_file():
+            self.assertEqual(actual.returncode, expected.returncode, actual.stdout + actual.stderr)
+            self.assertEqual(actual.stderr, expected.stderr)
+            if expected.returncode == 0:
+                self.assertEqual(json.loads(actual.stdout), json.loads(expected.stdout))
+            else:
+                self.assertEqual(actual.stdout, expected.stdout)
+        return actual
+
+    def test_usage_and_missing_file(self):
+        result = subprocess.run(
+            [str(self.executable), "--help"], env=self.env,
+            capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("JSON syntax AST", result.stdout)
+        result = subprocess.run(
+            [str(self.executable)], env=self.env, capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 2)
+        result = self.run_file(self.directory / "absent.c")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("absent.c:", result.stderr)
+
+    def test_runs_without_sdk_or_path(self):
+        env = {name: value for name, value in self.env.items()
+               if name == "HOME" or name.startswith("XDG_")}
+        env["PATH"] = ""
+        result = subprocess.run(
+            [str(self.executable), "--json", str(EXAMPLE / "valid/arrays.c")],
+            env=env, capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["name"], "translationUnit")
 
 
 if __name__ == "__main__":

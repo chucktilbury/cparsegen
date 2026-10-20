@@ -25,6 +25,22 @@ the frontend. Its executable follows `CWHIP_BIN_DIR`, defaulting to
 `bin/smallc-ast`. It is not installed with the generator. Compilation uses
 private HOME/XDG directories in the build tree.
 
+The same grammar also generates an actual standalone ISO C99 frontend:
+
+```sh
+cmake --build build --target smallc-c
+./bin/smallc-c --json examples/smallc/valid/functions.c > build/smallc-c/functions.ast.json
+```
+
+This optional target generates `build/smallc-c/parser.c` and `grammar.dot`,
+then compiles `bin/smallc-c` with the host C compiler (`CWHIP_BIN_DIR` applies).
+The generated file needs only the standard C library, not Cwhip or the SDK.
+The generator itself still requires the SDK. `--json` selects complete-input
+JSON and source-located errors matching the Cwhip frontend below.
+Without `--json`, the generic C CLI prints a rendered tree and selects the
+shortest prefix; `--complete` requires all tokens but retains rendered output.
+There is no C library/visitor API, evaluation, or semantic checking.
+
 The CLI requires complete-input parsing: no unconsumed suffix is silently
 accepted. Successful output is one JSON object:
 
@@ -104,7 +120,11 @@ python3 -m unittest discover -s tests -v
 ```
 
 The SmallC tests generate/compile their own isolated frontend and inspect its
-JSON AST. They cover all sample files, expression nesting and precedence,
+JSON AST. They also compile standalone C with strict C99 warnings-as-errors
+and compare both frontends on every sample and all shared syntax checks:
+complete JSON trees (including terminal spellings), exit status, and exact
+lexical/parser diagnostics with locations. No sample is silently skipped.
+They cover all sample files, expression nesting and precedence,
 nearest-`if` binding, comments and escapes, keyword boundaries, errors and
 complete-input rejection, plus a 100-statement input.
 
@@ -140,6 +160,10 @@ The generated matcher remains bounded: 256 nested **parser-rule** calls,
 longer count as separate source-recursion levels. Exceeding a limit reports
 an explicit error rather than returning a truncated AST. These examples do
 not promise arbitrary-size C inputs or production compiler performance.
+Standalone C additionally limits input to 1 MiB, scanner-part recursion to 256,
+and cumulative arena data to 64 MiB. Exhaustion is explicit; these C-specific
+bounds can reject larger inputs accepted by Cwhip. The tested sample corpus is
+within both runtimes' budgets.
 
 ## Future bytecode backend
 

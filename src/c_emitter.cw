@@ -14,9 +14,10 @@ class CGrammarEmitter {
         int i = 0
         while (i < grammar.directives.length) {
             GrammarDirective directive = grammar.directives[i] as GrammarDirective
-            if (directive.name.equals("keywords") || directive.name.equals("reserved") ||
-                directive.name.equals("quoted") || directive.name.equals("line_comment") ||
-                directive.name.equals("block_comment")) {
+            if (!directive.name.equals("skip") && !directive.name.equals("keywords") &&
+                !directive.name.equals("reserved") && !directive.name.equals("quoted") &&
+                !directive.name.equals("line_comment") && !directive.name.equals("block_comment") &&
+                !directive.name.equals("note")) {
                 return format("line {}: C target does not support @{}", directive.line, directive.name)
             }
             i += 1
@@ -43,6 +44,8 @@ class CGrammarEmitter {
         int r = 0
         while (r < grammar.lexerRules.length) {
             LexerRule rule = grammar.lexerRules[r] as LexerRule
+            if (rule.quote != 0) { r += 1
+continue }
             int p = 0
             while (p < rule.parts.length) {
                 RegexPart part = rule.parts[p] as RegexPart
@@ -73,10 +76,36 @@ class CGrammarEmitter {
             LexerRule rule = grammar.lexerRules[r] as LexerRule
             int skip = 0
             if (rule.skip) { skip = 1 }
-            output.append(format("{{{}, parts{}, {}, {}}},\n", quoted(rule.name), r, rule.parts.length, skip))
+            String parts = "NULL"
+            if (rule.quote == 0) { parts = format("parts{}", r) }
+            output.append(format("{{{}, {}, {}, {}, {}}},\n", quoted(rule.name), parts, rule.parts.length, skip, rule.quote))
             r += 1
         }
-        output.append("{NULL, NULL, 0, 0}};\n")
+        output.append("{NULL, NULL, 0, 0, 0}};\n")
+        output.append(format("static const char *const keyword_token = {};\n", quoted(grammar.keywordToken)))
+        output.append("static const char *const reserved[] = {")
+        int word = 0
+        while (word < grammar.reserved.length) {
+            output.append(format("{},", quoted(grammar.reserved[word] as String)))
+            word += 1
+        }
+        output.append("NULL};\nstatic const Comment line_comments[] = {\n")
+        int comment = 0
+        while (comment < grammar.lineComments.length) {
+            String marker = grammar.lineComments[comment] as String
+            output.append(format("{{{}, {}, NULL, 0}},\n", quoted(marker), marker.length))
+            comment += 1
+        }
+        output.append("{NULL, 0, NULL, 0}};\nstatic const Comment block_comments[] = {\n")
+        comment = 0
+        while (comment < grammar.blockComments.length) {
+            list markers = grammar.blockComments[comment] as list
+            String opening = markers[0] as String
+            String closing = markers[1] as String
+            output.append(format("{{{}, {}, {}, {}}},\n", quoted(opening), opening.length, quoted(closing), closing.length))
+            comment += 1
+        }
+        output.append("{NULL, 0, NULL, 0}};\n")
         output.append("static const Literal literals[] = {\n")
         int i = 0
         while (i < shared.literals.length) {

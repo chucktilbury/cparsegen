@@ -1,5 +1,7 @@
 """Compile generated ISO C99 and compare its public CLI with Cwhip."""
 
+import json
+import os
 import subprocess
 import unittest
 
@@ -50,9 +52,11 @@ class CBackendTests(GeneratorTestCase):
         # No SDK, module registry, or runtime path is available to the C executable.
         source = self.directory / "standalone.txt"
         source.write_text("1 + 2")
+        env = {name: value for name, value in os.environ.items() if name.startswith("XDG_")}
+        env.update(HOME=str(self.directory), PATH="")
         result = subprocess.run(
             [str(standalone), "--complete", str(source)],
-            env={"HOME": str(self.directory), "PATH": ""},
+            env=env,
             capture_output=True, text=True, timeout=30,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -124,12 +128,53 @@ class CBackendTests(GeneratorTestCase):
             [('??/"', True, 0), ("??/", True, 1)],
         )
 
-    def test_unsupported_extensions_fail_before_outputs(self):
+    def test_keywords_and_reserved_remap_only_the_winning_token(self):
+        self.assert_differential(
+            'entry : "if" IDENT | IDENT | "void" ;\nIDENT = [a-z]+\n'
+            'SPACE = [ ]+\n@skip SPACE;\n@keywords IDENT;\n@reserved void struct;\n',
+            [("if iffy", True, 0), ("iffy", True, 0), ("if", True, 1),
+             ("void", True, 1), ("struct", True, 1)],
+        )
+        self.assert_differential(
+            'entry : FIRST ;\nFIRST = [a-z]+\nIDENT = [a-z]+\n@keywords IDENT;\n'
+            '@reserved void;\n',
+            [("void", True, 0)],
+        )
+
+    def test_quoted_tokens_preserve_spelling_and_reject_malformed_input(self):
+        self.assert_differential(
+            'entry : CHAR | STRING ;\n@quoted CHAR single;\n@quoted STRING double;\n',
+            [
+                ("'a'", True, 0), (r"'\n'", True, 0), (r"'\''", True, 0),
+                ('""', True, 0), (r'"\\ \" \' \n \r \t \0"', True, 0),
+                ('"/* // */"', True, 0), ("''", True, 1), ("'ab'", True, 1),
+                (r"'\q'", True, 1), ('"a\nb"', True, 1), ('"a\\', True, 1),
+                ('"unterminated', True, 1), ('"\x7f"', True, 1),
+            ],
+        )
+
+    def test_comments_precede_token_competition_and_follow_marker_order(self):
+        self.assert_differential(
+            'entry : IDENT ("/" IDENT)* ;\nIDENT = [a-z]+\nSPACE = [ \\t\\r\\n]+\n'
+            '@skip SPACE;\n@line_comment //;\n@line_comment #;\n'
+            '@block_comment /* */;\n@block_comment (* *);\n',
+            [
+                ("alpha/beta", True, 0), ("/* before */alpha// eof", True, 0),
+                ("alpha# eof", True, 0), ("alpha(* comment *)", True, 0),
+                ("alpha// } fake\r\n/beta", True, 0),
+                ("alpha/* no end", False, 1),
+                ("alpha/* nested /* closes once */ /beta", True, 0),
+            ],
+        )
+        self.assert_differential(
+            'entry : IDENT ;\nIDENT = [a-z]+\n@block_comment // /;\n@line_comment //;\n',
+            [("alpha// no closer", True, 0)],
+        )
+
+    def test_unsupported_directives_fail_before_outputs(self):
         cases = [
-            ("@keywords IDENT;", "keywords"),
-            ("@quoted STRING double;", "quoted"),
-            ("@line_comment //;", "line_comment"),
-            ("@block_comment /* */;", "block_comment"),
+            ("@lex_mode STRING;", "lex_mode"),
+            ("@include other.cpg;", "include"),
         ]
         for directive, name in cases:
             with self.subTest(directive=directive):
@@ -140,6 +185,20 @@ class CBackendTests(GeneratorTestCase):
                 result = self.generate(grammar)
                 self.assertEqual(result.returncode, 1, result.stderr)
                 self.assertEqual(result.stderr, f"{grammar}: line 3: C target does not support @{name}\n")
+                self.assertFalse(self.generated.exists())
+                self.assertFalse(self.graph.exists())
+
+    def test_malformed_lexical_directives_fail_before_outputs(self):
+        for directive in [
+            "@quoted CHAR wide;", "@quoted CHAR;", "@keywords IDENT OTHER;",
+            "@reserved 123;", "@line_comment;", "@block_comment /*;",
+        ]:
+            with self.subTest(directive=directive):
+                grammar = self.directory / "invalid-directive.cpg"
+                grammar.write_text("entry : IDENT ;\nIDENT = [a-z]+\n" + directive + "\n")
+                result = self.generate(grammar)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(f"{grammar}: line 3:", result.stderr)
                 self.assertFalse(self.generated.exists())
                 self.assertFalse(self.graph.exists())
 
@@ -212,6 +271,50 @@ class CBackendTests(GeneratorTestCase):
         result = self.parse(executable, " " * (1024 * 1024 + 1))
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stdout, "C runtime input limit exceeded\n")
+
+    def test_json_mode_is_complete_escapes_bytes_and_keeps_errors_off_stdout(self):
+        executable = self.compile_grammar(
+            'entry : TOKEN ;\nTOKEN = [\\t\\r\\n"a-z]+\n'
+        )
+        source = self.directory / "json.txt"
+        source.write_text('a"\t\r\n')
+        result = subprocess.run(
+            [str(executable), "--json", str(source)],
+            capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), {
+            "name": "entry", "text": "", "children": [
+                {"name": "TOKEN", "text": 'a"\t\r\n', "children": []},
+            ],
+        })
+        executable = self.compile_grammar('entry : "a" ;\nUNUSED = [0-9]\n')
+        source.write_text("aa")
+        result = subprocess.run(
+            [str(executable), "--json", str(source)],
+            capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(result.stderr, f"{source}:1:1: parse error at token 0\n")
+
+        for grammar, text, problem in [
+            ('entry : INTEGER | "(" entry ")" ;\nINTEGER = [0-9]+\n',
+             "(" * 300 + "1" + ")" * 300, "parser resource limit exceeded"),
+            ('entry : ;\nSPACE = [ ]\n@skip SPACE;\n',
+             " " * (1024 * 1024 + 1), "C runtime input limit exceeded"),
+        ]:
+            with self.subTest(problem=problem):
+                executable = self.compile_grammar(grammar)
+                source.write_text(text)
+                result = subprocess.run(
+                    [str(executable), "--json", str(source)],
+                    capture_output=True, text=True, timeout=30,
+                )
+                self.assertEqual(result.returncode, 1)
+                self.assertEqual(result.stdout, "")
+                self.assertIn(problem, result.stderr)
+                self.assertRegex(result.stderr, r":\d+:\d+: ")
 
     def test_scanner_part_depth_limit(self):
         executable = self.compile_grammar('entry : TOKEN ;\nTOKEN = ' + "[a]" * 256 + "\n")
