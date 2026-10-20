@@ -96,6 +96,14 @@ registered selections fail rather than reuse a cached SDK.
 
 ## Configure and build
 
+The optional `calculator-c` target generates and compiles a standalone ISO
+C99 syntax parser with CMake's host C compiler. The Cwhip SDK is needed to
+build/run cparsegen, but not to compile or execute its generated C source.
+`cmake --build build --target test` (or `make -C build test`) also compiles C
+fixtures with this host compiler and compares them with Cwhip under private
+HOME/XDG directories. See [Standalone C](../README.md#standalone-c-target)
+for direct generator/compiler commands and the bounded backend scope.
+
 The setup script configures the `build/` directory and launches an interactive
 project shell there. Its build type argument is optional:
 
