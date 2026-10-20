@@ -26,6 +26,14 @@ executed program. Build with `cmake --build build --target expression-compiler`;
 when compiled and run. The guide gives explicit generation and compilation
 commands and distinguishes generated infrastructure from application code.
 
+The incremental [statement compiler](compiler/STATEMENTS.md) adds `let`
+declarations, assignments, and `print` statements, with persistent visitor
+symbols and source-order C emission. Build with
+`cmake --build build --target statement-compiler`, then run
+`./bin/statement-compiler examples/compiler/statements/basic.stmt` to emit C.
+The guide covers syntax-only parsing, compile/run steps, semantic failures,
+and language limits.
+
 ## Calculator with variables
 
 Build the generator, generate the calculator parser and DOT graph, and compile

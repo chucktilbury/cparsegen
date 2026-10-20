@@ -1,5 +1,9 @@
 # An expression-to-C compiler
 
+For the incremental example with persistent symbols, declarations, assignments,
+and source-order output, see the [tiny statement compiler](STATEMENTS.md).
+This original arithmetic-only example remains independently runnable.
+
 This small example demonstrates the full application workflow:
 
 ```text

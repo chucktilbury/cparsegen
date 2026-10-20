@@ -34,6 +34,12 @@ compiler workflow: grammar -> generated parser and AST -> handwritten visitor
 `expression-compiler` target; the guide walks through every step and explains
 which pieces are generated versus handwritten.
 
+The [tiny statement compiler](examples/compiler/STATEMENTS.md) extends that
+pattern with declarations, assignments, and printing. Its handwritten visitor
+keeps a symbol table across statements, checks source-located semantic errors,
+and emits C in source order. Build the optional `statement-compiler` target;
+the original arithmetic compiler and syntax-only parsers remain unchanged.
+
 Build a calculator with variables and an interactive CLI:
 
 ```sh
