@@ -15,8 +15,10 @@ FIXTURE = ROOT / "tests/fixtures/shortest.cpg"
 class GeneratorTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.generator = ROOT / "bin/cparsegen"
+        cls.generator = Path(os.environ.get("CPARSEGEN_EXECUTABLE", ROOT / "bin/cparsegen"))
         if not cls.generator.is_file():
+            if "CPARSEGEN_EXECUTABLE" in os.environ:
+                raise FileNotFoundError(cls.generator)
             raise unittest.SkipTest("build cparsegen before running generator tests")
         prefix = os.environ.get("CWHIP_SDK", "")
         if not prefix:

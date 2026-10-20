@@ -139,14 +139,44 @@ cmake --build build
 The generator executable follows `CWHIP_BIN_DIR`. Generated output
 directories are ignored by Git.
 
-After building the generator, run the black-box and SDK-selection tests with:
+## Run tests
+
+From the repository root, configure and run all black-box and SDK-selection
+tests:
 
 ```sh
-python3 -m unittest discover -s ../tests -v
+cmake -S . -B build
+cmake --build build --target test
 ```
 
-The black-box tests also compile generated Cwhip and therefore need the SDK's
-`cwhip` executable on `PATH`, in `CWHIP_SDK`, or under `CMAKE_PREFIX_PATH`.
+For Unix Makefiles, the equivalent clean-build workflow is:
+
+```sh
+cmake -S . -B build -G "Unix Makefiles"
+cd build
+make test
+```
+
+The custom `test` target builds cparsegen before running Python unittest
+discovery, including the generated calculator and SmallC acceptance tests.
+Unlike CTest's built-in target, it has a build dependency on the generator;
+no separate build step is required. A failing test fails the target.
+The target passes the configured generator executable (including a custom
+`CWHIP_BIN_DIR`) and the SDK selected during configuration, even when selected
+via `CMAKE_PREFIX_PATH` or `Cwhip_DIR`. Tests run with private HOME/XDG
+directories under `build/tests/` and do not register or install an SDK.
+
+For direct unittest execution after building the generator, from the
+repository root:
+
+```sh
+python3 -m unittest discover -s tests -v
+```
+
+Direct execution needs the SDK's `cwhip` executable on `PATH`, in `CWHIP_SDK`,
+or under `CMAKE_PREFIX_PATH`. Set `CWHIP_SDK` to include the installed-SDK
+integration test. If you customized `CWHIP_BIN_DIR`, also set
+`CPARSEGEN_EXECUTABLE` to the absolute path of the built generator.
 
 ## Build the calculator example
 

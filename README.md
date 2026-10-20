@@ -54,6 +54,21 @@ See [SmallC](examples/smallc/README.md) for the supported syntax and JSON
 format. This is a parser frontend, not yet a semantic checker, bytecode
 compiler, or VM.
 
+## Tests
+
+From the repository root, configure and run the full Python unittest suite:
+
+```sh
+cmake -S . -B build
+cmake --build build --target test
+```
+
+With Unix Makefiles, `make -C build test` (or `make test` inside `build/`)
+does the same thing. The target builds the generator first, then runs the
+generator, calculator, SmallC acceptance, and SDK-discovery tests with the
+configured SDK and private HOME/XDG directories. It honors `CWHIP_BIN_DIR`;
+test failures fail the build target.
+
 ## SDK selection
 
 The project selects an installed SDK in this order: non-empty `CWHIP_SDK`,
