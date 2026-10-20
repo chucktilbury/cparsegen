@@ -1,11 +1,11 @@
 # SmallC syntax frontend
 
-This milestone is a **generated parser and JSON AST**, not a C compiler or
-interpreter. There is no bytecode output yet. The Cwhip scanner/parser, AST
-nodes, and visitor are generated from [smallc.cpg](smallc.cpg);
-[smallc.cw](smallc.cw) only supplies the file CLI, source-located diagnostics,
-and JSON serialization. It contains no SmallC parsing logic or semantic
-actions.
+This milestone provides a **generated parser, JSON AST, and opt-in semantic
+checker**, not a C compiler or interpreter. There is no bytecode output yet.
+The Cwhip scanner/parser and AST nodes are generated from
+[smallc.cpg](smallc.cpg); [smallc.cw](smallc.cw) supplies the file CLI,
+source-located diagnostics, JSON serialization, and an AST-based semantic
+pass. The checker does not reparse source or alter the generated parser.
 
 ## Build and run
 
@@ -15,6 +15,7 @@ From the repository root, with an installed Cwhip SDK selected:
 cmake -S . -B build
 cmake --build build --target smallc
 ./bin/smallc-ast examples/smallc/valid/functions.c > build/smallc/functions.ast.json
+./bin/smallc-ast --check examples/smallc/valid/functions.c > build/smallc/functions.checked.ast.json
 python3 -m json.tool build/smallc/functions.ast.json
 dot -Tsvg build/smallc/grammar.dot -o build/smallc/grammar.svg
 ```
@@ -36,13 +37,16 @@ This optional target generates `build/smallc-c/parser.c` and `grammar.dot`,
 then compiles `bin/smallc-c` with the host C compiler (`CWHIP_BIN_DIR` applies).
 The generated file needs only the standard C library, not Cwhip or the SDK.
 The generator itself still requires the SDK. `--json` selects complete-input
-JSON and source-located errors matching the Cwhip frontend below.
+JSON and source-located syntax errors matching the Cwhip frontend below.
 Without `--json`, the generic C CLI prints a rendered tree and selects the
 shortest prefix; `--complete` requires all tokens but retains rendered output.
-There is no C library/visitor API, evaluation, or semantic checking.
+It has no C library/visitor API, evaluation, or semantic checker; semantic
+checking is available only through the Cwhip `smallc-ast --check` app.
 
-The CLI requires complete-input parsing: no unconsumed suffix is silently
-accepted. Successful output is one JSON object:
+The Cwhip CLI accepts `smallc-ast INPUT.c` for syntax-only parsing or
+`smallc-ast --check INPUT.c` to run semantic checks on the parsed AST. Both
+modes require complete-input parsing: no unconsumed suffix is silently
+accepted. Successful output in either mode is one JSON object:
 
 ```json
 {"name": "translationUnit", "text": "", "children": []}
@@ -58,10 +62,11 @@ punctuation/keywords; literal numbering is not a stable language API.
 Comments and whitespace do not appear in the AST. Source spans are not yet
 part of the node schema.
 
-Errors go to stderr as `file:line:column: diagnostic` (one-based, byte-oriented
-columns), with exit status `1` and no partial AST. Usage errors return `2`;
-`--help` describes the command. All examples below are syntax tests, not
-executed programs.
+Syntax errors in either mode, and semantic errors in `--check` mode, go to
+stderr as `file:line:column: diagnostic` (one-based, byte-oriented columns),
+with exit status `1` and no partial AST. Usage errors return `2`; `--help`
+describes the command. Syntax-only mode intentionally accepts programs with
+semantic errors. No mode executes programs.
 
 ## Supported subset
 
@@ -119,40 +124,49 @@ root:
 python3 -m unittest discover -s tests -v
 ```
 
-The SmallC tests generate/compile their own isolated frontend and inspect its
-JSON AST. They also compile standalone C with strict C99 warnings-as-errors
-and compare both frontends on every sample and all shared syntax checks:
+The SmallC tests generate/compile their own isolated frontend, inspect its
+JSON AST, and run table-driven semantic success/failure cases through the
+Cwhip app. Every semantic-negative source is also verified to parse in
+syntax-only mode. They compile standalone C with strict C99
+warnings-as-errors and compare both parsers on every sample and all shared
+syntax checks:
 complete JSON trees (including terminal spellings), exit status, and exact
 lexical/parser diagnostics with locations. No sample is silently skipped.
 They cover all sample files, expression nesting and precedence,
 nearest-`if` binding, comments and escapes, keyword boundaries, errors and
 complete-input rejection, plus a 100-statement input.
 
-## Single-pass and semantic boundary
+## Semantic checking and explicit limits
 
-The future compiler is intended to be source-order and syntax-driven. A
-function's signature should enter the symbol table before checking its body,
-allowing recursion. Calls to functions defined later should require a
-prototype; mutual recursion works through prototypes. Forward `goto`
-targets and control-flow branches require fixups rather than a second source
-pass.
+`smallc-ast --check INPUT.c` performs a source-order walk over the exact AST
+produced by Cwhip parsing. It reports the first semantic error with a
+source-located diagnostic, exits `1`, and emits no partial AST; on success it
+prints the same JSON AST as syntax-only mode. The default
+`smallc-ast INPUT.c` remains syntax-only and intentionally accepts
+syntactically valid programs with undeclared names or invalid types. The
+standalone `smallc-c` executable remains syntax-only; the checker is in the
+SmallC Cwhip application layer, not either parser backend.
 
-**Those rules are not semantic checks implemented by this frontend.**
-The current pipeline reads/tokenizes the source once into memory and uses
-the generated bounded backtracking matcher to construct an AST; it is not a
-streaming, single-pass compiler. A later source-order AST walk can perform
-binding/type checks and emission without reparsing the source.
+The implemented semantic slice is:
 
-Syntax acceptance does not imply a valid SmallC program. The parser does
-not yet check declaration-before-use, scopes, duplicate declarations,
-prototype/definition/call agreement, return types, array sizes/bounds,
-unsized-array inference, initializer types/counts, array-to-pointer decay
-or array arithmetic, whether break/continue have an enclosing loop/switch,
-duplicate case/default labels, or whether a goto target exists. For example,
-`return unknown(array + 1);` can form a syntax AST even though a semantic
-checker must reject it if `unknown` is undeclared or `array` is an array.
-`int`/`char` widths, signedness, arithmetic overflow, and storage layout need
-a semantic/VM contract before execution.
+| Area | Checked behavior |
+| --- | --- |
+| Scope and order | Global declarations and local declarations take effect in source order; parameters and the function body's outer block share one scope; nested blocks and `for` statements introduce scopes; inner variables may shadow outer variables |
+| Names | Variable reads/writes require a declared variable; declarations before use are required; duplicate same-scope variables, duplicate parameters, duplicate global names, and global variable/function collisions are errors |
+| Functions | Calls require a function declared earlier (a matching prototype permits later calls and recursion); a single compatible prototype and definition may coexist; duplicate prototypes/definitions and incompatible return/parameter signatures are errors; parameter names do not affect signature compatibility |
+| Calls | Callees must be functions, argument count must match, and each argument must have exactly the declared scalar type |
+| Arrays | Arrays cannot be read or assigned as scalar values; indexing requires a declared array and an `int` or `char` scalar index; indexed elements are modifiable scalar lvalues |
+| Scalar types | Only `int` and `char` are modeled. `=` assignments, scalar initializers, function arguments, and return values require an exact type match; there is no implicit conversion between `int` and `char` |
+| Operators | Arithmetic, unary arithmetic, comparisons, and logical operators require scalar operands. `char` operands are promoted to `int` for arithmetic and unary `+`/`-`; comparisons/logical operators produce `int`. Prefix/postfix increment/decrement mutate scalar `int` or `char` lvalues in place. Compound assignments produce `int` and are accepted only for an `int` target under the strict assignment rule |
+| Initializers | Scalar initializer types must exactly match; array brace-list elements must exactly match the element type; string initializers require a `char` array |
+
+The checker does not infer unsized-array extents and does not validate array
+sizes, initializer element counts, or runtime bounds. It does not require
+global initializers to be constant expressions. Control-flow semantics
+remain unchecked: missing/definite returns, `goto` targets, `break`/`continue`
+context, duplicate `case`/`default` labels, and reachability are not analyzed.
+The language is not executed. Integer/character widths, signedness, overflow,
+storage layout, and runtime behavior remain unspecified.
 
 The generated matcher remains bounded: 256 nested **parser-rule** calls,
 100,000 matcher calls per parse, 4,096 candidates per intermediate set, and
@@ -167,9 +181,9 @@ within both runtimes' budgets.
 
 ## Future bytecode backend
 
-A stack-based VM remains a suitable next target after semantic checks. Keep
-its emitter separate from the grammar: AST -> source-order binding/type
-checks -> instructions. A first instruction set would need integer/character
+A stack-based VM remains a suitable next target after broadening semantic
+checks. Keep its emitter separate from the grammar: AST -> source-order
+binding/type checks -> instructions. A first instruction set would need integer/character
 constants, local/global loads and stores, bounds-aware array operations,
 arithmetic/comparisons, conditional/unconditional branches, calls, and
 returns. Function frames, parameter/result conventions, memory layout, and

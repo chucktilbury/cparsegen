@@ -214,9 +214,11 @@ cmake --build build --target smallc
 Like the calculator, this optional target generates its parser and DOT graph
 in `build/smallc/` and builds with the selected SDK using private HOME/XDG
 directories. Its executable follows `CWHIP_BIN_DIR`. The JSON output is a
-syntax AST, not a compiled/executed program. See
+syntax AST, not a compiled/executed program. `smallc-ast --check INPUT.c`
+validates the AST's supported source-order semantic rules while preserving
+the JSON output; the default command remains syntax-only. See
 [SmallC](../examples/smallc/README.md) for the language subset, valid/invalid
-samples, and the semantic/bytecode boundary.
+samples, checked/deferred semantic rules, and the bytecode boundary.
 
 For the standalone C99 frontend with the same JSON AST and source diagnostics:
 
@@ -229,8 +231,9 @@ The target generates `build/smallc-c/parser.c` and `grammar.dot`, then compiles
 `bin/smallc-c` (`CWHIP_BIN_DIR` applies). Compilation/execution of the generated
 source needs no SDK/runtime library. `--json` always requires complete input.
 `make test` includes all SmallC samples and shared syntax checks against both
-backends, comparing full JSON ASTs and lexical/parser diagnostic locations.
-There is no semantic checking or execution.
+parser backends, comparing full JSON ASTs and lexical/parser diagnostic
+locations, as well as table-driven semantic checks through the Cwhip app.
+Neither parser backend executes SmallC; standalone C remains syntax-only.
 
 Optional host-C sanitizer validation, using the same test runner:
 

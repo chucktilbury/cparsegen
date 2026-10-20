@@ -44,7 +44,8 @@ The DOT output is identical for both targets.
 
 This slice targets `examples/calculator/calculator.cpg` and
 `examples/smallc/smallc.cpg` as syntax parsers, not evaluators or semantic
-checkers. It supports all currently validated parser
+checkers. The SmallC Cwhip app adds an opt-in AST semantic pass; neither
+generated parser backend performs those checks. It supports all currently validated parser
 expressions (references, literals, sequences, choices, groups, `?`/`*`/`+`,
 empty alternatives, non-left recursion), character-class regex sequences,
 and `@skip`. Declaration interleaving and forward references are resolved
@@ -64,7 +65,8 @@ supported lexical directives are rejected by the shared reader. This stricter
 C-target allowlist does not change default Cwhip generation or its handling
 of opaque directives.
 There is no `--library --target c`, public C AST/visitor API, semantic action,
-arithmetic evaluation, SmallC semantic checking, optimization, or new DOT behavior.
+arithmetic evaluation, SmallC semantic checking in the generated backend,
+optimization, or new DOT behavior.
 
 The generated artifact is one ISO C99 source file with `main` and only
 standard-library dependencies. Compile it with `cc -std=c99 OUTPUT.c -o parser`.
