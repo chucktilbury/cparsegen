@@ -1,0 +1,12 @@
+entry
+    :
+    /* Ignore grammar-looking text: ; @skip MISSING; FAKE = [x] */
+    (
+        WORD // ; this does not terminate the rule
+        # ; neither does this
+        "+"
+    )
+    WORD
+    /* The actual terminator follows on its own line. */
+    ;
+WORD = [a-z]+
