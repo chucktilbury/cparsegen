@@ -35,7 +35,8 @@ compiler workflow: grammar -> generated parser and AST -> handwritten visitor
 which pieces are generated versus handwritten.
 
 The [tiny statement compiler](examples/compiler/STATEMENTS.md) extends that
-pattern with declarations, assignments, and printing. Its handwritten visitor
+pattern with declarations, assignments, printing, braced `if`/`else` and `while`,
+comparisons, and nested blocks. Its handwritten visitor
 keeps a symbol table across statements, checks source-located semantic errors,
 and emits C in source order. Build the optional `statement-compiler` target;
 the original arithmetic compiler and syntax-only parsers remain unchanged.

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Extend the optional statement compiler with braced `if`/`else`, `while`,
+  nested blocks, and all six relational/equality comparisons. Preserve textual
+  single-scope name checking with hoisted zero-initialized storage and
+  source-position initializer execution. Add strict C99 compile/run coverage
+  for branches, loop boundaries, nested constructs, comparison precedence,
+  skipped declarations, and source-located malformed-condition rejection.
+  Update samples and the end-to-end walkthrough; parsers remain syntax-only.
+
 - Extend the arithmetic compiler workflow with an optional `statement-compiler`
   example: declarations, assignments, printing, persistent visitor symbols,
   source-order C emission, and source-located semantic diagnostics. Add strict

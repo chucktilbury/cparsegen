@@ -1,0 +1,25 @@
+let i = 0;
+let total = 0;
+while (i < 3) {
+    {
+        total = total + i;
+    }
+    i = i + 1;
+}
+if (total == 3) {
+    print total;
+} else {
+    print -1;
+}
+if (i != 3) {
+    print -2;
+} else {
+    {
+        print i;
+    }
+}
+while (i <= 3) {
+    print i;
+    i = i + 1;
+}
+print i;
