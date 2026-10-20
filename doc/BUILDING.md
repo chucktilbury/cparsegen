@@ -165,6 +165,20 @@ The executable follows `CWHIP_BIN_DIR`, just like cparsegen. See
 [Examples](../examples/README.md) for the grammar, variables, batch input, error
 handling, and a smaller identifier-list example.
 
+## Build the SmallC AST frontend
+
+```sh
+cmake --build build --target smallc
+./bin/smallc-ast examples/smallc/valid/functions.c > build/smallc/functions.ast.json
+```
+
+Like the calculator, this optional target generates its parser and DOT graph
+in `build/smallc/` and builds with the selected SDK using private HOME/XDG
+directories. Its executable follows `CWHIP_BIN_DIR`. The JSON output is a
+syntax AST, not a compiled/executed program. See
+[SmallC](../examples/smallc/README.md) for the language subset, valid/invalid
+samples, and the semantic/bytecode boundary.
+
 ## Clean
 
 Use CMake's normal clean target to remove generated build artifacts:

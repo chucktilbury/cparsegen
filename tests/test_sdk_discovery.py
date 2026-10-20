@@ -310,7 +310,7 @@ class SdkDiscoveryTests(unittest.TestCase):
 
 
 class InstalledSdkTests(unittest.TestCase):
-    def test_sdk_toml_builds_generator_and_calculator_with_installed_sdk(self):
+    def test_sdk_toml_builds_generator_and_examples_with_installed_sdk(self):
         prefix = os.environ.get("CWHIP_SDK")
         if not prefix:
             self.skipTest("set CWHIP_SDK to validate a real installed SDK")
@@ -336,7 +336,7 @@ class InstalledSdkTests(unittest.TestCase):
             self.assertIn(f"Using Cwhip SDK prefix: {prefix}", result.stdout)
             result = subprocess.run(
                 ["cmake", "--build", str(root / "build"),
-                 "--target", "calculator", "--parallel", "4"],
+                 "--target", "calculator", "smallc", "--parallel", "4"],
                 env=env, capture_output=True, text=True, timeout=180,
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -347,6 +347,13 @@ class InstalledSdkTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(result.stdout, "14\n")
+            result = subprocess.run(
+                [str(root / "bin/smallc-ast"),
+                 str(ROOT / "examples/smallc/valid/functions.c")],
+                env=env, capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(json.loads(result.stdout)["name"], "translationUnit")
 
 
 if __name__ == "__main__":

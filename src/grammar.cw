@@ -159,12 +159,14 @@ class LexerRule {
     String name
     list parts
     bool skip
+    int quote
     int line
 
     LexerRule(String tokenName, int sourceLine) {
         name = tokenName
         parts = []
         skip = false
+        quote = 0
         line = sourceLine
     }
 }
@@ -242,11 +244,19 @@ class GrammarModel {
     list lexerRules
     list parserRules
     list directives
+    String keywordToken
+    list reserved
+    list lineComments
+    list blockComments
 
     GrammarModel() {
         lexerRules = []
         parserRules = []
         directives = []
+        keywordToken = ""
+        reserved = []
+        lineComments = []
+        blockComments = []
     }
 
     LexerRule findLexer(String name) {
@@ -328,6 +338,92 @@ class GrammarModel {
         return false
     }
 
+    list directiveWords(String content) {
+        list pieces = content.replace("\t", " ").replace("\n", " ").replace("\r", " ").split(" ")
+        list words = []
+        int i = 0
+        while (i < pieces.length) {
+            String word = pieces[i] as String
+            if (word.length > 0) { words.append(word) }
+            i += 1
+        }
+        return words
+    }
+
+    bool identifier(String name) {
+        int i = 0
+        while (i < name.length) {
+            int byte = int(name.byteAt(i))
+            bool letter = (byte >= 65 && byte <= 90) || (byte >= 97 && byte <= 122) || byte == 95
+            if (!letter && (i == 0 || byte < 48 || byte > 57)) { return false }
+            i += 1
+        }
+        return name.length > 0
+    }
+
+    String lexicalDirectives() {
+        int i = 0
+        while (i < directives.length) {
+            GrammarDirective directive = directives[i] as GrammarDirective
+            list words = directiveWords(directive.content)
+            if (directive.name.equals("quoted")) {
+                if (words.length != 2) {
+                    return format("line {}: @quoted requires TOKEN single|double", directive.line)
+                }
+                String style = words[1] as String
+                if (!style.equals("single") && !style.equals("double")) {
+                    return format("line {}: @quoted requires single or double", directive.line)
+                }
+                LexerRule rule = LexerRule(words[0] as String, directive.line)
+                rule.quote = 34
+                if (style.equals("single")) { rule.quote = 39 }
+                lexerRules.append(rule)
+            }
+            if (directive.name.equals("keywords")) {
+                if (words.length != 1 || !keywordToken.equals("")) {
+                    return format("line {}: @keywords requires one identifier token and may occur only once", directive.line)
+                }
+                keywordToken = words[0] as String
+            }
+            if (directive.name.equals("reserved")) {
+                if (words.length == 0) {
+                    return format("line {}: @reserved requires word names", directive.line)
+                }
+                int w = 0
+                while (w < words.length) {
+                    if (!identifier(words[w] as String)) {
+                        return format("line {}: @reserved requires identifier spellings", directive.line)
+                    }
+                    reserved.append(words[w])
+                    w += 1
+                }
+            }
+            if (directive.name.equals("line_comment")) {
+                if (words.length != 1 || (words[0] as String).length == 0) {
+                    return format("line {}: @line_comment requires one nonempty marker", directive.line)
+                }
+                lineComments.append(words[0])
+            }
+            if (directive.name.equals("block_comment")) {
+                if (words.length != 2) {
+                    return format("line {}: @block_comment requires opening and closing markers", directive.line)
+                }
+                blockComments.append(words)
+            }
+            i += 1
+        }
+        if (!keywordToken.equals("")) {
+            LexerRule token = findLexer(keywordToken)
+            if (token == null || token.quote != 0) {
+                return "@keywords must name a declared character-class lexer token"
+            }
+        }
+        if (reserved.length > 0 && keywordToken.equals("")) {
+            return "@reserved requires @keywords to identify the identifier token"
+        }
+        return ""
+    }
+
     String leftCycle(RuleExpr expression, list path) {
         if (expression.kind == 0) {
             ParserRule target = findParser(expression.value)
@@ -357,13 +453,15 @@ class GrammarModel {
     }
 
     String validate() {
+        String directiveError = lexicalDirectives()
+        if (!directiveError.equals("")) { return directiveError }
         if (lexerRules.length == 0) { return "grammar must declare a lexer rule" }
         if (parserRules.length == 0) { return "grammar must declare a parser rule" }
         int i = 0
         while (i < lexerRules.length) {
             LexerRule rule = lexerRules[i] as LexerRule
             int first = int(rule.name.byteAt(0))
-            if (first < 65 || first > 90) {
+            if (first < 65 || first > 90 || !identifier(rule.name)) {
                 return format("line {}: lexer names must begin with an uppercase letter", rule.line)
             }
             if (findLexerCount(rule.name) > 1) {
@@ -376,7 +474,7 @@ class GrammarModel {
                 if (part.minimum > 0) { nullable = false }
                 p += 1
             }
-            if (nullable) {
+            if (nullable && rule.quote == 0) {
                 return format("line {}: lexer rule {} can match empty input", rule.line, rule.name)
             }
             i += 1
@@ -392,6 +490,9 @@ class GrammarModel {
                 token.skip = true
             }
             i += 1
+        }
+        if (!keywordToken.equals("") && findLexer(keywordToken).skip) {
+            return "@keywords cannot use a skipped lexer token"
         }
         i = 0
         while (i < parserRules.length) {

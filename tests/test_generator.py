@@ -234,6 +234,56 @@ class GeneratorTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(result.stdout, "entry(FIRST(abc), IDENT(Z_12))\n")
 
+    def test_opt_in_keywords_comments_and_quoted_tokens(self):
+        executable = self.compile_grammar(
+            'entry : "let" IDENT "=" STRING ";" CHAR ;\n'
+            'IDENT = [A-Za-z_][A-Za-z0-9_]*\n'
+            'SPACE = [ \\t\\r\\n]+\n'
+            '@skip SPACE;\n'
+            '@keywords IDENT;\n'
+            '@quoted STRING double;\n'
+            '@quoted CHAR single;\n'
+            '@line_comment //;\n'
+            '@block_comment /* */;\n'
+        )
+        result = self.parse(executable, r'''/* prefix */ let let2 = "/* value */ //"; // trailing
+        '\n' ''')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("IDENT(let2)", result.stdout)
+        self.assertIn('STRING("/* value */ //")', result.stdout)
+        self.assertIn(r"CHAR('\n')", result.stdout)
+        result = self.parse(executable, "let let = \"\"; 'a'")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("parse error", result.stdout)
+
+    def test_invalid_lexical_directives_have_diagnostics(self):
+        cases = [
+            ("@quoted CHAR;", "@quoted"),
+            ("@quoted CHAR triple;", "@quoted"),
+            ("@quoted invalid-name single;", "lexer names"),
+            ("@quoted IDENT single;", "duplicate lexer rule"),
+            ("@keywords MISSING;", "@keywords"),
+            ("@keywords IDENT extra;", "@keywords"),
+            ("@keywords IDENT;\n@keywords IDENT;", "@keywords"),
+            ("@skip IDENT;\n@keywords IDENT;", "skipped lexer token"),
+            ("@reserved struct;", "@reserved requires @keywords"),
+            ("@keywords IDENT;\n@reserved invalid-word;", "identifier spellings"),
+            ("@line_comment;", "@line_comment"),
+            ("@line_comment // extra;", "@line_comment"),
+            ("@block_comment /*;", "@block_comment"),
+        ]
+        for directives, diagnostic in cases:
+            with self.subTest(directives=directives):
+                grammar = self.directory / "bad.cpg"
+                grammar.write_text(
+                    "entry : IDENT ;\nIDENT = [A-Za-z_][A-Za-z0-9_]*\n" + directives + "\n"
+                )
+                result = self.generate(grammar)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(diagnostic, result.stderr)
+                self.assertFalse(self.generated.exists())
+                self.assertFalse(self.graph.exists())
+
     def test_lexer_class_sequences_backtrack_before_longest_selection(self):
         executable = self.compile_grammar(
             'entry : PAIR ;\n'
@@ -274,7 +324,7 @@ class GeneratorTests(unittest.TestCase):
             'entry : INTEGER | "(" entry ")" ;\n'
             'INTEGER = [0-9]+\n'
         )
-        result = self.parse(executable, "(" * 100 + "1" + ")" * 100)
+        result = self.parse(executable, "(" * 300 + "1" + ")" * 300)
         self.assertEqual(result.returncode, 1)
         self.assertIn("resource limit", result.stdout)
         executable = self.compile_grammar(

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Add a generated SmallC JSON AST frontend, grammar, and valid/invalid source
+  samples covering `int`/`char`, initializers, arrays, functions/prototypes/
+  calls, and structured/unstructured control flow. Semantic checks, bytecode,
+  and VM execution remain separate future milestones.
+- Add opt-in keyword remapping/reserved words, quoted character/string
+  tokens, and line/block comment directives for generated scanners. Preserve
+  existing token/literal ties for grammars without keyword remapping.
+- Measure parser nesting by rule calls rather than internal expression
+  wrappers, permitting realistic expression nesting within the same bound.
 - Add generated calculator and identifier-list examples. The calculator has
   variables, arithmetic precedence, decimals, parentheses, and interactive,
   batch, and single-expression CLI modes, with a separate AST evaluator.
