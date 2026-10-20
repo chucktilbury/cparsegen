@@ -90,6 +90,115 @@ class StatementCompilerTests(GeneratorTestCase):
         declarations = "".join(f"let x{i} = {i};" for i in range(24))
         self.assert_program(declarations + "print x0 + x23;", "23\n")
 
+    def test_control_flow_sample(self):
+        emitted = self.assert_program(
+            (EXAMPLES / "statements/control-flow.stmt").read_text(), "3\n3\n3\n4\n",
+        )
+        self.assertIn("while (", emitted)
+        self.assertIn("else\n", emitted)
+
+    def test_comparisons_and_precedence(self):
+        for operator, expected in [
+            ("<", "1\n0\n0\n"), ("<=", "1\n1\n0\n"),
+            (">", "0\n0\n1\n"), (">=", "0\n1\n1\n"),
+            ("==", "0\n1\n0\n"), ("!=", "1\n0\n1\n"),
+        ]:
+            with self.subTest(operator=operator):
+                self.assert_program(
+                    f"print 1 {operator} 2; print 2 {operator} 2; "
+                    f"print 3 {operator} 2;", expected,
+                )
+        self.assert_program(
+            "print 1 + 2 * 3 < 8 == 1; print 0 == 2 < 1; "
+            "print (2 < 3) + (4 >= 4) * 2; print -2 < -1; "
+            "print 3 > 2 > 1; print 2 == 2 == 1;", "1\n1\n3\n1\n0\n1\n",
+        )
+        self.assert_program(
+            "let flag = 2 < 3; while (flag) { print flag; flag = 2 != 2; } "
+            "if (flag) { print 99; } else { print flag; }", "1\n0\n",
+        )
+
+    def test_branches_nested_blocks_and_truthiness(self):
+        self.assert_program(
+            "let x = 0; if (1) { x = 1; } else { x = 99; } print x; "
+            "if (0) { x = 99; } else { x = 2; } print x; "
+            "if (0) { print 99; } if (-2) { { print 3; } } "
+            "if (1) { if (0) { print 99; } else { print 4; } } "
+            "else { print 99; } { { x = 5; } } print x; "
+            "if (1) {} else {} {}",
+            "1\n2\n3\n4\n5\n",
+        )
+        self.assert_program(
+            "let iffy = 1; let elsewhere = 2; let whilex = 3; "
+            "print iffy + elsewhere + whilex;", "6\n",
+        )
+
+    def test_loops_recheck_conditions_and_boundaries(self):
+        self.assert_program(
+            "let i = 0; while (i < 0) { print 99; } print i; "
+            "while (i <= 0) { print i; i = i + 1; } print i; "
+            "while (i != 3) { if (i == 2) { print i; } i = i + 1; } "
+            "print i; while (0) {}",
+            "0\n0\n1\n2\n3\n",
+        )
+        self.assert_program(
+            "let i = 0; let j = 0; while (i < 2) { j = 0; "
+            "while (j < 2) { { print i * 2 + j; } j = j + 1; } "
+            "i = i + 1; }", "0\n1\n2\n3\n",
+        )
+
+    def test_nested_declarations_keep_one_source_order_scope(self):
+        self.assert_program(
+            "{ let x = 2; } print x; "
+            "if (0) { let skipped = 9; } print skipped; "
+            "if (0) { let shared = 8; } else { shared = x + 1; } print shared; "
+            "while (0) { let never = 7; } print never; "
+            "let i = 0; while (i < 2) { let local = i; print local; i = i + 1; } "
+            "print local;", "2\n0\n3\n0\n0\n1\n1\n",
+        )
+        for text, diagnostic in [
+            ("{ let x = 1; } let x = 2;", "duplicate declaration"),
+            ("if (1) { let x = 1; } else { let x = 2; }", "duplicate declaration"),
+            ("if (0) { print missing; }", "use before declaration"),
+            ("while (missing < 1) {}", "use before declaration"),
+            ("if (missing) {}", "use before declaration"),
+            ("if (0) {} else { missing = 1; }", "assignment to unknown name"),
+            ("while (0) { let x = x; }", "use before declaration"),
+            ("print x; { let x = 1; }", "use before declaration"),
+        ]:
+            with self.subTest(text=text):
+                result = self.invoke(text)
+                self.assertEqual((result.returncode, result.stdout), (1, ""))
+                self.assertIn(diagnostic, result.stderr)
+                self.assertRegex(result.stderr, r"source\.stmt:1:\d+: byte \d+:")
+                syntax = self.parse(self.syntax_parser, text)
+                self.assertEqual(syntax.returncode, 0, syntax.stderr)
+
+    def test_malformed_control_flow_has_source_locations_and_no_c(self):
+        result = self.invoke(
+            (EXAMPLES / "statements/invalid-condition.stmt").read_text(),
+        )
+        self.assertEqual((result.returncode, result.stdout), (1, ""))
+        self.assertEqual(
+            result.stderr,
+            f"{self.directory / 'source.stmt'}:2:8: byte 18: parse error\n",
+        )
+        for text in [
+            "print 1;\nif () {}", "if (1 <) {}", "while (== 1) {}",
+            "while (1 !=) {}", "if (1 < = 2) {}", "if (1 = 2) {}",
+            "if (1) print 2;", "while 1 {}", "while (1 {}",
+            "if (1) { print 2;", "else {}", "if (1) {} else",
+            "let if = 1;", "let else = 1;", "let while = 1;",
+        ]:
+            with self.subTest(text=text):
+                result = self.invoke(text)
+                self.assertEqual((result.returncode, result.stdout), (1, ""))
+                self.assertRegex(
+                    result.stderr, r"source\.stmt:\d+:\d+: byte \d+: parse error",
+                )
+                syntax = self.parse(self.syntax_parser, text)
+                self.assertEqual(syntax.returncode, 1, syntax.stderr)
+
     def test_semantic_errors_have_exact_locations_and_no_c(self):
         for text, line, column, offset, diagnostic, name in [
             ("print x; let x = 1;", 1, 7, 6,
@@ -146,7 +255,10 @@ class StatementCompilerTests(GeneratorTestCase):
 
     def test_syntax_only_json_is_still_an_ast(self):
         source = self.directory / "unknown.stmt"
-        source.write_text("print unknown;")
+        source.write_text(
+            "if (unknown < 1) { while (unknown != 2) { { print unknown; } } } "
+            "else { print unknown; }",
+        )
         result = subprocess.run(
             [str(self.syntax_parser), "--json", str(source)],
             capture_output=True, text=True, timeout=30,
@@ -155,6 +267,8 @@ class StatementCompilerTests(GeneratorTestCase):
         ast = json.loads(result.stdout)
         self.assertEqual(ast["name"], "program")
         self.assertIn("unknown", result.stdout)
+        for rule in ("conditional", "loop", "block", "comparison", "equality"):
+            self.assertIn(f'"name":"{rule}"', result.stdout.replace(" ", ""))
 
     def test_usage_and_missing_source(self):
         for arguments in [(), ("one", "two")]:

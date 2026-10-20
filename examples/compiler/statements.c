@@ -6,6 +6,7 @@ typedef struct {
     const CpgVisitor *visitor;
     const Node **symbols;
     size_t count, capacity;
+    size_t depth;
     const char *problem;
     const Node *error;
 } Compiler;
@@ -122,34 +123,77 @@ static CpgVisit emit_group(const Node *node, void *user) {
     return fputs(") ", stdout) == EOF ? CPG_ERROR : CPG_CONTINUE;
 }
 
+static CpgVisit emit_comparison(const Node *node, void *user) {
+    Compiler *compiler = user;
+    size_t count = cpg_child_count(node);
+    for (size_t i = 0; i < count / 2; ++i) fputc('(', stdout);
+    for (size_t i = 0; i < count; ++i) {
+        CpgVisit result = cpg_dispatch(cpg_child_at(node, i), compiler->visitor, user);
+        if (result != CPG_CONTINUE) return result;
+        if (i > 0 && i % 2 == 0) fputs(") ", stdout);
+    }
+    return ferror(stdout) ? CPG_ERROR : CPG_CONTINUE;
+}
+
+static void emit_indent(const Compiler *compiler) {
+    for (size_t i = 0; i < compiler->depth; ++i) fputs("    ", stdout);
+}
+
 static CpgVisit emit_store(const Node *node, void *user) {
     Compiler *compiler = user;
     int declaration = !strcmp(cpg_node_kind(node), "declaration");
     const Node *name = cpg_child_at(node, declaration ? 1 : 0);
     const Node *value = cpg_child_at(node, declaration ? 3 : 2);
-    fputs(declaration ? "    double " : "    ", stdout);
+    emit_indent(compiler);
     CpgVisit result = emit_name(name, user);
     if (result != CPG_CONTINUE) return result;
     fputs("= ", stdout);
     result = cpg_dispatch(value, compiler->visitor, user);
     if (result != CPG_CONTINUE) return result;
     fputs(";\n", stdout);
-    /* Keep unused or only-assigned bindings warning-free under strict C99. */
-    if (declaration) {
-        fputs("    (void)", stdout);
-        result = emit_name(name, user);
-        if (result != CPG_CONTINUE) return result;
-        fputs(";\n", stdout);
-    }
     return ferror(stdout) ? CPG_ERROR : CPG_CONTINUE;
 }
 
 static CpgVisit emit_output(const Node *node, void *user) {
     Compiler *compiler = user;
-    fputs("    if (printf(\"%.17g\\n\", ", stdout);
+    emit_indent(compiler);
+    fputs("if (printf(\"%.17g\\n\", (double)", stdout);
     CpgVisit result = cpg_dispatch(cpg_child_at(node, 1), compiler->visitor, user);
     if (result != CPG_CONTINUE) return result;
     fputs(") < 0) return 1;\n", stdout);
+    return ferror(stdout) ? CPG_ERROR : CPG_CONTINUE;
+}
+
+static CpgVisit emit_block(const Node *node, void *user) {
+    Compiler *compiler = user;
+    emit_indent(compiler);
+    fputs("{\n", stdout);
+    ++compiler->depth;
+    for (size_t i = 1; i + 1 < cpg_child_count(node); ++i) {
+        CpgVisit result = cpg_dispatch(cpg_child_at(node, i), compiler->visitor, user);
+        if (result != CPG_CONTINUE) return result;
+    }
+    --compiler->depth;
+    emit_indent(compiler);
+    fputs("}\n", stdout);
+    return ferror(stdout) ? CPG_ERROR : CPG_CONTINUE;
+}
+
+static CpgVisit emit_control(const Node *node, void *user) {
+    Compiler *compiler = user;
+    emit_indent(compiler);
+    fputs(!strcmp(cpg_node_kind(node), "loop") ? "while (" : "if (", stdout);
+    CpgVisit result = cpg_dispatch(cpg_child_at(node, 2), compiler->visitor, user);
+    if (result != CPG_CONTINUE) return result;
+    fputs(")\n", stdout);
+    result = cpg_dispatch(cpg_child_at(node, 4), compiler->visitor, user);
+    if (result != CPG_CONTINUE) return result;
+    if (cpg_child_count(node) > 5) {
+        emit_indent(compiler);
+        fputs("else\n", stdout);
+        result = cpg_dispatch(cpg_child_at(node, 6), compiler->visitor, user);
+        if (result != CPG_CONTINUE) return result;
+    }
     return ferror(stdout) ? CPG_ERROR : CPG_CONTINUE;
 }
 
@@ -229,7 +273,13 @@ int main(int argc, char **argv) {
             emitter.on_rule_declaration = emit_store;
             emitter.on_rule_assignment = emit_store;
             emitter.on_rule_output = emit_output;
+            emitter.on_rule_conditional = emit_control;
+            emitter.on_rule_loop = emit_control;
+            emitter.on_rule_block = emit_block;
             emitter.on_rule_expression = emit_group;
+            emitter.on_rule_equality = emit_comparison;
+            emitter.on_rule_comparison = emit_comparison;
+            emitter.on_rule_sum = emit_group;
             emitter.on_rule_product = emit_group;
             emitter.on_rule_unary = emit_group;
             emitter.on_rule_primary = emit_group;
@@ -239,7 +289,12 @@ int main(int argc, char **argv) {
             emitter.on_token_INTEGER = emit_integer;
             emitter.on_node = emit_literal;
             compiler.visitor = &emitter;
+            compiler.depth = 1;
             fputs("#include <stdio.h>\n\nint main(void) {\n", stdout);
+            /* Hoist storage, not initializers: all source blocks share one scope. */
+            for (size_t i = 0; i < compiler.count; ++i) {
+                fprintf(stdout, "    double cpg_v%zu = 0.0;\n    (void)cpg_v%zu;\n", i, i);
+            }
             CpgVisit result = cpg_dispatch(root, &emitter, &compiler);
             if (result == CPG_CONTINUE) {
                 fputs("    return fflush(stdout) ? 1 : 0;\n}\n", stdout);

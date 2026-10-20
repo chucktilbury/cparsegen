@@ -2,7 +2,8 @@
 
 This incremental companion to the [expression compiler](README.md) keeps its
 arithmetic grammar, precedence, numeric representation, and visitor-dispatch
-pattern, adding named bindings and source-order statements. It is a compiler,
+pattern, adding named bindings, source-order statements, and structured control
+flow. It is a compiler,
 not an interpreter: its stdout is C source, not the program's output.
 The original `expression-compiler` and generated parser APIs are unchanged.
 
@@ -33,6 +34,22 @@ The [sample](statements/basic.stmt) declares `total`, prints it, assigns a new
 value, declares `twice` using the updated value, then prints both. Each print
 and store executes in source order; bindings persist within the program.
 CMake's executable honors `CWHIP_BIN_DIR` (default `bin/`).
+
+For branches, loops, and nested blocks, compile the
+[control-flow sample](statements/control-flow.stmt) through the same pipeline:
+
+```sh
+./bin/statement-compiler examples/compiler/statements/control-flow.stmt \
+  > build/statement-compiler/control-flow.c
+cc -std=c99 -Wall -Wextra -Werror -pedantic \
+  build/statement-compiler/control-flow.c -o build/statement-compiler/control-flow
+./build/statement-compiler/control-flow
+```
+
+It prints `3`, `3`, `3`, and `4` on separate lines. The first loop accumulates
+`0 + 1 + 2`, the two conditionals select a true arm and a false arm, and the
+inclusive-boundary loop executes once before its next condition check fails.
+Standalone nested blocks group statements without creating lexical scopes.
 
 ## Explicit generation, syntax parsing, and compilation
 
@@ -79,13 +96,20 @@ recreated for each node. It is freed before destroying the parser and input.
 
 Only a successful semantic pass starts output. A second visitor reuses the
 completed symbol table and dispatches statements in source order. Declarations
-and assignments emit stores; print callbacks emit checked `printf` calls.
+and assignments emit stores; print callbacks emit checked `printf` calls,
+converting comparison results to `double` for the variadic format.
+The block callback dispatches its statement children between C braces.
+Conditional and loop callbacks dispatch the condition and body blocks, emitting
+`if`/`else` and `while` rather than evaluating conditions in the compiler.
+Validation visits every body, including unreachable branches.
 Expression callbacks follow the arithmetic example: grouping preserves
 precedence and left associativity, and integer tokens become decimal `double`
 constants (`000008` becomes `8.0`, never C octal). Identifiers map to stable
 `cpg_v0`, `cpg_v1`, ... slots, so C keywords and names such as `printf` or `main`
-are safe source-language variables. An explicit `(void)` read keeps unused
-bindings warning-free under strict C99.
+are safe source-language variables. All slots are declared and zero-initialized
+at the start of `main`, with an explicit `(void)` read to keep unused bindings
+warning-free under strict C99. Initializer expressions remain at their source
+positions, so loop-body declarations reassign their slots on every iteration.
 
 For example, `let x = 2; print x; x = x + 3; print x;` emits this shape
 (expression parentheses/spacing abbreviated):
@@ -94,11 +118,12 @@ For example, `let x = 2; print x; x = x + 3; print x;` emits this shape
 #include <stdio.h>
 
 int main(void) {
-    double cpg_v0 = 2.0;
+    double cpg_v0 = 0.0;
     (void)cpg_v0;
-    if (printf("%.17g\n", cpg_v0) < 0) return 1;
+    cpg_v0 = 2.0;
+    if (printf("%.17g\n", (double)cpg_v0) < 0) return 1;
     cpg_v0 = cpg_v0 + 3.0;
-    if (printf("%.17g\n", cpg_v0) < 0) return 1;
+    if (printf("%.17g\n", (double)cpg_v0) < 0) return 1;
     return fflush(stdout) ? 1 : 0;
 }
 ```
@@ -110,26 +135,54 @@ dispatch behavior, AST lifetimes, and terminal source positions.
 
 ## Language and diagnostics
 
-Programs contain zero or more semicolon-terminated statements:
+Programs contain zero or more statements:
 
 ```text
 let name = expression;
 name = expression;
 print expression;
+{ statements }
+if (expression) { statements }
+if (expression) { statements } else { statements }
+while (expression) { statements }
 ```
 
 There is one program-wide scope. Names are case-sensitive ASCII identifiers
-matching `[a-zA-Z_][a-zA-Z0-9_]*`; only `let` and `print` are keywords.
+matching `[a-zA-Z_][a-zA-Z0-9_]*`; `let`, `print`, `if`, `else`, and `while`
+are keywords.
 Declarations require initializers and cannot redeclare a name. Assignment does
 not declare names. Arithmetic supports one-to-nine-digit integer literals,
 unary `+`/`-`, binary `+`/`-`/`*`, and parentheses, just like the expression
-example. Whitespace includes spaces, tabs, CR, and LF.
+example. Comparisons add `<`, `<=`, `>`, `>=`, `==`, and `!=`; their results
+are numeric `0` or `1`, usable in prints, stores, arithmetic, and conditions.
+Precedence from highest to lowest is parentheses, unary signs, multiplication,
+addition/subtraction, relational comparisons, then equality/inequality.
+Binary operators at each level associate left, including comparison chains:
+`3 > 2 > 1` means `(3 > 2) > 1`, not a mathematical range test.
+Zero is false; any nonzero value is true. `while` checks before every iteration.
+Whitespace includes spaces, tabs, CR, and LF.
+
+Control-flow conditions require parentheses and bodies require braces, with no
+trailing semicolon. An `else` is optional and belongs to its braced `if`;
+use `else { if (...) { ... } }` for an else-if chain. Empty bodies and arbitrary
+nested blocks are supported within the parser's existing resource limits.
+
+Name visibility still follows **textual declaration order**, not execution
+order. A binding declared inside a block remains visible after the block;
+shadowing or redeclaring it in any other block is an error, even in mutually
+exclusive branches. Skipped initializers leave their slots at zero, for example
+`if (0) { let x = 9; } print x;` prints `0`. A later `else` arm can assign `x`.
+This is a deliberately simple single-scope model, not lexical scope or
+definite-assignment analysis. Every `let` still requires an initializer, and
+references textually before a declaration (or in its own initializer) fail.
 
 ```sh
 ./bin/statement-compiler examples/compiler/statements/use-before.stmt
 # examples/compiler/statements/use-before.stmt:1:7: byte 6: use before declaration (unknown name): 'total'
 ./bin/statement-compiler examples/compiler/statements/duplicate.stmt
 # examples/compiler/statements/duplicate.stmt:2:5: byte 19: duplicate declaration: 'total'
+./bin/statement-compiler examples/compiler/statements/invalid-condition.stmt
+# examples/compiler/statements/invalid-condition.stmt:2:8: byte 18: parse error
 ```
 
 An assignment to an undeclared name reports `assignment to unknown name`.
@@ -150,8 +203,9 @@ build/statements-manual/syntax-parser --json \
   examples/compiler/statements/use-before.stmt
 ```
 
-This is deliberately not SmallC or the calculator CLI. There are no branches,
-loops, functions, classes, nested scopes, comments, strings, division, fractions,
+This is deliberately not SmallC or the calculator CLI. There are no functions,
+classes, nested scopes, logical `&&`/`||`/`!`, `break`/`continue`, comments,
+strings, division, fractions,
 or uninitialized declarations. Numbers use host C `double`; arithmetic
 rounding, overflow, and finite-range checks are not implemented. Keep values
 small enough for the host's range. The generated parser's existing input,
@@ -168,9 +222,12 @@ make -C build test
 The focused tests generate the real parser, compile the handwritten consumer
 and standalone syntax parser, compile emitted programs with strict C99
 warnings-as-errors, and compare exact execution output. They cover persistent
-symbols and table growth, source order, arithmetic, C-safe identifier mapping,
+symbols and table growth, source order, arithmetic, all comparisons and their
+precedence, true/false and nested branches, zero/one/many-iteration loops,
+nested loops/blocks, block declarations and skipped initializers, C-safe identifier mapping,
 unused bindings, empty programs, exact semantic locations, malformed syntax,
-file/usage errors, and syntax-only acceptance of semantic failures. Existing
+malformed conditions with source locations, file/usage errors, and syntax-only
+acceptance of semantic failures inside control flow. Existing
 arithmetic tests run unchanged. The full target discovers both suites.
 Direct test runs use the same SDK discovery and `CPARSEGEN_C_COMPILER`,
 `CC`, and optional `CPARSEGEN_C_FLAGS` conventions as the expression tests.
