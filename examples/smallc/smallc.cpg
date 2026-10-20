@@ -1,0 +1,58 @@
+translationUnit : externalDeclaration+ ;
+externalDeclaration : type IDENT "(" parameters? ")" (compoundStatement | ";") | declaration ;
+type : "int" | "char" ;
+parameters : parameter ("," parameter)* ;
+parameter : type IDENT ;
+
+declaration : type declarator ("," declarator)* ";" ;
+declarator : IDENT ("[" INTEGER? "]")? ("=" initializer)? ;
+initializer : assignment | STRING | "{" assignment ("," assignment)* ","? "}" ;
+
+compoundStatement : "{" blockItem* "}" ;
+blockItem : declaration | statement ;
+statement : matchedStatement | openStatement ;
+matchedStatement : simpleStatement
+    | "if" "(" expression ")" matchedStatement "else" matchedStatement
+    | "while" "(" expression ")" matchedStatement
+    | "for" "(" forInitializer expression? ";" expression? ")" matchedStatement
+    | IDENT ":" matchedStatement ;
+openStatement : "if" "(" expression ")" statement
+    | "if" "(" expression ")" matchedStatement "else" openStatement
+    | "while" "(" expression ")" openStatement
+    | "for" "(" forInitializer expression? ";" expression? ")" openStatement
+    | IDENT ":" openStatement ;
+simpleStatement : compoundStatement
+    | switchStatement
+    | "goto" IDENT ";"
+    | "return" expression? ";"
+    | "break" ";"
+    | "continue" ";"
+    | expression? ";" ;
+forInitializer : declaration | expression? ";" ;
+switchStatement : "switch" "(" expression ")" "{" switchSection* "}" ;
+switchSection : ("case" caseValue ":" | "default" ":") blockItem* ;
+caseValue : ("+" | "-")? INTEGER | CHAR ;
+
+expression : assignment ;
+assignment : lvalue ("=" | "+=" | "-=" | "*=" | "/=" | "%=") assignment | logicalOr ;
+logicalOr : logicalAnd ("||" logicalAnd)* ;
+logicalAnd : equality ("&&" equality)* ;
+equality : relational (("==" | "!=") relational)* ;
+relational : additive (("<" | "<=" | ">" | ">=") additive)* ;
+additive : multiplicative (("+" | "-") multiplicative)* ;
+multiplicative : unary (("*" | "/" | "%") unary)* ;
+unary : ("+" | "-" | "!") unary | ("++" | "--") lvalue | primary ;
+primary : IDENT "(" arguments? ")" | lvalue ("++" | "--")? | INTEGER | CHAR | "(" expression ")" ;
+arguments : assignment ("," assignment)* ;
+lvalue : IDENT ("[" expression "]")? ;
+
+INTEGER = [0-9]+
+IDENT = [A-Za-z_][A-Za-z0-9_]*
+SPACE = [ \t\r\n]+
+@skip SPACE;
+@keywords IDENT;
+@reserved void struct typedef union enum signed unsigned short long float double const volatile static extern auto register sizeof do;
+@quoted CHAR single;
+@quoted STRING double;
+@line_comment //;
+@block_comment /* */;

@@ -118,39 +118,44 @@ get_target_property(cparsegen_executable cparsegen CWHIP_EXECUTABLE)
 install(PROGRAMS "${cparsegen_executable}" DESTINATION bin)
 
 # The SDK application helper currently accepts only non-generated sources.
-set(calculator_work "${CMAKE_CURRENT_BINARY_DIR}/calculator")
-set(calculator_executable "${CWHIP_BIN_DIR}/calculator")
-get_filename_component(cwhip_runtime_directory "${Cwhip_RUNTIME_LIBRARY}" DIRECTORY)
-add_custom_command(
-    OUTPUT "${calculator_executable}"
-    COMMAND "${CMAKE_COMMAND}" -E make_directory
-        "${calculator_work}/home" "${calculator_work}/config"
-        "${calculator_work}/data" "${calculator_work}/cache"
-        "${calculator_work}/state" "${CWHIP_BIN_DIR}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-        "${PROJECT_SOURCE_DIR}/examples/calculator/calculator.cw"
-        "${calculator_work}/calculator.cw"
-    COMMAND "${cparsegen_executable}" --library
-        "${PROJECT_SOURCE_DIR}/examples/calculator/calculator.cpg"
-        "${calculator_work}/parser.cw" "${calculator_work}/grammar.dot"
-    COMMAND "${CMAKE_COMMAND}" -E env
-        --unset=CWHIP_MODULE_DIR --unset=CWHIP_PACKAGE_PATH
-        --unset=CWHIP_MODULE_REGISTRY --unset=DESTDIR --unset=XDG_RUNTIME_DIR
-        "HOME=${calculator_work}/home" "XDG_CONFIG_HOME=${calculator_work}/config"
-        "XDG_DATA_HOME=${calculator_work}/data" "XDG_CACHE_HOME=${calculator_work}/cache"
-        "XDG_STATE_HOME=${calculator_work}/state"
-        "CWHIP_HOME=${Cwhip_PREFIX}" "CWHIP_INCLUDE_DIR=${Cwhip_INCLUDE_DIR}"
-        "CWHIP_RUNTIME_DIR=${cwhip_runtime_directory}"
-        "CWHIP_BUILTIN_DIR=${Cwhip_BUILTIN_DIR}"
-        "CWHIP_STDLIB_MODULE_DIR=${Cwhip_MODULE_DIR}"
-        "CC=${Cwhip_CLANG_EXECUTABLE}"
-        "${Cwhip_COMPILER}" "${calculator_work}/calculator.cw"
-        -M "${Cwhip_MODULE_DIR}" -o "${calculator_executable}"
-    DEPENDS cparsegen "${cparsegen_executable}"
-        "${PROJECT_SOURCE_DIR}/examples/calculator/calculator.cpg"
-        "${PROJECT_SOURCE_DIR}/examples/calculator/calculator.cw"
-        "${Cwhip_COMPILER}" "${Cwhip_RUNTIME_LIBRARY}"
-    BYPRODUCTS "${calculator_work}/parser.cw"
-        "${calculator_work}/calculator.cw" "${calculator_work}/grammar.dot"
-    VERBATIM)
-add_custom_target(calculator DEPENDS "${calculator_executable}")
+function(cparsegen_add_example target output_name)
+    set(example_work "${CMAKE_CURRENT_BINARY_DIR}/${target}")
+    set(example_executable "${CWHIP_BIN_DIR}/${output_name}")
+    get_filename_component(cwhip_runtime_directory "${Cwhip_RUNTIME_LIBRARY}" DIRECTORY)
+    add_custom_command(
+        OUTPUT "${example_executable}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory
+            "${example_work}/home" "${example_work}/config"
+            "${example_work}/data" "${example_work}/cache"
+            "${example_work}/state" "${CWHIP_BIN_DIR}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${PROJECT_SOURCE_DIR}/examples/${target}/${target}.cw"
+            "${example_work}/${target}.cw"
+        COMMAND "${cparsegen_executable}" --library
+            "${PROJECT_SOURCE_DIR}/examples/${target}/${target}.cpg"
+            "${example_work}/parser.cw" "${example_work}/grammar.dot"
+        COMMAND "${CMAKE_COMMAND}" -E env
+            --unset=CWHIP_MODULE_DIR --unset=CWHIP_PACKAGE_PATH
+            --unset=CWHIP_MODULE_REGISTRY --unset=DESTDIR --unset=XDG_RUNTIME_DIR
+            "HOME=${example_work}/home" "XDG_CONFIG_HOME=${example_work}/config"
+            "XDG_DATA_HOME=${example_work}/data" "XDG_CACHE_HOME=${example_work}/cache"
+            "XDG_STATE_HOME=${example_work}/state"
+            "CWHIP_HOME=${Cwhip_PREFIX}" "CWHIP_INCLUDE_DIR=${Cwhip_INCLUDE_DIR}"
+            "CWHIP_RUNTIME_DIR=${cwhip_runtime_directory}"
+            "CWHIP_BUILTIN_DIR=${Cwhip_BUILTIN_DIR}"
+            "CWHIP_STDLIB_MODULE_DIR=${Cwhip_MODULE_DIR}"
+            "CC=${Cwhip_CLANG_EXECUTABLE}"
+            "${Cwhip_COMPILER}" "${example_work}/${target}.cw"
+            -M "${Cwhip_MODULE_DIR}" -o "${example_executable}"
+        DEPENDS cparsegen "${cparsegen_executable}"
+            "${PROJECT_SOURCE_DIR}/examples/${target}/${target}.cpg"
+            "${PROJECT_SOURCE_DIR}/examples/${target}/${target}.cw"
+            "${Cwhip_COMPILER}" "${Cwhip_RUNTIME_LIBRARY}"
+        BYPRODUCTS "${example_work}/parser.cw"
+            "${example_work}/${target}.cw" "${example_work}/grammar.dot"
+        VERBATIM)
+    add_custom_target(${target} DEPENDS "${example_executable}")
+endfunction()
+
+cparsegen_add_example(calculator calculator)
+cparsegen_add_example(smallc smallc-ast)

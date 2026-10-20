@@ -25,8 +25,8 @@ contract between parsing, analysis, and every emitter; target backends must
 not re-parse grammar text or infer syntax from generated code. Emitters
 consume only a model that has passed validation.
 
-The executable proves this boundary with small generated calculator and
-identifier-list examples, a Cwhip parser/AST/scanner emitter, and a DOT emitter.
+The executable proves this boundary with generated calculator, identifier-list,
+and SmallC syntax examples, a Cwhip parser/AST/scanner emitter, and a DOT emitter.
 C, C++, and Python emitters remain future backends and should follow the model
 rather than define separate grammar semantics.
 
@@ -90,8 +90,13 @@ INTEGER = [0-9]+
 ```
 
 The reader recognizes named directives as `@name payload;`. `@skip TOKEN;`
-marks a declared lexer token as discarded by the generated scanner; other
-directive payloads remain opaque and have no generation effect. Lexer
+marks a declared lexer token as discarded by the generated scanner.
+`@keywords TOKEN;` opts into exact keyword remapping when that token wins;
+`@reserved WORD...;` reserves additional unsupported keywords.
+`@quoted TOKEN single|double;` declares character/string tokens with a bounded
+ASCII escape vocabulary. `@line_comment MARKER;` and
+`@block_comment OPEN CLOSE;` skip comments and diagnose unterminated blocks.
+Other directive payloads remain opaque and have no generation effect. Lexer
 patterns are single-line sequences of ASCII character classes, each optionally
 followed by `?`, `*`, or `+`. Classes support ranges and `\t`, `\r`, `\n`,
 `\\`, `\]`, and `\-` escapes. Negated classes, regex groups/alternation,
@@ -111,17 +116,20 @@ one required by its caller. Prefix APIs select the shortest successful match;
 equal-length alternatives keep source order. `parseAll()` instead selects a
 candidate that consumes every non-skipped token. The standalone runner keeps
 prefix mode by default, with `--complete` to request whole-input parsing.
-The calculator always uses the complete-input API.
+The calculator and SmallC frontend always use the complete-input API.
 
 The generated scanner uses longest byte match across character-class patterns
 and quoted terminals. Ties favor lexer declaration order, then literal
-appearance order. A literal that also matches a named token therefore loses
-an equal-length tie to that token; keyword policy needs refinement before a
-larger language grammar. Skip rules participate in the same longest-match
-selection and are discarded only after winning.
+appearance order. Without `@keywords`, a literal that also matches a named
+token therefore loses an equal-length tie. With that directive, a winning
+identifier token is remapped on exact equality to a grammar literal, keeping
+longer identifiers intact. Skip rules participate in longest-match selection.
+Comment directives apply at token boundaries before those rules; a quoted
+token consumes comment-like text without interpreting it. See
+[Examples](../examples/README.md) for the exact directive contracts.
 
 Backtracking is bounded and intended for small examples: the parser allows
-256 nested matcher calls, 100,000 calls per parse, and 4,096 results per
+256 nested parser-rule calls, 100,000 matcher calls per parse, and 4,096 results per
 intermediate set. The scanner allows 100,000 pattern calls per token.
 Exhaustion is an explicit failure, never a partial success.
 
@@ -131,6 +139,11 @@ handwritten evaluator includes that library; its grammar has no semantic
 actions. Rule nodes retain nested rule structure, terminals are leaves, and
 groups/repetitions flatten their children in source order. See
 [Examples](../examples/README.md) for runnable commands.
+
+The SmallC CLI prints JSON ASTs and byte-based file/line/column diagnostics.
+It does not implement binding, types, code generation, or execution.
+Its grammar preserves conventional nearest-`if` association through
+matched/open statement rules rather than changing generic choice semantics.
 
 The current reader records declaration/expression line numbers, not full
 filename/line/column spans. Generated tokens record their starting byte
@@ -267,8 +280,10 @@ executable now establishes declaration collection, a typed expression model,
 reference/nullability/left-cycle validation, and Cwhip plus DOT emission for
 working small examples. Later work adds C, C++, and Python emitters, richer
 regexes and source tracking, efficient parser analysis, and supported
-left-recursion transformations. The calculator is a concrete grammar fixture;
-a SmallC grammar is a planned next exercise, not part of the current
-implementation. Larger grammars must refine directive boundaries, includes,
-keyword handling, regex composition, and backtracking/normalization semantics
-without silently changing the existing prefix or whole-input APIs.
+left-recursion transformations. The calculator and SmallC grammar are concrete
+fixtures. SmallC's next milestone is source-order semantic validation and,
+eventually, a separate bytecode backend; see its
+[boundary notes](../examples/smallc/README.md#single-pass-and-semantic-boundary).
+Larger grammars must refine directive boundaries, includes, regex composition,
+and backtracking/normalization semantics without silently changing the
+existing prefix or whole-input APIs.

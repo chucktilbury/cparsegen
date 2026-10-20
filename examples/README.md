@@ -109,9 +109,50 @@ sequence can match, chooses the shortest successful prefix, and keeps source
 order on equal-length ties. Whole-input mode requires a complete candidate
 instead of discarding trailing tokens.
 
-This is a bounded backtracking implementation for small examples, not yet a
-production SmallC frontend. It reports resource limits rather than silently
-truncating parse results: 256 nested matcher calls, 100,000 matcher calls per
+## SmallC syntax frontend
+
+[SmallC](smallc/README.md) expands the examples to a C subset: `int`/`char`,
+arrays and initializers, functions, prototypes, calls, arithmetic/comparisons,
+comments, and `if`, `for`, `while`, `switch`, and `goto`. Build/run it with:
+
+```sh
+cmake --build build --target smallc
+./bin/smallc-ast examples/smallc/valid/functions.c > build/smallc/functions.ast.json
+```
+
+Output is a complete-input **JSON syntax AST**, not bytecode or an executed
+program. The example documents the single-pass semantic/VM work still needed.
+
+## Additional lexical directives
+
+SmallC needs lexical behavior beyond the calculator's character classes.
+These features are generic and opt-in; existing grammars keep their old
+literal-versus-token tie behavior:
+
+| Directive | Meaning |
+| --- | --- |
+| `@keywords IDENT;` | When this named token wins longest match, remap exact grammar-literal spellings to their literal kinds; `if` becomes a keyword, `iffy` stays an identifier |
+| `@reserved struct typedef;` | Reserve additional word spellings as unmatchable identifiers; requires `@keywords` |
+| `@quoted CHAR single;` | Declare a single-quoted token containing exactly one printable ASCII byte or supported escape |
+| `@quoted STRING double;` | Declare a double-quoted ASCII token; empty strings are allowed |
+| `@line_comment //;` | Skip a marker through line end or EOF |
+| `@block_comment /* */;` | Skip opening through closing marker; no nesting; an absent closer is an error |
+
+Quote directives declare tokens, so do not also declare their names with
+`=`. The supported quoted escapes are `\\`, `\"`, `\'`, `\n`, `\r`, `\t`,
+and `\0`, retained verbatim in the token text. Malformed/unterminated quoted
+tokens are errors. Comment markers are whitespace-separated opaque
+spellings, not quoted strings; comments are recognized at token boundaries
+before other lexer rules. If comment markers overlap, line-comment
+declaration order is tried first, followed by block-comment declaration
+order. Quotes consume their contents as a single token, so comment markers
+inside a quoted token are not skipped.
+
+## Resource bounds
+
+This is a bounded backtracking implementation, not yet a production compiler
+frontend. It reports resource limits rather than silently truncating parse
+results: 256 nested parser-rule calls, 100,000 matcher calls per
 parse, and 4,096 results per intermediate set. The scanner also limits pattern
 matching to 100,000 calls per token. Full source spans, include stacks,
 left-recursion normalization, richer lexer syntax, and other language

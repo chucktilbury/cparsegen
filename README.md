@@ -41,6 +41,19 @@ precedence, parentheses, assignments, and complete-input checks.
 See [Examples](examples/README.md) for batch mode, a comma-separated identifier
 parser, the grammar files, and current limits.
 
+The SmallC example generates a syntax AST for a C subset with `int`/`char`,
+arrays and initializers, functions/prototypes/calls, comments, and control
+flow:
+
+```sh
+cmake --build build --target smallc
+./bin/smallc-ast examples/smallc/valid/functions.c > build/smallc/functions.ast.json
+```
+
+See [SmallC](examples/smallc/README.md) for the supported syntax and JSON
+format. This is a parser frontend, not yet a semantic checker, bytecode
+compiler, or VM.
+
 ## SDK selection
 
 The project selects an installed SDK in this order: non-empty `CWHIP_SDK`,
