@@ -134,7 +134,11 @@ complete JSON trees (including terminal spellings), exit status, and exact
 lexical/parser diagnostics with locations. No sample is silently skipped.
 They cover all sample files, expression nesting and precedence,
 nearest-`if` binding, comments and escapes, keyword boundaries, errors and
-complete-input rejection, plus a 100-statement input.
+complete-input rejection, plus a 100-statement input. Control-flow regressions
+cover nested loop/switch contexts and restoration, function-local forward and
+backward jumps, labels wrapping statements, stacked duplicate switch labels,
+signed/zero-padded decimal and escaped-character case equality, and strict
+per-statement return rules (without claiming all-path completion).
 
 ## Semantic checking and explicit limits
 
@@ -159,12 +163,34 @@ The implemented semantic slice is:
 | Scalar types | Only `int` and `char` are modeled. `=` assignments, scalar initializers, function arguments, and return values require an exact type match; there is no implicit conversion between `int` and `char` |
 | Operators | Arithmetic, unary arithmetic, comparisons, and logical operators require scalar operands. `char` operands are promoted to `int` for arithmetic and unary `+`/`-`; comparisons/logical operators produce `int`. Prefix/postfix increment/decrement mutate scalar `int` or `char` lvalues in place. Compound assignments produce `int` and are accepted only for an `int` target under the strict assignment rule |
 | Initializers | Scalar initializer types must exactly match; array brace-list elements must exactly match the element type; string initializers require a `char` array |
+| Loop/switch context | `break` requires an enclosing `while`, `for`, or `switch`; `continue` requires an enclosing loop, including through nested switches |
+| Labels and `goto` | Labels have function scope, independent of variables and block scopes; forward/backward jumps are allowed, unresolved targets and duplicate labels are errors; labels may wrap any statement |
+| Switch labels | Each switch permits one `default` and distinct literal case values, including stacked labels; nested/separate switches have independent labels |
+| Returns | Every `return` in an `int`/`char` function must supply an expression of exactly the function's return type; bare `return;` parses but fails checking. `void` functions are not in the grammar |
+
+Case equality uses mathematical signed decimal values, ignoring leading zeros
+and a leading `+`, and equating `-0` with `0`. Leading zeros are decimal, not
+octal. ASCII character literals and the supported escapes compare by their
+nonnegative ASCII code (`'a'` equals `97`, `'\n'` equals `10`, `'\0'` equals
+`0`). Case comparison promotes characters to integer values independently of
+the strict assignment rule. Decimal spellings are compared without a host
+integer-width limit; this does not define runtime integer widths or overflow.
+The grammar already restricts cases to optionally signed decimal integer
+tokens or character literals. No expression folding is performed.
+
+Labels are collected per function before its source-order statement walk so
+forward jumps resolve without making variables visible before declaration.
+Duplicate labels are reported at the repeated identifier; unresolved jumps at
+the target identifier; duplicate cases at the repeated value; and invalid
+`break`, `continue`, bare `return`, or duplicate `default` at the keyword.
 
 The checker does not infer unsized-array extents and does not validate array
 sizes, initializer element counts, or runtime bounds. It does not require
-global initializers to be constant expressions. Control-flow semantics
-remain unchecked: missing/definite returns, `goto` targets, `break`/`continue`
-context, duplicate `case`/`default` labels, and reachability are not analyzed.
+global initializers to be constant expressions. Return checking validates
+individual statements only: proving every path returns, detecting a function
+that can fall off its end (including an empty body), and reachability are
+explicitly deferred. There is no CFG/guaranteed-return analysis or jump
+restriction across declarations/initializations.
 The language is not executed. Integer/character widths, signedness, overflow,
 storage layout, and runtime behavior remain unspecified.
 

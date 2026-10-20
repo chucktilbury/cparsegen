@@ -53,6 +53,9 @@ class SmallCSemanticChecker {
     String problem
     int errorOffset
     String returnType
+    list labels
+    int loopDepth
+    int switchDepth
 
     SmallCSemanticChecker() {
         locations = []
@@ -61,6 +64,9 @@ class SmallCSemanticChecker {
         problem = ""
         errorOffset = 0
         returnType = ""
+        labels = []
+        loopDepth = 0
+        switchDepth = 0
     }
 
     AstNode child(AstNode node, int index) {
@@ -456,6 +462,59 @@ class SmallCSemanticChecker {
         return types
     }
 
+    bool isLabel(AstNode node) {
+        return ((node.name.equals("matchedStatement") || node.name.equals("openStatement"))
+            && node.children.length == 3 && child(node, 0).name.equals("IDENT")
+            && child(node, 1).text.equals(":"))
+    }
+
+    void collectLabels(AstNode node) {
+        if (isLabel(node)) { labels.append(child(node, 0)) }
+        int i = 0
+        while (i < node.children.length) {
+            collectLabels(child(node, i))
+            i += 1
+        }
+    }
+
+    AstNode findLabel(String name) {
+        int i = 0
+        while (i < labels.length) {
+            AstNode label = labels[i] as AstNode
+            if (label.text.equals(name)) { return label }
+            i += 1
+        }
+        return null
+    }
+
+    String caseKey(AstNode node) {
+        AstNode literal = child(node, node.children.length - 1)
+        String text = literal.text
+        if (literal.name.equals("CHAR")) {
+            int value = int(text.byteAt(1))
+            if (value == 92) {
+                value = int(text.byteAt(2))
+                if (value == 110) { value = 10 }
+                else {
+                    if (value == 114) { value = 13 }
+                    else {
+                        if (value == 116) { value = 9 }
+                        else { if (value == 48) { value = 0 } }
+                    }
+                }
+            }
+            return format("{}", value)
+        }
+        // Compare decimal spellings without imposing a host integer width.
+        int first = 0
+        while (first + 1 < text.length && int(text.byteAt(first)) == 48) { first += 1 }
+        String result = text.slice(first, text.length)
+        if (child(node, 0).text.equals("-") && !result.equals("0")) {
+            return format("-{}", result)
+        }
+        return result
+    }
+
     void checkFunction(AstNode node) {
         String valueType = child(child(node, 0), 0).text
         AstNode nameNode = child(node, 1)
@@ -509,6 +568,10 @@ definition = true }
         else { function.hasPrototype = true }
         if (definition) {
             returnType = valueType
+            labels = []
+            loopDepth = 0
+            switchDepth = 0
+            collectLabels(body)
             pushScope()
             if (parameters != null) {
                 int p = 0
@@ -525,6 +588,7 @@ definition = true }
             if (problem.equals("")) { checkCompound(body, false) }
             popScope()
             returnType = ""
+            labels = []
         }
     }
 
@@ -560,6 +624,9 @@ definition = true }
     }
 
     void checkSwitch(AstNode node) {
+        list cases = []
+        bool hasDefault = false
+        switchDepth += 1
         int i = 0
         while (i < node.children.length && problem.equals("")) {
             AstNode part = child(node, i)
@@ -569,6 +636,23 @@ definition = true }
             }
             else {
                 if (part.name.equals("switchSection")) {
+                    AstNode keyword = child(part, 0)
+                    if (keyword.text.equals("default")) {
+                        if (hasDefault) { fail(keyword, "duplicate default label") }
+                        hasDefault = true
+                    }
+                    else {
+                        AstNode value = child(part, 1)
+                        String key = caseKey(value)
+                        int c = 0
+                        while (c < cases.length && problem.equals("")) {
+                            if ((cases[c] as String).equals(key)) {
+                                fail(value, format("duplicate case constant {}", key))
+                            }
+                            c += 1
+                        }
+                        cases.append(key)
+                    }
                     int j = 0
                     while (j < part.children.length && problem.equals("")) {
                         AstNode item = child(part, j)
@@ -579,9 +663,23 @@ definition = true }
             }
             i += 1
         }
+        switchDepth -= 1
     }
 
     void checkSimpleStatement(AstNode node) {
+        AstNode keyword = child(node, 0)
+        if (keyword.text.equals("break") && loopDepth == 0 && switchDepth == 0) {
+            fail(keyword, "break requires an enclosing loop or switch")
+        }
+        if (keyword.text.equals("continue") && loopDepth == 0) {
+            fail(keyword, "continue requires an enclosing loop")
+        }
+        if (keyword.text.equals("goto")) {
+            AstNode target = child(node, 1)
+            if (findLabel(target.text) == null) {
+                fail(target, format("unresolved goto label '{}'", target.text))
+            }
+        }
         bool isReturn = false
         AstNode returnedValue = null
         int i = 0
@@ -620,7 +718,15 @@ definition = true }
             return
         }
         bool loopScope = (node.name.equals("matchedStatement") || node.name.equals("openStatement")) && node.children.length > 0 && child(node, 0).text.equals("for")
+        bool loop = loopScope || ((node.name.equals("matchedStatement") || node.name.equals("openStatement")) && node.children.length > 0 && child(node, 0).text.equals("while"))
+        if (isLabel(node)) {
+            AstNode label = child(node, 0)
+            if (findLabel(label.text) != label) {
+                fail(label, format("duplicate label '{}'", label.text))
+            }
+        }
         if (loopScope) { pushScope() }
+        if (loop) { loopDepth += 1 }
         int i = 0
         while (i < node.children.length && problem.equals("")) {
             AstNode part = child(node, i)
@@ -646,6 +752,7 @@ definition = true }
             i += 1
         }
         if (loopScope) { popScope() }
+        if (loop) { loopDepth -= 1 }
     }
 
     bool check(AstNode root, list tokens) {
