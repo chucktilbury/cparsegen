@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add an optional expression-to-C compiler example using generated AST visitor
+  validation and dispatch, with explicit generation-to-execution documentation
+  and end-to-end tests that compile emitted C and assert the program's result.
 - Add read-only generated visitor interfaces on both backends: per-rule/token/
   literal dispatch, generic fallback, AST accessors, and a separate enter/leave
   walker with explicit skip/stop/error behavior. Retain the legacy Cwhip
