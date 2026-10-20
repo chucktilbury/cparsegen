@@ -2,6 +2,7 @@ import system as Sys
 
 include "grammar.cw"
 include "emitter.cw"
+include "c_emitter.cw"
 
 class GeneratorCli {
     Sys.StandardIO io
@@ -14,13 +15,15 @@ class GeneratorCli {
 
     int run() {
         bool library = process.argc() == 5 && process.arg(1).equals("--library")
-        if (process.argc() != 4 && !library) {
-            io.writeErrorLine("usage: cparsegen [--library] GRAMMAR OUTPUT.cw OUTPUT.dot")
+        bool cTarget = process.argc() == 6 && process.arg(1).equals("--target") && process.arg(2).equals("c")
+        if (process.argc() != 4 && !library && !cTarget) {
+            io.writeErrorLine("usage: cparsegen [--library | --target c] GRAMMAR OUTPUT OUTPUT.dot")
             return 2
         }
 
         int argument = 1
         if (library) { argument = 2 }
+        if (cTarget) { argument = 3 }
         String grammarPath = process.arg(argument)
         String source = Sys.File(grammarPath, "r").readAll()
         GrammarReader reader(source)
@@ -31,7 +34,17 @@ class GeneratorCli {
         }
 
         GrammarEmitter emitter(grammar)
-        String program = emitter.emitProgram(library)
+        String program = ""
+        if (cTarget) {
+            CGrammarEmitter cEmitter(grammar, emitter)
+            String problem = cEmitter.validate()
+            if (!problem.equals("")) {
+                io.writeErrorLine(format("{}: {}", grammarPath, problem))
+                return 1
+            }
+            program = cEmitter.emitProgram()
+        }
+        else { program = emitter.emitProgram(library) }
         String graph = emitter.emitDot()
         String programPath = process.arg(argument + 1)
         String graphPath = process.arg(argument + 2)

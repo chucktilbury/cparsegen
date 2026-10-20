@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add `--target c` with a standalone ISO C99 scanner/parser through the shared
+  grammar IR. Add the optional `calculator-c` syntax-tree target and host-C
+  conformance/differential tests under `make test`. Keep Cwhip as the default;
+  the first C slice supports character-class regexes, EBNF, and `@skip`, and
+  explicitly rejects the extended lexical directives and library mode.
 - Add a generated SmallC JSON AST frontend, grammar, and valid/invalid source
   samples covering `int`/`char`, initializers, arrays, functions/prototypes/
   calls, and structured/unstructured control flow. Semantic checks, bytecode,

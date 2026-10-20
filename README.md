@@ -54,6 +54,43 @@ See [SmallC](examples/smallc/README.md) for the supported syntax and JSON
 format. This is a parser frontend, not yet a semantic checker, bytecode
 compiler, or VM.
 
+## Standalone C target
+
+The first non-Cwhip backend generates a standalone ISO C99 parser for the
+existing calculator grammar, without embedding or invoking Cwhip:
+
+```sh
+cmake --build build --target calculator-c
+printf 'x = 2 + 3 * 4' > build/calculator-c/input.txt
+./bin/calculator-c --complete build/calculator-c/input.txt
+```
+
+This prints the syntax tree, **not** the calculated value. The optional target
+creates `build/calculator-c/parser.c`, `build/calculator-c/grammar.dot`, and
+`bin/calculator-c` (the executable follows `CWHIP_BIN_DIR`).
+To generate and compile directly:
+
+```sh
+mkdir -p build/generated-c
+./bin/cparsegen --target c examples/calculator/calculator.cpg \
+  build/generated-c/parser.c build/generated-c/grammar.dot
+cc -std=c99 build/generated-c/parser.c -o build/generated-c/parser
+build/generated-c/parser --complete build/calculator-c/input.txt
+```
+
+The generated file needs only a host C compiler and standard C library;
+neither the SDK nor a runtime template is needed to compile or run it.
+The generator itself still requires the Cwhip SDK. Default generation and
+`--library` remain Cwhip-only and unchanged.
+
+The C slice supports the shared character-class regex/EBNF subset, including
+`@skip`, forward references, non-left recursion, and empty rules. It rejects
+keyword/reserved-word, quoted-token, and input-comment directives before
+writing outputs; SmallC is deliberately outside this milestone. There is no C
+library/visitor/evaluator API yet. See the
+[C target contract](doc/ARCHITECTURE.md#standalone-c-target-contract) for exact
+output, tie-breaking, diagnostics, and resource limits.
+
 ## Tests
 
 From the repository root, configure and run the full Python unittest suite:
@@ -65,7 +102,7 @@ cmake --build build --target test
 
 With Unix Makefiles, `make -C build test` (or `make test` inside `build/`)
 does the same thing. The target builds the generator first, then runs the
-generator, grammar-conformance, calculator, SmallC acceptance, and SDK-discovery
+generator, grammar-conformance, standalone-C differential, calculator, SmallC acceptance, and SDK-discovery
 tests with the configured SDK and private HOME/XDG directories. It honors
 `CWHIP_BIN_DIR`; test failures fail the build target.
 
@@ -78,6 +115,15 @@ unsupported regex forms, and malformed grammar without creating either output.
 The generator suite separately covers longer rule matches required by a
 caller's continuation. These tests exercise the supported provisional subset,
 not the architecture proposal's unimplemented grammar features.
+
+The C tests compile generated source with the configured host C compiler
+(`-std=c99 -Wall -Wextra -Werror -pedantic`), rerun the shared conformance
+suite against C, and compare status/stdout/stderr and DOT output with Cwhip.
+They cover calculator syntax, scanner longest match and equal-length ties,
+shortest viable prefixes and caller continuations, complete input, EBNF,
+empty rules, source-order ambiguity, malformed grammars, and explicit limits.
+For direct unittest runs, `CPARSEGEN_C_COMPILER` overrides the compiler
+(otherwise `CC`, then `cc`); `make test` supplies CMake's host compiler.
 
 ## SDK selection
 

@@ -93,6 +93,30 @@ Use `--complete` to require the whole input, as above. Library consumers use
 `GeneratedParser.parseAll()` for the same behavior. The calculator always
 uses this complete-input API.
 
+## Standalone C calculator syntax parser
+
+```sh
+cmake --build build --target calculator-c
+printf '1 + 2' > build/calculator-c/input.txt
+./bin/calculator-c --complete build/calculator-c/input.txt
+```
+
+This uses the same calculator grammar but generates
+`build/calculator-c/parser.c` and `grammar.dot`, compiled with CMake's host C
+compiler. The executable follows `CWHIP_BIN_DIR` (default `bin/`) and runs
+without Cwhip or the SDK. Output is the same rendered syntax tree as the
+standalone Cwhip parser, not the interactive calculator's evaluated result:
+
+```text
+statement(expression(product(unary(primary(number(INTEGER(1))))), @literal1(+), product(unary(primary(number(INTEGER(2)))))))
+```
+
+Omitting `--complete` selects the shortest successful prefix; the entire file
+is still scanned. `--target c` supports this grammar's character classes,
+skipped whitespace, and EBNF, but not SmallC's extended lexical directives.
+It has no evaluator, variable store, library mode, or visitor API. See the
+[C target contract](../doc/ARCHITECTURE.md#standalone-c-target-contract).
+
 ## Current limits
 
 The generator now supports named parser-rule references, groups,
@@ -126,6 +150,7 @@ program. The example documents the single-pass semantic/VM work still needed.
 ## Additional lexical directives
 
 SmallC needs lexical behavior beyond the calculator's character classes.
+The following additional directives are currently Cwhip-only.
 These features are generic and opt-in; existing grammars keep their old
 literal-versus-token tie behavior:
 
@@ -155,5 +180,6 @@ frontend. It reports resource limits rather than silently truncating parse
 results: 256 nested parser-rule calls, 100,000 matcher calls per
 parse, and 4,096 results per intermediate set. The scanner also limits pattern
 matching to 100,000 calls per token. Full source spans, include stacks,
-left-recursion normalization, richer lexer syntax, and other language
-backends remain future work.
+left-recursion normalization, richer lexer syntax, C++/Python backends, and
+wider C grammar coverage remain future work. The standalone-C slice also
+enforces 1 MiB input and 64 MiB cumulative arena-data limits.

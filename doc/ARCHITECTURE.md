@@ -26,9 +26,58 @@ not re-parse grammar text or infer syntax from generated code. Emitters
 consume only a model that has passed validation.
 
 The executable proves this boundary with generated calculator, identifier-list,
-and SmallC syntax examples, a Cwhip parser/AST/scanner emitter, and a DOT emitter.
-C, C++, and Python emitters remain future backends and should follow the model
-rather than define separate grammar semantics.
+and SmallC syntax examples, a Cwhip parser/AST/scanner emitter, a bounded
+standalone-C scanner/parser emitter, and a DOT emitter. C++ and Python
+emitters remain future backends and should follow the model rather than
+define separate grammar semantics.
+
+## Standalone C target contract
+
+`cparsegen --target c GRAMMAR OUTPUT.c OUTPUT.dot` consumes the same validated
+`GrammarModel`, `RegexPart`/`ByteRange`, and `RuleExpr` objects as the default
+Cwhip backend. It uses the shared emitter's postorder expression indices and
+literal collection order; it does not translate generated Cwhip, re-read
+grammar text, invoke another compiler, or load templates at runtime.
+`src/c_emitter.cw` emits immutable C tables, and `src/c_runtime.cw` embeds the
+bounded scanner/parser implementation in each generated translation unit.
+The DOT output is identical for both targets.
+
+This first slice targets `examples/calculator/calculator.cpg` as a syntax
+parser, not its Cwhip evaluator. It supports all currently validated parser
+expressions (references, literals, sequences, choices, groups, `?`/`*`/`+`,
+empty alternatives, non-left recursion), character-class regex sequences,
+and `@skip`. Declaration interleaving and forward references are resolved
+by the shared reader. Shared invalid-grammar diagnostics still apply.
+`@keywords`, `@reserved`, `@quoted`, `@line_comment`, and `@block_comment`
+are unsupported for C and receive a source-line diagnostic before either
+output is opened. Other opaque directives remain inert, as in Cwhip.
+There is no `--library --target c`, public C AST/visitor API, semantic action,
+arithmetic evaluation, SmallC frontend, optimization, or new DOT behavior.
+
+The generated artifact is one ISO C99 source file with `main` and only
+standard-library dependencies. Compile it with `cc -std=c99 OUTPUT.c -o parser`.
+Its CLI is `parser [--complete] INPUT`, where `INPUT` is a binary-read file:
+
+| Contract | Behavior |
+| --- | --- |
+| Scanner selection | Longest byte match; named lexer rules win equal-length ties in declaration order, then literals in shared collection order; skipped tokens still compete |
+| Parser selection | Shortest successful token prefix of the first declared rule, preserving longer candidates needed by caller continuations; equal-length ties keep source order |
+| Complete input | `--complete` selects a candidate consuming all scanned non-skipped tokens; scanning always checks the entire input even in prefix mode |
+| Success | Exit `0`, one rendered syntax tree plus newline on stdout, identical to Cwhip `AstNode.render()` |
+| Tree format | `rule(child, child)` and `TOKEN(raw text)`; empty rules render `rule()`; literals use shared `@literalN` names; text is not escaped or normalized, so this is a human-readable format, not JSON |
+| Lex/parse error | Exit `1`, `lex error at byte N` or `parse error at token N` plus newline on stdout, with zero-based indices matching Cwhip |
+| Usage / I/O | Usage errors exit `2` on stderr; file and output-write errors exit `1` on stderr |
+
+Like the Cwhip prototype, the C runtime enumerates alternatives rather than
+using PEG first-success semantics. It limits matching to 100,000 scanner
+calls per token, 100,000 parser calls per parse, depth 256 for nested rule
+matches, and 4,096 results per intermediate set. C additionally bounds
+scanner-part recursion to 256, input to 1 MiB, and cumulative arena data to
+64 MiB. All limits produce explicit errors (exit `1`, stdout); they do not
+silently truncate input/results. These C-specific budgets can reject inputs
+that Cwhip accepts; differential equivalence is asserted within both
+runtimes' budgets. Arena memory is reclaimed at normal process completion;
+fatal allocation/resource errors terminate the standalone process.
 
 ## Intermediate representation boundary
 

@@ -136,6 +136,7 @@ add_custom_target(test
         "CWHIP_BUILTIN_DIR=${Cwhip_BUILTIN_DIR}"
         "CWHIP_STDLIB_MODULE_DIR=${Cwhip_MODULE_DIR}"
         "CC=${Cwhip_CLANG_EXECUTABLE}"
+        "CPARSEGEN_C_COMPILER=${CMAKE_C_COMPILER}"
         "CPARSEGEN_EXECUTABLE=${cparsegen_executable}"
         "${Python3_EXECUTABLE}" -m unittest discover
             -s "${PROJECT_SOURCE_DIR}/tests" -v
@@ -186,3 +187,18 @@ endfunction()
 
 cparsegen_add_example(calculator calculator)
 cparsegen_add_example(smallc smallc-ast)
+
+set(calculator_c_work "${CMAKE_CURRENT_BINARY_DIR}/calculator-c")
+add_custom_command(
+    OUTPUT "${calculator_c_work}/parser.c"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${calculator_c_work}"
+    COMMAND "${cparsegen_executable}" --target c
+        "${PROJECT_SOURCE_DIR}/examples/calculator/calculator.cpg"
+        "${calculator_c_work}/parser.c" "${calculator_c_work}/grammar.dot"
+    DEPENDS cparsegen "${cparsegen_executable}"
+        "${PROJECT_SOURCE_DIR}/examples/calculator/calculator.cpg"
+    BYPRODUCTS "${calculator_c_work}/grammar.dot"
+    VERBATIM)
+add_executable(calculator-c EXCLUDE_FROM_ALL "${calculator_c_work}/parser.c")
+set_target_properties(calculator-c PROPERTIES
+    C_STANDARD 99 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)

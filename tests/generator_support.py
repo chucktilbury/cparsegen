@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 import shutil
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -13,6 +14,8 @@ FIXTURE = ROOT / "tests/fixtures/shortest.cpg"
 
 
 class GeneratorTestCase(unittest.TestCase):
+    backend = "cwhip"
+
     @classmethod
     def setUpClass(cls):
         cls.generator = Path(os.environ.get("CPARSEGEN_EXECUTABLE", ROOT / "bin/cparsegen"))
@@ -45,25 +48,41 @@ class GeneratorTestCase(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.directory = Path(self.temporary.name)
-        self.generated = self.directory / "generated.cw"
+        self.generated = self.directory / (
+            "generated.c" if self.backend == "c" else "generated.cw"
+        )
         self.graph = self.directory / "grammar.dot"
 
-    def generate(self, grammar=FIXTURE):
+    def generate(self, grammar=FIXTURE, backend=None):
+        backend = backend or self.backend
+        generated = self.generated.with_suffix(".c" if backend == "c" else ".cw")
         return subprocess.run(
-            [str(self.generator), str(grammar), str(self.generated), str(self.graph)],
+            [str(self.generator), *(["--target", "c"] if backend == "c" else []),
+             str(grammar), str(generated), str(self.graph)],
             capture_output=True,
             text=True,
             timeout=60,
         )
 
-    def compile_grammar(self, text):
+    def compile_grammar(self, text, backend=None):
+        backend = backend or self.backend
         grammar = self.directory / "input.cpg"
         grammar.write_text(text)
-        result = self.generate(grammar)
+        result = self.generate(grammar, backend)
         self.assertEqual(result.returncode, 0, result.stderr)
-        executable = self.directory / "parser"
+        executable = self.directory / f"parser-{backend}"
+        generated = self.generated.with_suffix(".c" if backend == "c" else ".cw")
+        if backend == "c":
+            compiler = os.environ.get("CPARSEGEN_C_COMPILER")
+            command = [
+                *([compiler] if compiler else shlex.split(os.environ.get("CC", "cc"))),
+                "-std=c99", "-Wall", "-Wextra", "-Werror", "-pedantic",
+                str(generated), "-o", str(executable),
+            ]
+        else:
+            command = [str(self.compiler), str(generated), "-o", str(executable)]
         result = subprocess.run(
-            [str(self.compiler), str(self.generated), "-o", str(executable)],
+            command,
             capture_output=True, text=True, timeout=120,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
