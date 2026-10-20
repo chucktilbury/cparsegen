@@ -2,9 +2,14 @@
 #include "parser.c"
 
 typedef struct {
+    const Node *name;
+    int initialized;
+} Symbol;
+
+typedef struct {
     const Context *parser;
     const CpgVisitor *visitor;
-    const Node **symbols;
+    Symbol *symbols;
     size_t count, capacity;
     size_t depth;
     const char *problem;
@@ -19,7 +24,7 @@ static CpgVisit semantic_error(Compiler *compiler, const Node *node, const char 
 
 static size_t find_symbol(const Compiler *compiler, const Node *name) {
     for (size_t i = 0; i < compiler->count; ++i) {
-        const Node *symbol = compiler->symbols[i];
+        const Node *symbol = compiler->symbols[i].name;
         if (cpg_node_text_length(symbol) == cpg_node_text_length(name) &&
             !memcmp(cpg_node_text(compiler->parser, symbol),
                     cpg_node_text(compiler->parser, name), cpg_node_text_length(name))) {
@@ -31,8 +36,12 @@ static size_t find_symbol(const Compiler *compiler, const Node *name) {
 
 static CpgVisit check_name(const Node *node, void *user) {
     Compiler *compiler = user;
-    if (find_symbol(compiler, node) == compiler->count) {
+    size_t index = find_symbol(compiler, node);
+    if (index == compiler->count) {
         return semantic_error(compiler, node, "use before declaration (unknown name)");
+    }
+    if (!compiler->symbols[index].initialized) {
+        return semantic_error(compiler, node, "read before definite initialization");
     }
     return CPG_CONTINUE;
 }
@@ -52,30 +61,86 @@ static CpgVisit check_declaration(const Node *node, void *user) {
         return semantic_error(compiler, name, "duplicate declaration");
     }
     /* The new binding is not visible in its own initializer. */
-    CpgVisit result = cpg_dispatch(cpg_child_at(node, 3), compiler->visitor, user);
-    if (result != CPG_CONTINUE) return result;
+    int initialized = cpg_child_count(node) > 3;
+    if (initialized) {
+        CpgVisit result = cpg_dispatch(cpg_child_at(node, 3), compiler->visitor, user);
+        if (result != CPG_CONTINUE) return result;
+    }
     if (compiler->count == compiler->capacity) {
         size_t capacity = compiler->capacity ? compiler->capacity * 2 : 8;
         if (capacity < compiler->capacity ||
             capacity > (size_t)-1 / sizeof(*compiler->symbols)) {
             return semantic_error(compiler, name, "symbol table too large");
         }
-        const Node **symbols = realloc(compiler->symbols, capacity * sizeof(*symbols));
+        Symbol *symbols = realloc(compiler->symbols, capacity * sizeof(*symbols));
         if (!symbols) return semantic_error(compiler, name, "symbol table allocation failed");
         compiler->symbols = symbols;
         compiler->capacity = capacity;
     }
-    compiler->symbols[compiler->count++] = name;
+    compiler->symbols[compiler->count++] = (Symbol){name, initialized};
     return CPG_CONTINUE;
 }
 
 static CpgVisit check_assignment(const Node *node, void *user) {
     Compiler *compiler = user;
     const Node *name = cpg_child_at(node, 0);
-    if (find_symbol(compiler, name) == compiler->count) {
+    size_t index = find_symbol(compiler, name);
+    if (index == compiler->count) {
         return semantic_error(compiler, name, "assignment to unknown name");
     }
-    return cpg_dispatch(cpg_child_at(node, 2), compiler->visitor, user);
+    CpgVisit result = cpg_dispatch(cpg_child_at(node, 2), compiler->visitor, user);
+    if (result == CPG_CONTINUE) compiler->symbols[index].initialized = 1;
+    return result;
+}
+
+static unsigned char *save_initialization(Compiler *compiler, const Node *node) {
+    unsigned char *state = malloc(compiler->count ? compiler->count : 1);
+    if (!state) {
+        semantic_error(compiler, node, "initialization state allocation failed");
+        return NULL;
+    }
+    for (size_t i = 0; i < compiler->count; ++i) {
+        state[i] = (unsigned char)compiler->symbols[i].initialized;
+    }
+    return state;
+}
+
+static void restore_initialization(Compiler *compiler, const unsigned char *state,
+                                   size_t count) {
+    /* Keep textual bindings, including declarations in a skipped body. */
+    for (size_t i = 0; i < compiler->count; ++i) {
+        compiler->symbols[i].initialized = i < count ? state[i] : 0;
+    }
+}
+
+static CpgVisit check_control(const Node *node, void *user) {
+    Compiler *compiler = user;
+    CpgVisit result = cpg_dispatch(cpg_child_at(node, 2), compiler->visitor, user);
+    if (result != CPG_CONTINUE) return result;
+    size_t entry_count = compiler->count;
+    unsigned char *entry = save_initialization(compiler, node);
+    if (!entry) return CPG_ERROR;
+    result = cpg_dispatch(cpg_child_at(node, 4), compiler->visitor, user);
+    if (result == CPG_CONTINUE && cpg_child_count(node) > 5) {
+        size_t then_count = compiler->count;
+        unsigned char *then_state = save_initialization(compiler, node);
+        if (!then_state) {
+            free(entry);
+            return CPG_ERROR;
+        }
+        restore_initialization(compiler, entry, entry_count);
+        result = cpg_dispatch(cpg_child_at(node, 6), compiler->visitor, user);
+        for (size_t i = 0; i < compiler->count; ++i) {
+            compiler->symbols[i].initialized =
+                compiler->symbols[i].initialized && i < then_count && then_state[i];
+        }
+        free(then_state);
+    } else {
+        /* An if without else or a while body may never execute. */
+        restore_initialization(compiler, entry, entry_count);
+    }
+    free(entry);
+    return result;
 }
 
 static CpgVisit dispatch_children(const Node *node, void *user) {
@@ -142,6 +207,7 @@ static void emit_indent(const Compiler *compiler) {
 static CpgVisit emit_store(const Node *node, void *user) {
     Compiler *compiler = user;
     int declaration = !strcmp(cpg_node_kind(node), "declaration");
+    if (declaration && cpg_child_count(node) == 3) return CPG_CONTINUE;
     const Node *name = cpg_child_at(node, declaration ? 1 : 0);
     const Node *value = cpg_child_at(node, declaration ? 3 : 2);
     emit_indent(compiler);
@@ -261,6 +327,8 @@ int main(int argc, char **argv) {
         CpgVisitor validator = {0};
         validator.on_rule_declaration = check_declaration;
         validator.on_rule_assignment = check_assignment;
+        validator.on_rule_conditional = check_control;
+        validator.on_rule_loop = check_control;
         validator.on_token_IDENT = check_name;
         validator.on_token_INTEGER = check_integer;
         validator.on_node = dispatch_children;

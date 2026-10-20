@@ -20,7 +20,11 @@ and tests compile and execute that C and assert the arithmetic result.
 Its incremental [statement compiler](../examples/compiler/STATEMENTS.md)
 demonstrates an application-owned symbol table surviving across declarations,
 assignments, print statements, and nested `if`/`else`/`while` blocks, with
-source-order semantic validation and C emission. Storage is program-wide;
+source-order semantic validation, control-flow-sensitive definite-assignment
+checking, and C emission. Declarations may omit initializers; reads require
+initialization on every incoming path. Both `if`/`else` arms must establish it;
+an `if` without `else` or a possibly zero-iteration `while` cannot. This is
+opt-in compiler behavior, not a parser restriction. Storage is program-wide;
 visitor dispatch recursively emits conditions and bodies without introducing
 lexical scopes. Generated parsers remain syntax-only.
 
