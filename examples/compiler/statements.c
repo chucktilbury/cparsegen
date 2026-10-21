@@ -248,9 +248,58 @@ static CpgVisit check_arguments(Compiler *compiler, const Node *arguments,
     return CPG_CONTINUE;
 }
 
+typedef struct {
+    const char *name;
+    size_t arity;
+    Type parameter_type;
+    int output;
+} Builtin;
+
+static const Builtin builtins[] = {
+    {"read_int", 0, TYPE_INT, 0},
+    {"min", 2, TYPE_INT, 0},
+    {"max", 2, TYPE_INT, 0},
+    {"abs", 1, TYPE_INT, 0},
+    {"print_int", 1, TYPE_INT, 1},
+    {"println_int", 1, TYPE_INT, 1},
+    {"print_bool", 1, TYPE_BOOL, 1},
+    {"println_bool", 1, TYPE_BOOL, 1}
+};
+
+/* User functions retain precedence, so existing identifiers are not reserved. */
+static const Builtin *find_builtin(const Compiler *compiler, const Node *name) {
+    if (find_function(compiler, name) != compiler->function_count) return NULL;
+    for (size_t i = 0; i < sizeof(builtins) / sizeof(*builtins); ++i) {
+        if (cpg_node_text_length(name) == strlen(builtins[i].name) &&
+            !memcmp(cpg_node_text(compiler->parser, name),
+                    builtins[i].name, strlen(builtins[i].name))) return &builtins[i];
+    }
+    return NULL;
+}
+
+static CpgVisit check_builtin(Compiler *compiler, const Node *node,
+                              const Builtin *builtin) {
+    const Node *arguments = cpg_child_at(node, 2);
+    if ((cpg_child_count(arguments) + 1) / 2 != builtin->arity)
+        return semantic_error(compiler, cpg_child_at(node, 0), "argument count mismatch");
+    for (size_t i = 0; i < cpg_child_count(arguments); i += 2) {
+        CpgVisit result = require_type(compiler, cpg_child_at(arguments, i),
+                                      builtin->parameter_type, "argument type mismatch");
+        if (result != CPG_CONTINUE) return result;
+    }
+    compiler->value_type = TYPE_INT;
+    return CPG_CONTINUE;
+}
+
 static CpgVisit check_call(const Node *node, void *user) {
     Compiler *compiler = user;
     const Node *name = cpg_child_at(node, 0);
+    const Builtin *builtin = find_builtin(compiler, name);
+    if (builtin) {
+        if (builtin->output)
+            return semantic_error(compiler, name, "output builtin requires a statement");
+        return check_builtin(compiler, node, builtin);
+    }
     size_t index = find_function(compiler, name);
     if (index == compiler->function_count) {
         return semantic_error(compiler, name, "unknown function");
@@ -261,6 +310,14 @@ static CpgVisit check_call(const Node *node, void *user) {
         return semantic_error(compiler, name, "argument count mismatch");
     }
     return check_arguments(compiler, arguments, &compiler->functions[index]);
+}
+
+static CpgVisit check_call_statement(const Node *node, void *user) {
+    Compiler *compiler = user;
+    const Node *call = cpg_child_at(node, 0);
+    const Builtin *builtin = find_builtin(compiler, cpg_child_at(call, 0));
+    if (builtin) return check_builtin(compiler, call, builtin);
+    return check_call(call, user);
 }
 
 static CpgVisit check_return(const Node *node, void *user) {
@@ -826,10 +883,10 @@ static CpgVisit emit_method_statement(const Node *node, void *user) {
 static CpgVisit emit_output(const Node *node, void *user) {
     Compiler *compiler = user;
     emit_indent(compiler);
-    fputs("if (printf(\"%\" PRId32 \"\\n\", (int32_t)", stdout);
+    fputs("cpg_println_int((int32_t)", stdout);
     CpgVisit result = cpg_dispatch(cpg_child_at(node, 1), compiler->visitor, user);
     if (result != CPG_CONTINUE) return result;
-    fputs(") < 0) exit(EXIT_FAILURE);\n", stdout);
+    fputs(");\n", stdout);
     return ferror(stdout) ? CPG_ERROR : CPG_CONTINUE;
 }
 
@@ -868,15 +925,25 @@ static CpgVisit emit_control(const Node *node, void *user) {
 
 static CpgVisit emit_call(const Node *node, void *user) {
     Compiler *compiler = user;
+    const Builtin *builtin = find_builtin(compiler, cpg_child_at(node, 0));
     size_t index = find_function(compiler, cpg_child_at(node, 0));
-    if (index == compiler->function_count) {
+    if (!builtin && index == compiler->function_count) {
         return semantic_error(compiler, node, "unresolved function during emission");
     }
-    fprintf(stdout, "cpg_f%zu(", index);
+    if (builtin) fprintf(stdout, "cpg_%s(", builtin->name);
+    else fprintf(stdout, "cpg_f%zu(", index);
     CpgVisit result = cpg_dispatch(cpg_child_at(node, 2), compiler->visitor, user);
     if (result != CPG_CONTINUE) return result;
     fputs(") ", stdout);
     return ferror(stdout) ? CPG_ERROR : CPG_CONTINUE;
+}
+
+static CpgVisit emit_call_statement(const Node *node, void *user) {
+    emit_indent(user);
+    fputs("(void)", stdout);
+    CpgVisit result = emit_call(cpg_child_at(node, 0), user);
+    fputs(";\n", stdout);
+    return result != CPG_CONTINUE || ferror(stdout) ? CPG_ERROR : CPG_CONTINUE;
 }
 
 static CpgVisit emit_return(const Node *node, void *user) {
@@ -948,6 +1015,73 @@ static CpgVisit emit_program(const Node *root, void *user) {
           "}\n\n"
           "int32_t cpg_mul(int32_t left, int32_t right) {\n"
           "    return cpg_checked((int_least64_t)left * right, \"*\");\n"
+          "}\n\n"
+          "int32_t cpg_min(int32_t left, int32_t right) {\n"
+          "    return left < right ? left : right;\n"
+          "}\n\n"
+          "int32_t cpg_max(int32_t left, int32_t right) {\n"
+          "    return left > right ? left : right;\n"
+          "}\n\n"
+          "int32_t cpg_abs(int32_t value) {\n"
+          "    return cpg_checked(value < 0 ? -(int_least64_t)value : value, \"abs\");\n"
+          "}\n\n"
+          "void cpg_io_fail(const char *message) {\n"
+          "    fprintf(stderr, \"%s\\n\", message);\n"
+          "    exit(EXIT_FAILURE);\n"
+          "}\n\n"
+          "void cpg_flush(void) {\n"
+          "    if (fflush(stdout)) cpg_io_fail(\"output error\");\n"
+          "}\n\n"
+          "void cpg_print_int(int32_t value) {\n"
+          "    if (printf(\"%\" PRId32, value) < 0) cpg_io_fail(\"output error\");\n"
+          "}\n\n"
+          "void cpg_print_bool(_Bool value) {\n"
+          "    if (fputs(value ? \"true\" : \"false\", stdout) == EOF)\n"
+          "        cpg_io_fail(\"output error\");\n"
+          "}\n\n"
+          "void cpg_newline(void) {\n"
+          "    if (putchar('\\n') == EOF) cpg_io_fail(\"output error\");\n"
+          "}\n\n"
+          "void cpg_println_int(int32_t value) {\n"
+          "    cpg_print_int(value);\n"
+          "    cpg_newline();\n"
+          "}\n\n"
+          "void cpg_println_bool(_Bool value) {\n"
+          "    cpg_print_bool(value);\n"
+          "    cpg_newline();\n"
+          "}\n\n"
+          "int cpg_space(int ch) {\n"
+          "    return ch == ' ' || ch == '\\t' || ch == '\\n' ||\n"
+          "           ch == '\\r' || ch == '\\f' || ch == '\\v';\n"
+          "}\n\n"
+          "int32_t cpg_read_int(void) {\n"
+          "    unsigned long value = 0;\n"
+          "    int ch, negative = 0, digits = 0, malformed = 0, range = 0;\n"
+          "    cpg_flush();\n"
+          "    do { ch = fgetc(stdin); } while (cpg_space(ch));\n"
+          "    if (ch == EOF) {\n"
+          "        cpg_io_fail(ferror(stdin) ? \"input error\" : \"input EOF\");\n"
+          "    }\n"
+          "    if (ch == '+' || ch == '-') {\n"
+          "        negative = ch == '-';\n"
+          "        ch = fgetc(stdin);\n"
+          "    }\n"
+          "    while (ch != EOF && !cpg_space(ch)) {\n"
+          "        if (ch < '0' || ch > '9') malformed = 1;\n"
+          "        else {\n"
+          "            unsigned long digit = (unsigned long)(ch - '0');\n"
+          "            digits = 1;\n"
+          "            if (value > (2147483648UL - digit) / 10) range = 1;\n"
+          "            else if (!range) value = value * 10 + digit;\n"
+          "        }\n"
+          "        ch = fgetc(stdin);\n"
+          "    }\n"
+          "    if (ferror(stdin)) cpg_io_fail(\"input error\");\n"
+          "    if (!digits || malformed) cpg_io_fail(\"input malformed integer\");\n"
+          "    if (range || (!negative && value > 2147483647UL))\n"
+          "        cpg_io_fail(\"input integer outside int32 range\");\n"
+          "    if (negative && value == 2147483648UL) return INT32_MIN;\n"
+          "    return negative ? -(int32_t)value : (int32_t)value;\n"
           "}\n\n", stdout);
     if (compiler->class_count) {
         fputs("typedef struct cpg_allocation {\n"
@@ -1058,8 +1192,7 @@ static CpgVisit emit_program(const Node *root, void *user) {
     fputs("int main(void) {\n", stdout);
     if (compiler->class_count)
         fputs("    if (atexit(cpg_cleanup)) {\n"
-              "        fputs(\"object cleanup registration failed\\n\", stderr);\n"
-              "        return EXIT_FAILURE;\n"
+              "        cpg_io_fail(\"object cleanup registration failed\");\n"
               "    }\n", stdout);
     emit_slots(compiler, 0);
     for (size_t i = 0; i < cpg_child_count(root); ++i) {
@@ -1069,7 +1202,7 @@ static CpgVisit emit_program(const Node *root, void *user) {
         CpgVisit result = cpg_dispatch(node, compiler->visitor, user);
         if (result != CPG_CONTINUE) return result;
     }
-    fputs("    return fflush(stdout) ? 1 : 0;\n}\n", stdout);
+    fputs("    cpg_flush();\n    return EXIT_SUCCESS;\n}\n", stdout);
     return ferror(stdout) ? CPG_ERROR : CPG_CONTINUE;
 }
 
@@ -1154,6 +1287,7 @@ int main(int argc, char **argv) {
         validator.on_rule_loop = check_control;
         validator.on_rule_function = check_function;
         validator.on_rule_call = check_call;
+        validator.on_rule_call_statement = check_call_statement;
         validator.on_rule_returning = check_return;
         validator.on_token_IDENT = check_name;
         validator.on_token_INTEGER = check_integer;
@@ -1179,6 +1313,7 @@ int main(int argc, char **argv) {
             emitter.on_rule_loop = emit_control;
             emitter.on_rule_block = emit_block;
             emitter.on_rule_call = emit_call;
+            emitter.on_rule_call_statement = emit_call_statement;
             emitter.on_rule_arguments = dispatch_children;
             emitter.on_rule_returning = emit_return;
             emitter.on_rule_expression = emit_group;

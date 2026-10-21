@@ -319,8 +319,80 @@ Wider source-language numeric types, division, and fractions remain deferred.
 
 Exact primitive typing is unchanged: the compiler rejects `let flag: bool = 1;`
 and `let n: int = true;` even though C could convert either. Booleans still
-use C99 `_Bool`. Printing uses decimal `PRId32` output, casting booleans to
+use C99 `_Bool`. Legacy `print expression;` uses decimal `PRId32` output, casting booleans to
 `int32_t` so they continue to print `0` or `1`.
+
+## Tiny generated runtime
+
+The statement compiler emits a dependency-free C99 runtime alongside each
+program. Its builtins are ordinary call syntax, with exact primitive argument
+types (no implicit int/bool conversions):
+
+| Source API | Contract |
+| --- | --- |
+| `print_int(value);` | Write one `int` as signed decimal, no newline |
+| `println_int(value);` | Same, then a newline |
+| `print_bool(value);` | Write one `bool` as `true` or `false`, no newline |
+| `println_bool(value);` | Same, then a newline |
+| `read_int()` | Read and return one checked `int` from standard input |
+| `min(left, right)` | Return the smaller of two `int` values |
+| `max(left, right)` | Return the larger of two `int` values |
+| `abs(value)` | Return the nonnegative magnitude of an `int`, checked |
+
+The four typed output calls are statements only, not values. Other calls,
+including user functions and methods, may also be used as statements to discard
+their result. Legacy `print expression;` is unchanged: it accepts either primitive,
+prints booleans numerically, and always adds a newline. User-defined free
+functions take precedence over builtins of the same name, regardless of source
+order; builtin names are not new keywords. Variables, classes, and methods
+keep their separate namespaces.
+
+`read_int()` flushes stdout before reading (so prompts are visible), skips ASCII
+whitespace (`space`, tab, newline, carriage return, form feed, vertical tab),
+then reads a complete whitespace-delimited token matching `[+-]?[0-9]+`.
+It consumes the token's terminating whitespace if present. Leading zeros,
+`+0`, `-0`, and a final token with no newline are accepted. Only
+`-2147483648` through `2147483647` are accepted; conversion accumulates a bounded
+magnitude without host overflow or a fixed token buffer. Input is read only by
+the generated program, never by the compiler while emitting C.
+
+Failures print exactly one of these newline-terminated stderr diagnostics and
+call `exit(EXIT_FAILURE)`; there is no sentinel, retry, or uninitialized result:
+
+| Condition | Diagnostic |
+| --- | --- |
+| EOF before a token (including whitespace-only input) | `input EOF` |
+| Bad token, including a bare sign, decimal point, embedded NUL, or non-ASCII whitespace | `input malformed integer` |
+| Syntactically valid integer outside the signed 32-bit range | `input integer outside int32 range` |
+| Standard input stream read failure | `input error` |
+| Output write or flush failure | `output error` |
+| `abs(-2147483648)` | `integer overflow in abs` |
+
+Stream errors take precedence over token errors; malformed tokens take
+precedence over range errors. EOF after a complete valid token succeeds for
+that call; a subsequent read fails with `input EOF`. Previously written output
+is not rolled back on failure. Output is buffered normally, flushed before
+input and at normal program completion, with write/flush errors checked.
+Existing object cleanup runs on these failures through `exit`.
+`min`/`max` are safe across the entire range, including equal values;
+`abs` widens before negation and checks before narrowing, just like arithmetic.
+
+All program I/O is lowered to generated `cpg_*` runtime helpers, including
+legacy print and the final flush; statement lowering does not scatter stdio
+operations into user bodies. For a compiler/runtime integration example:
+
+```sh
+./bin/statement-compiler examples/compiler/statements/runtime.stmt \
+  > build/statement-compiler/runtime.c
+cc -std=c99 -Wall -Wextra -Werror -pedantic \
+  build/statement-compiler/runtime.c -o build/statement-compiler/runtime
+printf '%s\n' -7 | ./build/statement-compiler/runtime
+```
+
+It prints `7true`, `false`, `-7`, `7`, `7`, and `1` on separate lines.
+Keep separate reads in separate statements: sibling operands and function
+arguments retain C's unspecified evaluation order. Strings, files,
+platform-specific APIs, boolean input, and recoverable input errors are deferred.
 
 ## Explicit generation, syntax parsing, and compilation
 
@@ -396,8 +468,8 @@ return types (`int32_t`, `_Bool`, or a class pointer) and their
 parameters are passed by value (object pointers preserve aliases). The visitor reuses each completed symbol table
 and dispatches statements in source order within each body. Declarations
 with initializers and assignments emit stores; declarations without initializers
-emit no store. Print callbacks emit checked `printf` calls,
-using `PRId32` and converting primitive values to `int32_t` for the variadic format.
+emit no store. Print callbacks call `cpg_println_int`, converting primitive
+values to `int32_t`; the runtime owns formatting, stdio, and error handling.
 The block callback dispatches its statement children between C braces.
 Conditional and loop callbacks dispatch the condition and body blocks, emitting
 `if`/`else` and `while` rather than evaluating conditions in the compiler.
@@ -416,7 +488,7 @@ that would depend on it. Initializer expressions remain at their source
 positions, so loop-body declarations reassign their slots on every iteration.
 
 For example, `let x = 2; print x; x = x + 3; print x;` emits this shape
-(expression parentheses/spacing abbreviated; checked helpers omitted):
+(expression parentheses/spacing abbreviated; runtime helpers omitted):
 
 ```c
 #include <stdio.h>
@@ -428,10 +500,11 @@ int main(void) {
     int32_t cpg_v0 = 0;
     (void)cpg_v0;
     cpg_v0 = INT32_C(2);
-    if (printf("%" PRId32 "\n", (int32_t)cpg_v0) < 0) exit(EXIT_FAILURE);
+    cpg_println_int((int32_t)cpg_v0);
     cpg_v0 = cpg_add(cpg_v0, INT32_C(3));
-    if (printf("%" PRId32 "\n", (int32_t)cpg_v0) < 0) exit(EXIT_FAILURE);
-    return fflush(stdout) ? 1 : 0;
+    cpg_println_int((int32_t)cpg_v0);
+    cpg_flush();
+    return EXIT_SUCCESS;
 }
 ```
 
@@ -452,6 +525,7 @@ let name: int = expression;
 let flag: bool;
 name = expression;
 print expression;
+function_name(argument, ...);
 { statements }
 if (expression) { statements }
 if (expression) { statements } else { statements }
@@ -586,7 +660,7 @@ allocation, nesting, work, and result-count limits apply unchanged; this is a
 bounded integration example, not a production language compiler.
 Runtime recursion uses the host C stack with no additional depth check.
 Sibling operands and call arguments follow C's unspecified evaluation order;
-do not rely on the ordering of prints or receiver mutations in sibling calls.
+do not rely on the ordering of input, prints, or receiver mutations in sibling calls.
 Use separate statements when combining reads and mutations of the same object.
 
 ## Tests
@@ -598,8 +672,12 @@ make -C build test
 
 The focused tests generate the real parser, compile the handwritten consumer
 and standalone syntax parser, compile emitted programs with strict C99
-warnings-as-errors, and compare exact execution output. They cover persistent
-symbols and table growth, source order, arithmetic, all comparisons and their
+warnings-as-errors, and compare exact execution output. They cover
+runtime I/O (typed int/bool output, valid signed input, EOF, malformed and
+out-of-range tokens, injected stream write/read/flush errors), min/max and
+checked abs overflow, builtin type/arity errors, user-function precedence,
+and syntax-only acceptance independent of semantic/runtime errors. They also cover
+persistent symbols and table growth, source order, arithmetic, all comparisons and their
 precedence, true/false and nested branches, zero/one/many-iteration loops,
 nested loops/blocks, optional initializers, initializer/assignment ordering,
 both-arm intersection, one-arm/no-else rejection, zero-iteration conservatism,

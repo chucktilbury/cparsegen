@@ -1,0 +1,8 @@
+let value: int = read_int();
+print_int(abs(value));
+println_bool(value < 0);
+println_bool(value == 0);
+println_int(min(value, 0));
+println_int(max(value, abs(value)));
+println_int(abs(value));
+print value < 0;
