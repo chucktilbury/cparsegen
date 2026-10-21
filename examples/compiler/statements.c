@@ -15,7 +15,14 @@ typedef struct {
     Symbol *symbols;
     size_t count;
     int method;
+    int *parameter_types;
 } Function;
+
+typedef struct {
+    const Node *name;
+    Symbol *fields;
+    size_t field_count;
+} Class;
 
 typedef struct {
     const Context *parser;
@@ -26,9 +33,8 @@ typedef struct {
     Function *functions;
     size_t function_count;
     int in_function, falls_through;
-    const Node *class_name;
-    const Node **fields;
-    size_t field_count;
+    Class *classes;
+    size_t class_count;
     int receiver, value_type;
     const char *problem;
     const Node *error;
@@ -44,6 +50,22 @@ static int same_name(const Compiler *compiler, const Node *left, const Node *rig
     return cpg_node_text_length(left) == cpg_node_text_length(right) &&
         !memcmp(cpg_node_text(compiler->parser, left),
                 cpg_node_text(compiler->parser, right), cpg_node_text_length(right));
+}
+
+static int find_class(const Compiler *compiler, const Node *name) {
+    for (size_t i = 0; i < compiler->class_count; ++i)
+        if (same_name(compiler, compiler->classes[i].name, name)) return (int)i + 1;
+    return 0;
+}
+
+static CpgVisit resolve_type(Compiler *compiler, const Node *name, int *type) {
+    if (cpg_node_text_length(name) == 3 &&
+        !memcmp(cpg_node_text(compiler->parser, name), "int", 3)) {
+        *type = 0;
+        return CPG_CONTINUE;
+    }
+    *type = find_class(compiler, name);
+    return *type ? CPG_CONTINUE : semantic_error(compiler, name, "unknown class type");
 }
 
 static size_t find_function(const Compiler *compiler, const Node *name) {
@@ -150,10 +172,14 @@ static CpgVisit require_integer(Compiler *compiler, const Node *node) {
         semantic_error(compiler, node, "type mismatch: expected integer") : CPG_CONTINUE;
 }
 
-static CpgVisit check_arguments(Compiler *compiler, const Node *arguments) {
+static CpgVisit check_arguments(Compiler *compiler, const Node *arguments,
+                                const Function *function) {
     for (size_t i = 0; i < cpg_child_count(arguments); i += 2) {
-        CpgVisit result = require_integer(compiler, cpg_child_at(arguments, i));
+        const Node *argument = cpg_child_at(arguments, i);
+        CpgVisit result = cpg_dispatch(argument, compiler->visitor, compiler);
         if (result != CPG_CONTINUE) return result;
+        if (compiler->value_type != function->parameter_types[i / 2])
+            return semantic_error(compiler, argument, "argument type mismatch");
     }
     compiler->value_type = 0;
     return CPG_CONTINUE;
@@ -171,7 +197,7 @@ static CpgVisit check_call(const Node *node, void *user) {
     if (arity != compiler->functions[index].arity) {
         return semantic_error(compiler, name, "argument count mismatch");
     }
-    return check_arguments(compiler, arguments);
+    return check_arguments(compiler, arguments, &compiler->functions[index]);
 }
 
 static CpgVisit check_return(const Node *node, void *user) {
@@ -199,15 +225,17 @@ static CpgVisit check_function(const Node *node, void *user) {
     local.receiver = function->method;
     CpgVisit result = CPG_CONTINUE;
     if (function->method) {
-        result = add_symbol(&local, compiler->class_name, 1);
+        result = add_symbol(&local, compiler->classes[function->method - 1].name, 1);
         if (result == CPG_CONTINUE) {
-            local.symbols[0].type = 1;
+            local.symbols[0].type = function->method;
             local.symbols[0].name = NULL;
         }
     }
     const Node *parameters = cpg_child_at(node, 3);
     for (size_t i = 0; i < cpg_child_count(parameters) && result == CPG_CONTINUE; i += 2) {
-        result = add_symbol(&local, cpg_child_at(parameters, i), 1);
+        result = add_symbol(&local, cpg_child_at(cpg_child_at(parameters, i), 0), 1);
+        if (result == CPG_CONTINUE)
+            local.symbols[local.count - 1].type = function->parameter_types[i / 2];
     }
     if (result == CPG_CONTINUE) {
         result = cpg_dispatch(cpg_child_at(node, 5), local.visitor, &local);
@@ -226,33 +254,38 @@ static CpgVisit check_function(const Node *node, void *user) {
 
 static CpgVisit collect_functions(const Node *root, Compiler *compiler) {
     size_t count = cpg_child_count(root);
+    compiler->classes = calloc(count ? count : 1, sizeof(*compiler->classes));
+    if (!compiler->classes) return semantic_error(compiler, root, "class table allocation failed");
     for (size_t i = 0; i < cpg_child_count(root); ++i) {
         const Node *node = cpg_child_at(root, i);
         if (strcmp(cpg_node_kind(node), "class_decl")) continue;
-        if (compiler->class_name) {
-            const Node *name = cpg_child_at(node, 1);
-            return semantic_error(compiler, name,
-                                  same_name(compiler, compiler->class_name, name) ?
-                                  "duplicate class" : "only one class declaration is supported");
-        }
-        compiler->class_name = cpg_child_at(node, 1);
+        const Node *name = cpg_child_at(node, 1);
+        if (find_class(compiler, name))
+            return semantic_error(compiler, name, "duplicate class");
+        if (cpg_node_text_length(name) == 3 &&
+            !memcmp(cpg_node_text(compiler->parser, name), "int", 3))
+            return semantic_error(compiler, name, "class name conflicts with integer type");
+        compiler->classes[compiler->class_count++].name = name;
         count += cpg_child_count(node);
-        compiler->fields = calloc(cpg_child_count(node), sizeof(*compiler->fields));
-        if (!compiler->fields) return semantic_error(compiler, node, "field table allocation failed");
+    }
+    for (size_t i = 0; i < cpg_child_count(root); ++i) {
+        const Node *node = cpg_child_at(root, i);
+        if (strcmp(cpg_node_kind(node), "class_decl")) continue;
+        Class *class_info = &compiler->classes[find_class(compiler, cpg_child_at(node, 1)) - 1];
+        class_info->fields = calloc(cpg_child_count(node), sizeof(*class_info->fields));
+        if (!class_info->fields) return semantic_error(compiler, node, "field table allocation failed");
         for (size_t j = 3; j + 1 < cpg_child_count(node); ++j) {
             const Node *field = cpg_child_at(node, j);
             if (strcmp(cpg_node_kind(field), "field")) continue;
             const Node *name = cpg_child_at(field, 1);
             const Node *type = cpg_child_at(field, 3);
-            if (cpg_node_text_length(type) != 3 ||
-                memcmp(cpg_node_text(compiler->parser, type), "int", 3)) {
-                return semantic_error(compiler, type, "unknown field type (expected int)");
-            }
-            for (size_t k = 0; k < compiler->field_count; ++k) {
-                if (same_name(compiler, compiler->fields[k], name))
+            int field_type;
+            if (resolve_type(compiler, type, &field_type) != CPG_CONTINUE) return CPG_ERROR;
+            for (size_t k = 0; k < class_info->field_count; ++k) {
+                if (same_name(compiler, class_info->fields[k].name, name))
                     return semantic_error(compiler, name, "duplicate member");
             }
-            compiler->fields[compiler->field_count++] = name;
+            class_info->fields[class_info->field_count++] = (Symbol){name, 1, field_type};
         }
     }
     compiler->functions = calloc(count ? count : 1, sizeof(*compiler->functions));
@@ -260,26 +293,40 @@ static CpgVisit collect_functions(const Node *root, Compiler *compiler) {
     for (size_t i = 0; i < cpg_child_count(root); ++i) {
         const Node *node = cpg_child_at(root, i);
         int class_decl = !strcmp(cpg_node_kind(node), "class_decl");
+        int owner = class_decl ? find_class(compiler, cpg_child_at(node, 1)) : 0;
         size_t members = class_decl ? cpg_child_count(node) : 1;
         for (size_t j = 0; j < members; ++j) {
             const Node *candidate = class_decl ? cpg_child_at(node, j) : node;
             if (strcmp(cpg_node_kind(candidate), "function")) continue;
             const Node *name = cpg_child_at(candidate, 1);
             for (size_t k = 0; k < compiler->function_count; ++k) {
-                if (compiler->functions[k].method == class_decl &&
+                if (compiler->functions[k].method == owner &&
                     same_name(compiler, compiler->functions[k].name, name))
                     return semantic_error(compiler, name,
                                           class_decl ? "duplicate member" : "duplicate function");
             }
-            for (size_t k = 0; class_decl && k < compiler->field_count; ++k) {
-                if (same_name(compiler, compiler->fields[k], name))
+            Class *class_info = owner ? &compiler->classes[owner - 1] : NULL;
+            for (size_t k = 0; class_info && k < class_info->field_count; ++k) {
+                if (same_name(compiler, class_info->fields[k].name, name))
                     return semantic_error(compiler, name, "duplicate member");
             }
             Function *function = &compiler->functions[compiler->function_count++];
             function->node = candidate;
             function->name = name;
             function->arity = (cpg_child_count(cpg_child_at(candidate, 3)) + 1) / 2;
-            function->method = class_decl;
+            function->method = owner;
+            function->parameter_types = calloc(function->arity ? function->arity : 1,
+                                                sizeof(*function->parameter_types));
+            if (!function->parameter_types)
+                return semantic_error(compiler, name, "parameter table allocation failed");
+            const Node *parameters = cpg_child_at(candidate, 3);
+            for (size_t k = 0; k < function->arity; ++k) {
+                const Node *parameter = cpg_child_at(parameters, k * 2);
+                if (cpg_child_count(parameter) > 1 &&
+                    resolve_type(compiler, cpg_child_at(parameter, 2),
+                                 &function->parameter_types[k]) != CPG_CONTINUE)
+                    return CPG_ERROR;
+            }
         }
     }
     return CPG_CONTINUE;
@@ -379,14 +426,14 @@ static CpgVisit check_class(const Node *node, void *user) {
 }
 
 static CpgVisit check_class_name(Compiler *compiler, const Node *name) {
-    if (!compiler->class_name || !same_name(compiler, compiler->class_name, name))
+    if (!find_class(compiler, name))
         return semantic_error(compiler, name, "unknown class");
     return CPG_CONTINUE;
 }
 
 static CpgVisit check_construction(const Node *node, void *user) {
     Compiler *compiler = user;
-    compiler->value_type = 1;
+    compiler->value_type = find_class(compiler, cpg_child_at(node, 1));
     return check_class_name(compiler, cpg_child_at(node, 1));
 }
 
@@ -395,66 +442,82 @@ static CpgVisit check_object_declaration(const Node *node, void *user) {
     const Node *name = cpg_child_at(node, 1);
     CpgVisit result = check_class_name(compiler, cpg_child_at(node, 3));
     if (result != CPG_CONTINUE) return result;
+    int type = find_class(compiler, cpg_child_at(node, 3));
     int initialized = cpg_child_count(node) > 5;
     if (initialized) {
         result = cpg_dispatch(cpg_child_at(node, 5), compiler->visitor, user);
         if (result != CPG_CONTINUE) return result;
-        if (!compiler->value_type) return semantic_error(compiler, name, "initializer type mismatch");
+        if (compiler->value_type != type)
+            return semantic_error(compiler, name, "initializer type mismatch");
     }
     result = add_symbol(compiler, name, initialized);
-    if (result == CPG_CONTINUE) compiler->symbols[compiler->count - 1].type = 1;
+    if (result == CPG_CONTINUE) compiler->symbols[compiler->count - 1].type = type;
     return result;
 }
 
-static size_t find_member(const Compiler *compiler, const Node *name) {
-    for (size_t i = 0; i < compiler->field_count; ++i)
-        if (same_name(compiler, compiler->fields[i], name)) return i;
-    return compiler->field_count;
+static size_t find_member(const Compiler *compiler, int type, const Node *name) {
+    const Class *class_info = &compiler->classes[type - 1];
+    for (size_t i = 0; i < class_info->field_count; ++i)
+        if (same_name(compiler, class_info->fields[i].name, name)) return i;
+    return class_info->field_count;
 }
 
-static size_t find_method(const Compiler *compiler, const Node *name) {
+static size_t find_method(const Compiler *compiler, int type, const Node *name) {
     for (size_t i = 0; i < compiler->function_count; ++i)
-        if (compiler->functions[i].method &&
+        if (compiler->functions[i].method == type &&
             same_name(compiler, compiler->functions[i].name, name)) return i;
     return compiler->function_count;
 }
 
-static CpgVisit check_receiver(const Node *node, Compiler *compiler) {
+static CpgVisit check_path(const Node *node, size_t count, Compiler *compiler) {
     CpgVisit result = check_name(cpg_child_at(node, 0), compiler);
     if (result != CPG_CONTINUE) return result;
-    return compiler->value_type ? CPG_CONTINUE :
-        semantic_error(compiler, cpg_child_at(node, 0), "member access requires object");
+    for (size_t i = 2; i < count; i += 2) {
+        const Node *name = cpg_child_at(node, i);
+        int type = compiler->value_type;
+        if (!type)
+            return semantic_error(compiler, cpg_child_at(node, i - 2),
+                                  "member access requires object");
+        size_t field = find_member(compiler, type, name);
+        if (field == compiler->classes[type - 1].field_count)
+            return semantic_error(compiler, name, "unknown field");
+        compiler->value_type = compiler->classes[type - 1].fields[field].type;
+    }
+    return CPG_CONTINUE;
 }
 
 static CpgVisit check_member(const Node *node, void *user) {
     Compiler *compiler = user;
-    CpgVisit result = check_receiver(node, compiler);
-    if (result != CPG_CONTINUE) return result;
-    const Node *name = cpg_child_at(node, 2);
-    if (find_member(compiler, name) == compiler->field_count)
-        return semantic_error(compiler, name, "unknown field");
-    compiler->value_type = 0;
-    return CPG_CONTINUE;
+    return check_path(node, cpg_child_count(node), compiler);
 }
 
 static CpgVisit check_member_assignment(const Node *node, void *user) {
     Compiler *compiler = user;
     CpgVisit result = check_member(cpg_child_at(node, 0), user);
     if (result != CPG_CONTINUE) return result;
-    return require_integer(compiler, cpg_child_at(node, 2));
+    int type = compiler->value_type;
+    result = cpg_dispatch(cpg_child_at(node, 2), compiler->visitor, user);
+    if (result == CPG_CONTINUE && type != compiler->value_type)
+        return semantic_error(compiler, cpg_child_at(node, 0), "field assignment type mismatch");
+    return result;
 }
 
 static CpgVisit check_method_call(const Node *node, void *user) {
     Compiler *compiler = user;
-    CpgVisit result = check_receiver(node, compiler);
+    const Node *path = cpg_child_at(node, 0);
+    size_t count = cpg_child_count(path);
+    CpgVisit result = check_path(path, count - 2, compiler);
     if (result != CPG_CONTINUE) return result;
-    const Node *name = cpg_child_at(node, 2);
-    size_t index = find_method(compiler, name);
+    if (!compiler->value_type)
+        return semantic_error(compiler, cpg_child_at(path, count - 3),
+                              "member access requires object");
+    const Node *name = cpg_child_at(path, count - 1);
+    size_t index = find_method(compiler, compiler->value_type, name);
     if (index == compiler->function_count) return semantic_error(compiler, name, "unknown method");
-    const Node *arguments = cpg_child_at(node, 4);
+    const Node *arguments = cpg_child_at(node, 2);
     if ((cpg_child_count(arguments) + 1) / 2 != compiler->functions[index].arity)
         return semantic_error(compiler, name, "method argument count mismatch");
-    return check_arguments(compiler, arguments);
+    return check_arguments(compiler, arguments, &compiler->functions[index]);
 }
 
 static CpgVisit check_output(const Node *node, void *user) {
@@ -466,7 +529,8 @@ static CpgVisit emit_name(const Node *node, void *user) {
     size_t index = find_symbol(compiler, node);
     if (index == compiler->count) return semantic_error(compiler, node, "unresolved name during emission");
     /* Numeric slots cannot collide with C keywords, libc names, or user names. */
-    if (compiler->receiver && index == 0) fputs("(*cpg_self) ", stdout);
+    compiler->value_type = compiler->symbols[index].type;
+    if (compiler->receiver && index == 0) fputs("cpg_self ", stdout);
     else fprintf(stdout, "cpg_v%zu ", index);
     return ferror(stdout) ? CPG_ERROR : CPG_CONTINUE;
 }
@@ -532,19 +596,35 @@ static CpgVisit emit_store(const Node *node, void *user) {
 }
 
 static CpgVisit emit_construction(const Node *node, void *user) {
-    (void)node;
-    (void)user;
-    fputs("(cpg_object){0} ", stdout);
+    Compiler *compiler = user;
+    compiler->value_type = find_class(compiler, cpg_child_at(node, 1));
+    fprintf(stdout, "cpg_new%d() ", compiler->value_type);
+    return ferror(stdout) ? CPG_ERROR : CPG_CONTINUE;
+}
+
+static int path_type(Compiler *compiler, const Node *node, size_t count) {
+    int type = compiler->symbols[find_symbol(compiler, cpg_child_at(node, 0))].type;
+    for (size_t i = 2; i < count; i += 2) {
+        size_t field = find_member(compiler, type, cpg_child_at(node, i));
+        type = compiler->classes[type - 1].fields[field].type;
+    }
+    return type;
+}
+
+static CpgVisit emit_path(const Node *node, size_t count, Compiler *compiler) {
+    if (count == 1) return emit_name(cpg_child_at(node, 0), compiler);
+    int type = path_type(compiler, node, count - 2);
+    size_t field = find_member(compiler, type, cpg_child_at(node, count - 1));
+    fprintf(stdout, "((cpg_class%d *)cpg_require(", type);
+    CpgVisit result = emit_path(node, count - 2, compiler);
+    if (result != CPG_CONTINUE) return result;
+    fprintf(stdout, "))->cpg_field%zu ", field);
+    compiler->value_type = compiler->classes[type - 1].fields[field].type;
     return ferror(stdout) ? CPG_ERROR : CPG_CONTINUE;
 }
 
 static CpgVisit emit_member(const Node *node, void *user) {
-    Compiler *compiler = user;
-    fputc('(', stdout);
-    CpgVisit result = emit_name(cpg_child_at(node, 0), user);
-    if (result != CPG_CONTINUE) return result;
-    fprintf(stdout, ").cpg_field%zu ", find_member(compiler, cpg_child_at(node, 2)));
-    return ferror(stdout) ? CPG_ERROR : CPG_CONTINUE;
+    return emit_path(node, cpg_child_count(node), user);
 }
 
 static CpgVisit emit_member_assignment(const Node *node, void *user) {
@@ -560,11 +640,15 @@ static CpgVisit emit_member_assignment(const Node *node, void *user) {
 
 static CpgVisit emit_method_call(const Node *node, void *user) {
     Compiler *compiler = user;
-    fprintf(stdout, "cpg_f%zu(&(", find_method(compiler, cpg_child_at(node, 2)));
-    CpgVisit result = emit_name(cpg_child_at(node, 0), user);
+    const Node *path = cpg_child_at(node, 0);
+    size_t count = cpg_child_count(path);
+    int type = path_type(compiler, path, count - 2);
+    fprintf(stdout, "cpg_f%zu(cpg_require(",
+            find_method(compiler, type, cpg_child_at(path, count - 1)));
+    CpgVisit result = emit_path(path, count - 2, compiler);
     if (result != CPG_CONTINUE) return result;
     fputc(')', stdout);
-    const Node *arguments = cpg_child_at(node, 4);
+    const Node *arguments = cpg_child_at(node, 2);
     if (cpg_child_count(arguments)) fputs(", ", stdout);
     result = cpg_dispatch(arguments, compiler->visitor, user);
     fputs(") ", stdout);
@@ -646,14 +730,22 @@ static CpgVisit emit_return(const Node *node, void *user) {
     return ferror(stdout) ? CPG_ERROR : CPG_CONTINUE;
 }
 
+static void emit_type(int type) {
+    if (type) fprintf(stdout, "cpg_class%d *", type);
+    else fputs("double", stdout);
+}
+
 static void emit_signature(const Function *function, size_t index, int definition) {
     fprintf(stdout, "double cpg_f%zu(", index);
-    if (function->method) fputs(definition ? "cpg_object *cpg_self" : "cpg_object *", stdout);
+    if (function->method) {
+        emit_type(function->method);
+        if (definition) fputs("cpg_self", stdout);
+    }
     else if (!function->arity) fputs("void", stdout);
     for (size_t i = 0; i < function->arity; ++i) {
         if (i || function->method) fputs(", ", stdout);
-        fputs("double", stdout);
-        if (definition) fprintf(stdout, " cpg_v%zu", i + function->method);
+        emit_type(function->parameter_types[i]);
+        if (definition) fprintf(stdout, " cpg_v%zu", i + (function->method != 0));
     }
     fputc(')', stdout);
 }
@@ -666,9 +758,10 @@ static void emit_slots(const Compiler *compiler, size_t parameters) {
             continue;
         }
         if (i >= parameters) {
-            fprintf(stdout, "    %s cpg_v%zu = %s;\n",
-                    compiler->symbols[i].type ? "cpg_object" : "double", i,
-                    compiler->symbols[i].type ? "{0}" : "0.0");
+            fputs("    ", stdout);
+            emit_type(compiler->symbols[i].type);
+            fprintf(stdout, " cpg_v%zu = %s;\n", i,
+                    compiler->symbols[i].type ? "NULL" : "0.0");
         }
         fprintf(stdout, "    (void)cpg_v%zu;\n", i);
     }
@@ -677,12 +770,60 @@ static void emit_slots(const Compiler *compiler, size_t parameters) {
 static CpgVisit emit_program(const Node *root, void *user) {
     Compiler *compiler = user;
     fputs("#include <stdio.h>\n#include <stdlib.h>\n\n", stdout);
-    if (compiler->class_name) {
-        fputs("typedef struct {\n", stdout);
-        for (size_t i = 0; i < compiler->field_count; ++i)
-            fprintf(stdout, "    double cpg_field%zu;\n", i);
-        if (!compiler->field_count) fputs("    unsigned char cpg_empty;\n", stdout);
-        fputs("} cpg_object;\n\n", stdout);
+    if (compiler->class_count) {
+        fputs("typedef struct cpg_allocation {\n"
+              "    void *object;\n"
+              "    struct cpg_allocation *next;\n"
+              "} cpg_allocation;\n"
+              "cpg_allocation *cpg_allocations;\n\n"
+              "void cpg_cleanup(void) {\n"
+              "    while (cpg_allocations) {\n"
+              "        cpg_allocation *entry = cpg_allocations;\n"
+              "        cpg_allocations = entry->next;\n"
+              "        free(entry->object);\n"
+              "        free(entry);\n"
+              "    }\n"
+              "}\n\n"
+              "void *cpg_allocate(size_t size) {\n"
+              "    cpg_allocation *entry = malloc(sizeof(*entry));\n"
+              "    void *object = malloc(size);\n"
+              "    if (!entry || !object) {\n"
+              "        free(entry);\n"
+              "        free(object);\n"
+              "        fputs(\"object allocation failed\\n\", stderr);\n"
+              "        exit(EXIT_FAILURE);\n"
+              "    }\n"
+              "    entry->object = object;\n"
+              "    entry->next = cpg_allocations;\n"
+              "    cpg_allocations = entry;\n"
+              "    return object;\n"
+              "}\n\n"
+              "void *cpg_require(void *object) {\n"
+              "    if (!object) {\n"
+              "        fputs(\"uninitialized object reference\\n\", stderr);\n"
+              "        exit(EXIT_FAILURE);\n"
+              "    }\n"
+              "    return object;\n"
+              "}\n\n", stdout);
+        for (size_t i = 0; i < compiler->class_count; ++i)
+            fprintf(stdout, "typedef struct cpg_class%zu cpg_class%zu;\n", i + 1, i + 1);
+        for (size_t i = 0; i < compiler->class_count; ++i) {
+            const Class *class_info = &compiler->classes[i];
+            fprintf(stdout, "\nstruct cpg_class%zu {\n", i + 1);
+            for (size_t j = 0; j < class_info->field_count; ++j) {
+                fputs("    ", stdout);
+                emit_type(class_info->fields[j].type);
+                fprintf(stdout, " cpg_field%zu;\n", j);
+            }
+            if (!class_info->field_count) fputs("    unsigned char cpg_empty;\n", stdout);
+            fputs("};\n", stdout);
+        }
+        for (size_t i = 0; i < compiler->class_count; ++i) {
+            fprintf(stdout, "\ncpg_class%zu *cpg_new%zu(void) {\n"
+                    "    cpg_class%zu *object = cpg_allocate(sizeof(*object));\n"
+                    "    *object = (cpg_class%zu){0};\n"
+                    "    return object;\n}\n\n", i + 1, i + 1, i + 1, i + 1);
+        }
     }
     for (size_t i = 0; i < compiler->function_count; ++i) {
         emit_signature(&compiler->functions[i], i, 0);
@@ -697,12 +838,17 @@ static CpgVisit emit_program(const Node *root, void *user) {
         local.receiver = function->method;
         emit_signature(function, i, 1);
         fputs(" {\n", stdout);
-        emit_slots(&local, function->arity + function->method);
+        emit_slots(&local, function->arity + (function->method != 0));
         CpgVisit result = cpg_dispatch(cpg_child_at(function->node, 5), local.visitor, &local);
         if (result != CPG_CONTINUE) return result;
         fputs("}\n\n", stdout);
     }
     fputs("int main(void) {\n", stdout);
+    if (compiler->class_count)
+        fputs("    if (atexit(cpg_cleanup)) {\n"
+              "        fputs(\"object cleanup registration failed\\n\", stderr);\n"
+              "        return EXIT_FAILURE;\n"
+              "    }\n", stdout);
     emit_slots(compiler, 0);
     for (size_t i = 0; i < cpg_child_count(root); ++i) {
         const Node *node = cpg_child_at(root, i);
@@ -842,9 +988,13 @@ int main(int argc, char **argv) {
                 fputs("statement-compiler: C source output failed\n", stderr);
             } else status = 0;
         }
-        for (size_t i = 0; i < compiler.function_count; ++i) free(compiler.functions[i].symbols);
+        for (size_t i = 0; i < compiler.function_count; ++i) {
+            free(compiler.functions[i].symbols);
+            free(compiler.functions[i].parameter_types);
+        }
         free(compiler.functions);
-        free(compiler.fields);
+        for (size_t i = 0; i < compiler.class_count; ++i) free(compiler.classes[i].fields);
+        free(compiler.classes);
     }
     free(compiler.symbols);
     cpg_destroy(&parser);

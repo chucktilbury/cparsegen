@@ -93,22 +93,23 @@ class StatementCompilerTests(GeneratorTestCase):
     def test_object_sample_layout_and_dispatch(self):
         emitted = self.assert_program(
             (EXAMPLES / "statements/objects.stmt").read_text(),
-            "0\n10\n15\n4\n2\n15\n",
+            "0\n15\n15\n4\n3\n4\n",
         )
         self.assertIn(
-            "typedef struct {\n    double cpg_field0;\n"
-            "    double cpg_field1;\n} cpg_object;", emitted,
+            "struct cpg_class1 {\n    double cpg_field0;\n"
+            "    double cpg_field1;\n};", emitted,
         )
-        self.assertIn("double cpg_f0(cpg_object *, double);", emitted)
-        self.assertIn("double cpg_f0(cpg_object *cpg_self, double cpg_v1)", emitted)
-        self.assertIn("(*cpg_self)", emitted)
-        self.assertIn(").cpg_field0", emitted)
-        self.assertIn("(cpg_object){0}", emitted)
-        self.assertIn("cpg_f1(&(cpg_v", emitted)
-        self.assertLess(emitted.index("} cpg_object;"), emitted.index("double cpg_f0"))
+        self.assertIn("double cpg_f0(cpg_class1 *, double);", emitted)
+        self.assertIn("double cpg_f0(cpg_class1 *cpg_self, double cpg_v1)", emitted)
+        self.assertIn("cpg_require(cpg_self", emitted)
+        self.assertIn("))->cpg_field0", emitted)
+        self.assertIn("*object = (cpg_class1){0};", emitted)
+        self.assertIn("cpg_f1(cpg_require(cpg_v", emitted)
+        self.assertIn("atexit(cpg_cleanup)", emitted)
+        self.assertLess(emitted.index("struct cpg_class1 {"), emitted.index("double cpg_f0"))
         self.assertLess(emitted.index("double cpg_f0"), emitted.index("int main"))
 
-    def test_objects_forward_calls_copy_reset_and_function_locals(self):
+    def test_objects_forward_calls_alias_rebinding_and_function_locals(self):
         self.assert_program(
             "let x = new Box(); x.value = 7; let y = (x); y.value = 9; "
             "print x.value; print y.value; x = y; y = new Box(); "
@@ -118,14 +119,14 @@ class StatementCompilerTests(GeneratorTestCase):
             "fn second(n) { self.value = plus(self.value, n); return self.value; } } "
             "fn plus(a, b) { return a + b; } "
             "fn local(n) { let x: Box = new Box(); x.first(n); return x.value; }",
-            "7\n9\n9\n0\n3\n",
+            "9\n9\n9\n0\n3\n",
         )
         self.assert_program(
             "class Box { field x: int; fn reset() { self = new Box(); return 0; } "
             "fn recurse(n) { if (n == 0) { return self.x; } "
             "self.x = self.x + 1; return self.recurse(n - 1); } } "
             "let b = new Box(); print -1; print b.recurse(4); b.reset(); print b.x;",
-            "-1\n4\n0\n",
+            "-1\n4\n4\n",
         )
         self.assert_program(
             "class main { field printf: int; fn switch(ignored) { return 1; } } "
@@ -156,6 +157,186 @@ class StatementCompilerTests(GeneratorTestCase):
             "24\n23\n2\n",
         )
 
+    def test_multiple_classes_nested_aliases_and_typed_parameters(self):
+        emitted = self.assert_program(
+            (EXAMPLES / "statements/references.stmt").read_text(),
+            "0\n15\n15\n20\n0\n20\n",
+        )
+        self.assertIn("cpg_class2 * cpg_field0;", emitted)
+        self.assertIn("double cpg_f0(cpg_class1 *, cpg_class2 *);", emitted)
+        self.assertIn("double cpg_f3(cpg_class1 *, double);", emitted)
+        self.assertLess(emitted.index("typedef struct cpg_class2"),
+                        emitted.index("struct cpg_class1 {"))
+        self.assert_program(
+            "class A { field value: int; fn get() { return self.value + 1; } } "
+            "class B { field value: int; fn get() { return self.value + 2; } } "
+            "fn get(a: A, b: B) { return a.get() + b.get(); } "
+            "let a = new A(); let b = new B(); a.value = 10; b.value = 20; "
+            "print a.get(); print b.get(); print get(a, b);", "11\n22\n33\n",
+        )
+        self.assert_program(
+            "class Node { field next: Node; field value: int; "
+            "fn set(other: Node, n: int) { self.next = other; "
+            "self.next.value = n; return self.next.value; } "
+            "fn read() { return self.next.next.value; } } "
+            "let a = new Node(); let b = new Node(); print a.set(b, 7); "
+            "b.next = a; print a.next.next.next.value; print a.read(); "
+            "a.next.next.next.value = 9; print b.value; "
+            "let alias = a.next; alias.value = 11; print b.value;",
+            "7\n7\n0\n9\n11\n",
+        )
+        self.assert_program(
+            "class A { field b: B; fn read() { return self.b.read(); } } "
+            "class B { field a: A; fn read() { return self.a.b.value; } field value: int; } "
+            "let a = new A(); a.b = new B(); a.b.a = a; a.b.value = 8; "
+            "print a.read();", "8\n",
+        )
+        self.assert_program(
+            "class A { field child: A; } "
+            "fn unused(reference: A, n: int) { return n; } "
+            "let a = new A(); let unassigned = a.child; "
+            "print unused(unassigned, 3); unassigned = new A(); "
+            "a.child = unassigned;", "3\n",
+        )
+
+    def test_reference_parameters_rebind_locally_and_outlive_calls(self):
+        self.assert_program(
+            "class Box { field child: Box; field value: int; "
+            "fn replace(other: Box) { self.child = other; self = new Box(); "
+            "self.value = 99; return self.value; } } "
+            "fn install(box: Box) { let local = new Box(); local.value = 7; "
+            "box.child = local; box = new Box(); box.value = 100; return 0; } "
+            "let box = new Box(); print install(box); print box.child.value; "
+            "print box.value; let other = new Box(); other.value = 12; "
+            "print box.replace(other); print box.child.value; print box.value; "
+            "let i = 0; while (i < 3) { let local = new Box(); local.value = i; "
+            "box.child = local; i = i + 1; } print box.child.value;",
+            "0\n7\n0\n99\n12\n0\n2\n",
+        )
+        classes = "".join(
+            f"class C{i} {{ field value: int; "
+            f"fn get(other: C{i}) {{ let local = other; return local.value; }} }}"
+            for i in range(24)
+        )
+        self.assert_program(
+            classes + "let last = new C23(); last.value = 23; "
+            "print last.get(last);", "23\n",
+        )
+
+    def test_class_type_errors_are_semantic_not_syntax(self):
+        classes = (
+            "class A { field b: B; field value: int; "
+            "fn use(other: B) { return other.value; } } "
+            "class B { field value: int; fn get() { return self.value; } } "
+        )
+        for text, diagnostic in [
+            ("fn f(x: Missing) { return 0; }", "unknown class type"),
+            ("class C { fn f(x: Missing) { return 0; } }", "unknown class type"),
+            ("fn f(x: int, x: A) { return 0; }", "duplicate declaration"),
+            ("let a: A = new B();", "initializer type mismatch"),
+            ("let a = new A(); a = new B();", "assignment type mismatch"),
+            ("let a = new A(); a.b = new A();", "field assignment type mismatch"),
+            ("let a = new A(); a.b = 0;", "field assignment type mismatch"),
+            ("let a = new A(); a.b.value = new B();", "field assignment type mismatch"),
+            ("let a = new A(); a.use(new A());", "argument type mismatch"),
+            ("let a = new A(); a.use(1);", "argument type mismatch"),
+            ("fn f(x: B) { return 0; } print f(new A());", "argument type mismatch"),
+            ("fn f(x: B) { return 0; } print f(1);", "argument type mismatch"),
+            ("let a = new A(); print a.b.absent;", "unknown field"),
+            ("let a = new A(); a.b.absent = 1;", "unknown field"),
+            ("let a = new A(); a.b.absent();", "unknown method"),
+            ("let a = new A(); a.b.use(new B());", "unknown method"),
+            ("let a = new A(); print a.b.get(1);", "method argument count mismatch"),
+            ("let a = new A(); print a.value.nope;", "member access requires object"),
+            ("let a = new A(); a.value.nope();", "member access requires object"),
+            ("let a = new A(); print a.b;", "type mismatch"),
+            ("let a = new A(); print a.b + 1;", "type mismatch"),
+            ("let a: A; print a.b.value;", "read before definite initialization"),
+            ("let a: A; if (1) { a = new A(); } print a.b.value;",
+             "read before definite initialization"),
+            ("class A {}", "duplicate class"),
+            ("class C { field x: B; fn x() { return 0; } }", "duplicate member"),
+        ]:
+            with self.subTest(text=text):
+                source = classes + text
+                result = self.invoke(source)
+                self.assertEqual((result.returncode, result.stdout), (1, ""))
+                self.assertIn(diagnostic, result.stderr)
+                self.assert_syntax_modes_accept(self.syntax_parser, source)
+
+    def test_generated_reference_cleanup_and_runtime_errors(self):
+        instrumentation = """
+static size_t live_allocations, allocation_attempt;
+static size_t fail_at;
+static void *tracked_malloc(size_t size) {
+    void *pointer;
+    if (++allocation_attempt == fail_at) return NULL;
+    pointer = malloc(size);
+    if (pointer) ++live_allocations;
+    return pointer;
+}
+static void tracked_free(void *pointer) {
+    if (pointer) --live_allocations;
+    free(pointer);
+}
+static void verify_cleanup(void) {
+    if (live_allocations) {
+        fputs("object allocations leaked\\n", stderr);
+        abort();
+    }
+}
+#define malloc tracked_malloc
+#define free tracked_free
+"""
+        cases = [
+            ("class A { field next: A; } let a = new A(); a.next = a; "
+             "let i = 0; while (i < 100) { let b = new A(); a.next = b; "
+             "b.next = a; i = i + 1; }", 0, "", ""),
+            ("class A { field b: B; } class B { field value: int; } "
+             "let a = new A(); print a.b.value;", 0, "uninitialized object reference\n", ""),
+            ("class A { field b: A; fn f() { return 1; } } "
+             "let a = new A(); print a.b.f();", 0, "uninitialized object reference\n", ""),
+            ("class A { field b: A; field value: int; } "
+             "let a = new A(); a.b.value = 1;", 0, "uninitialized object reference\n", ""),
+            ("class A {} let a = new A(); print 1;", 0, "", "printf"),
+            ("class A {} let a = new A();", 0, "", "fflush"),
+        ]
+        cases.extend(
+            ("class A {} let a = new A(); let b = new A();",
+             fail_at, "object allocation failed\n", "") for fail_at in range(1, 5)
+        )
+        for text, fail_at, error, io_failure in cases:
+            with self.subTest(text=text, fail_at=fail_at, io_failure=io_failure):
+                emitted = self.invoke(text)
+                self.assertEqual((emitted.returncode, emitted.stderr), (0, ""))
+                io_instrumentation = ""
+                if io_failure == "printf":
+                    io_instrumentation = """
+static int failing_printf(const char *format, ...) { (void)format; return -1; }
+#define printf failing_printf
+"""
+                elif io_failure == "fflush":
+                    io_instrumentation = """
+static int failing_fflush(FILE *stream) { (void)stream; return EOF; }
+#define fflush failing_fflush
+"""
+                source = self.directory / "tracked.c"
+                source.write_text(
+                    emitted.stdout.replace("#include <stdlib.h>\n",
+                                           "#include <stdlib.h>\n" + instrumentation
+                                           + io_instrumentation, 1)
+                    .replace("int main(void) {", "int main(void) {\n"
+                             f"    fail_at = {fail_at};\n"
+                             "    if (atexit(verify_cleanup)) return 2;", 1)
+                )
+                program = self.directory / "tracked"
+                self.compile_c(source, program)
+                result = subprocess.run(
+                    [str(program)], capture_output=True, text=True, timeout=30,
+                )
+                self.assertEqual((result.returncode, result.stdout, result.stderr),
+                                 (1 if error or io_failure else 0, "", error))
+
     def test_object_definite_assignment_and_method_control_flow(self):
         self.assert_program(
             "class Box { field x: int; "
@@ -179,10 +360,9 @@ class StatementCompilerTests(GeneratorTestCase):
             ("let b = new Missing();", "unknown class"),
             ("let b: Missing;", "unknown class"),
             ("class A {} class A {}", "duplicate class"),
-            ("class A {} class B {}", "only one class declaration"),
             ("class A { field x: int; field x: int; }", "duplicate member"),
-            ("class A { field x: Missing; }", "unknown field type"),
-            ("class A { field x: A; }", "unknown field type"),
+            ("class A { field x: Missing; }", "unknown class type"),
+            ("class int {}", "class name conflicts with integer type"),
             ("class A { fn x() { return 1; } fn x() { return 2; } }",
              "duplicate member"),
             ("class A { fn x() { return 1; } field x: int; }", "duplicate member"),
@@ -255,6 +435,10 @@ class StatementCompilerTests(GeneratorTestCase):
              "x", "duplicate member"),
             ("class Box {}\nlet b: Box = 1;", "b:", "b", "initializer type mismatch"),
             ("let n = 1;\nprint n.x;", "n.x", "n", "member access requires object"),
+            ("class Box {}\nfn f(box: Missing) { return 0; }", "Missing",
+             "Missing", "unknown class type"),
+            ("class Box { field child: Box; }\nlet b = new Box();\nprint b.child.absent;",
+             "absent", "absent", "unknown field"),
         ]:
             with self.subTest(text=text):
                 offset = text.index(occurrence)
@@ -625,6 +809,11 @@ class StatementCompilerTests(GeneratorTestCase):
             "class Box { field x: Unknown; } let b = new Missing();",
             "class Box { fn f(self) { return absent; } }",
             "class Box { field x: int; } let b: Box; b.missing = new Box();",
+            "class A { field b: B; } class B {} "
+            "fn f(x: Unknown) { return x.absent.value; }",
+            "class A {} class B {} let a: A = new B();",
+            "class A { field b: A; fn f(x: A) { return 0; } } "
+            "let a = new A(); a.b.f(1, 2);",
         ]:
             with self.subTest(text=text):
                 self.assert_syntax_modes_accept(parser, text, json_mode=False)

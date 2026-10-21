@@ -27,10 +27,12 @@ an `if` without `else` or a possibly zero-iteration `while` cannot. This is
 opt-in compiler behavior, not a parser restriction. Storage is program-wide;
 visitor dispatch recursively emits conditions and bodies without introducing
 block-local scopes. Functions and methods have isolated local tables. Its
-one-class object slice shares application-owned class/member signatures,
-tracks arithmetic versus value-copy object bindings, validates member access,
-and lowers zero construction, struct copies, and static calls with explicit
-receiver pointers. Generated parsers remain syntax-only.
+object slice shares application-owned multi-class/member signatures,
+tracks arithmetic versus class-specific reference bindings, validates nested
+member access and typed parameters, and lowers construction, pointer aliases,
+and static calls with explicit receiver pointers. A generated allocation list
+owns objects until program exit and frees them through `atexit`; field
+dereferences check for null. Generated parsers remain syntax-only.
 
 ## Build and run the standalone C consumer
 
