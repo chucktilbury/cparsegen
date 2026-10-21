@@ -26,14 +26,10 @@ initialization on every incoming path. Both `if`/`else` arms must establish it;
 an `if` without `else` or a possibly zero-iteration `while` cannot. This is
 opt-in compiler behavior, not a parser restriction. Storage is program-wide;
 visitor dispatch recursively emits conditions and bodies without introducing
-block-local scopes. Functions and methods have isolated local tables. Its
-object slice shares application-owned multi-class/member signatures,
-tracks distinct `int`, `bool`, and class-specific reference identities, validates
-nested member access, typed locals/fields/parameters/returns, and exact assignment/
-call compatibility, and lowers construction, pointer aliases,
-and static calls with explicit receiver pointers. A generated allocation list
-owns objects until program exit and frees them through `atexit`; field
-dereferences check for null. Conditions require `bool`, arithmetic requires `int`,
+block-local scopes. Functions have isolated local tables. It
+tracks distinct `int` and `bool` identities, validates typed
+locals/parameters/returns, and checks exact assignment/call compatibility.
+Conditions require `bool`, arithmetic requires `int`,
 and comparisons produce `bool`; there are no implicit conversions. Expression
 diagnostics locate the first source token, since rule nodes have no source span.
 Generated parsers remain syntax-only.

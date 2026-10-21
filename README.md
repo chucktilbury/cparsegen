@@ -42,12 +42,11 @@ which pieces are generated versus handwritten.
 The [tiny statement compiler](examples/compiler/STATEMENTS.md) extends that
 pattern with declarations, assignments, printing, braced `if`/`else` and `while`,
 comparisons, nested blocks, and statically typed functions with parameters,
-locals, returns, forward calls, recursion, and multiple classes with reference
-semantics, typed fields/parameters, nested objects, constructors, and static method calls.
-Explicit `int`/`bool`/class annotations cover fields, parameters, locals, and returns;
-the visitor checks exact assignment/call compatibility and boolean conditions.
-Its handwritten visitor collects class/member and function signatures, keeps
-isolated function/method-local symbol tables with explicit receivers,
+locals, returns, forward calls, and recursion over `int` and `bool`.
+It is a bounded, non-object-oriented demonstration: no classes, objects, or
+inheritance (cwhip is the separate OOP compiler; SmallC is the separate C-subset
+demonstration). The visitor checks exact assignment/call compatibility and
+boolean conditions, keeps isolated function-local symbol tables,
 checks source-located semantic errors (including control-flow-sensitive reads
 before definite initialization), and emits C prototypes/definitions plus
 source-order statements. Build the optional `statement-compiler` target;

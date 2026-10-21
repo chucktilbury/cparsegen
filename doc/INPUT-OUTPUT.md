@@ -8,9 +8,10 @@ source targets are **Cwhip** and **standalone ISO C99**. It does not compile
 the generated source, evaluate the parsed language, or generate an application
 compiler automatically.
 
-SmallC and the statement compiler are **demonstrations of using cparsegen**,
-not a full-featured OOP compiler roadmap. **cwhip is the separate
-full-featured OOP compiler project.** This reference covers committed behavior
+cparsegen is the parser generator. SmallC (a C-subset demonstration) and the
+bounded, non-object-oriented statement compiler are separate **demonstrations
+of using cparsegen**, not a full-featured OOP compiler roadmap. **cwhip is the
+separate full-featured OOP compiler project.** This reference covers committed behavior
 only; it does not incorporate uncommitted demonstration extensions.
 
 ## Contents
@@ -850,10 +851,10 @@ SmallC is a C-subset syntax/checker demonstration, not a complete C compiler,
 bytecode generator, or VM. `--check` belongs to its handwritten Cwhip
 frontend; successful checking preserves the JSON syntax tree and failed
 checking prints a located stderr diagnostic with no tree. The statement
-demonstration currently includes typed functions, class references, single
-inheritance, and virtual dispatch in its own grammar/visitor/runtime code;
-these are not built-in language features of cparsegen and do not turn it into
-the separate cwhip compiler project.
+demonstration is limited to variables, control flow, definite assignment,
+`int`/`bool` typed functions, and checked int32 arithmetic in its own
+grammar/visitor/runtime code; it has no classes, objects, or inheritance, and
+none of this is a built-in cparsegen language feature.
 
 Use the dedicated guides for application-specific language/checking limits:
 [Examples](../examples/README.md), [SmallC](../examples/smallc/README.md),
