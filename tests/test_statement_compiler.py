@@ -330,7 +330,8 @@ class StatementCompilerTests(GeneratorTestCase):
             "0\n15\n15\n4\n3\n4\n",
         )
         self.assertIn(
-            "struct cpg_class1 {\n    int32_t cpg_field0;\n"
+            "struct cpg_class1 {\n    int cpg_type;\n"
+            "    int32_t cpg_field0;\n"
             "    int32_t cpg_field1;\n};", emitted,
         )
         self.assertIn("int32_t cpg_f0(cpg_class1 *, int32_t);", emitted)
@@ -338,10 +339,58 @@ class StatementCompilerTests(GeneratorTestCase):
         self.assertIn("cpg_require(cpg_self", emitted)
         self.assertIn("))->cpg_field0", emitted)
         self.assertIn("*object = (cpg_class1){0};", emitted)
-        self.assertIn("cpg_f1(cpg_require(cpg_v", emitted)
+        self.assertIn("cpg_dispatch_1(cpg_require(cpg_v", emitted)
         self.assertIn("atexit(cpg_cleanup)", emitted)
         self.assertLess(emitted.index("struct cpg_class1 {"), emitted.index("int32_t cpg_f0"))
         self.assertLess(emitted.index("int32_t cpg_f0"), emitted.index("int main"))
+
+    def test_single_inheritance_base_construction_and_virtual_dispatch(self):
+        emitted = self.assert_program(
+            (EXAMPLES / "statements/inheritance.stmt").read_text(),
+            "1\n6\n8\n6\n1\n6\n8\n9\n",
+        )
+        self.assertIn("cpg_class3 cpg_base;", emitted)
+        self.assertIn("cpg_cast1_3(", emitted)
+        self.assertIn("cpg_dispatch_", emitted)
+        self.assertIn("case 1: return cpg_f", emitted)
+        self.assertLess(emitted.index("struct cpg_class3 {"),
+                        emitted.index("struct cpg_class2 {"))
+        self.assertLess(emitted.index("struct cpg_class2 {"),
+                        emitted.index("struct cpg_class1 {"))
+        self.assert_program(
+            "class Leaf extends Middle {} class Middle extends Root {} "
+            "class Root { field value: int; constructor() { self.value = 9; } "
+            "fn get() { return self.value; } } "
+            "class Holder { field child: Leaf; } "
+            "let leaf = new Leaf(); let root: Root = leaf; print root.get(); "
+            "let holder = new Holder(); let nullable: Root = holder.child; "
+            "print 1;",
+            "9\n1\n",
+        )
+
+    def test_inheritance_semantic_errors_remain_syntax_only(self):
+        for text, diagnostic in [
+            ("class Child extends Missing {}", "unknown parent class"),
+            ("class A extends B {} class B extends A {}", "inheritance cycle"),
+            ("class Base { fn read(n: int) { return n; } } "
+             "class Child extends Base { fn read(n: bool) { return 1; } }",
+             "override signature mismatch"),
+            ("class Base { field value: int; } "
+             "class Child extends Base { field value: int; }",
+             "duplicate inherited member"),
+            ("class Base { constructor(value: int) {} } "
+             "class Child extends Base { constructor() {} }",
+             "base constructor argument count mismatch"),
+            ("class Base { constructor(): base() {} }",
+             "base initializer requires a parent class"),
+            ("class Base {} class Child extends Base {} "
+             "let value: Child = new Base();", "initializer type mismatch"),
+        ]:
+            with self.subTest(text=text):
+                result = self.invoke(text)
+                self.assertEqual((result.returncode, result.stdout), (1, ""))
+                self.assertIn(diagnostic, result.stderr)
+                self.assert_syntax_modes_accept(self.syntax_parser, text)
 
     def test_objects_forward_calls_alias_rebinding_and_function_locals(self):
         self.assert_program(

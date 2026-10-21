@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Add single inheritance to the optional statement compiler, including
+  `extends`, inherited field/method lookup, subtype-compatible reference
+  upcasts, base-constructor initialization, and virtual dispatch through
+  base-typed references and `self`. Lower classes to embedded C99 base
+  subobjects with runtime class tags and typed dispatch functions. Add a
+  runnable inheritance sample, strict C99 end-to-end regressions, and updated
+  language/lowering documentation. Multiple and virtual inheritance remain
+  deferred.
+
 - Replace only the optional statement compiler's `double` integer lowering
   with signed 32-bit `int32_t`. Diagnose out-of-range decimal literals at their
   source tokens, accept directly negated `-2147483648`, and check executed

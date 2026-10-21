@@ -1,9 +1,10 @@
 program : (class_decl | function | statement)* ;
-class_decl : "class" IDENT "{" (field | function | constructor)* "}" ;
+class_decl : "class" IDENT ("extends" IDENT)? "{" (field | function | constructor)* "}" ;
 field : "field" IDENT ":" IDENT ";" ;
 function : "fn" IDENT "(" parameters ")" return_type block ;
 return_type : (":" IDENT)? ;
-constructor : "constructor" "(" parameters ")" block ;
+constructor : "constructor" "(" parameters ")" base_initializer? block ;
+base_initializer : ":" "base" "(" arguments ")" ;
 parameters : (parameter ("," parameter)*)? ;
 parameter : IDENT (":" IDENT)? ;
 statement : typed_declaration | declaration | member_assignment | assignment | method_statement | call_statement | output | conditional | loop | block | returning ;

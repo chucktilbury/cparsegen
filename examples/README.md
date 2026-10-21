@@ -28,12 +28,14 @@ commands and distinguishes generated infrastructure from application code.
 
 The incremental [statement compiler](compiler/STATEMENTS.md) adds `let`
 declarations, assignments, `print`, comparisons, braced `if`/`else` and `while`,
-and nested blocks, with persistent single-scope visitor symbols and source-order
-C emission. Build with
+and nested blocks, then typed functions, objects, single inheritance, and
+virtual method dispatch, with persistent single-scope visitor symbols and
+source-order C emission. Build with
 `cmake --build build --target statement-compiler`, then run
 `./bin/statement-compiler examples/compiler/statements/basic.stmt` to emit C.
-The guide covers syntax-only parsing, compile/run steps, semantic failures,
-and language limits.
+The guide includes runnable samples for the compiler's incremental milestones,
+including inheritance, and covers syntax-only parsing, compile/run steps,
+semantic failures, and language limits.
 
 ## Calculator with variables
 
