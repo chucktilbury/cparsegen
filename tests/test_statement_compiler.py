@@ -44,25 +44,32 @@ class StatementCompilerTests(GeneratorTestCase):
             capture_output=True, text=True, timeout=30,
         )
 
-    def assert_program(self, text, expected):
+    def run_program(self, text, input_data="", instrumentation=""):
         emitted = self.invoke(text)
         self.assertEqual((emitted.returncode, emitted.stderr), (0, ""))
         source = self.directory / "program.c"
-        source.write_text(emitted.stdout)
+        source.write_text(emitted.stdout.replace(
+            "#include <stdlib.h>\n", "#include <stdlib.h>\n" + instrumentation, 1,
+        ))
         program = self.directory / "program"
         self.compile_c(source, program)
         result = subprocess.run(
-            [str(program)], capture_output=True, text=True, timeout=30,
+            [str(program)], input=input_data, capture_output=True, text=True, timeout=30,
         )
+        return emitted.stdout, result
+
+    def assert_program(self, text, expected, input_data=""):
+        emitted, result = self.run_program(text, input_data)
         self.assertEqual((result.returncode, result.stdout, result.stderr),
                          (0, expected, ""))
-        return emitted.stdout
+        return emitted
 
     def test_source_order_and_persistent_symbols(self):
         emitted = self.assert_program(
             (EXAMPLES / "statements/basic.stmt").read_text(), "20\n56\n28\n",
         )
-        self.assertLess(emitted.index("int32_t cpg_v0"), emitted.index("if (printf"))
+        self.assertLess(emitted.index("int32_t cpg_v0"),
+                        emitted.index("    cpg_println_int((int32_t)"))
         self.assertEqual(emitted.count("int32_t cpg_v0"), 1)
         self.assertEqual(emitted.count("int32_t cpg_v1"), 1)
         self.assert_program(
@@ -89,6 +96,142 @@ class StatementCompilerTests(GeneratorTestCase):
     def test_symbol_table_growth(self):
         declarations = "".join(f"let x{i} = {i};" for i in range(24))
         self.assert_program(declarations + "print x0 + x23;", "23\n")
+
+    def test_runtime_typed_output_and_integration(self):
+        emitted = self.assert_program(
+            (EXAMPLES / "statements/runtime.stmt").read_text(),
+            "7true\nfalse\n-7\n7\n7\n1\n", "-7\n",
+        )
+        self.assertIn("cpg_read_int()", emitted)
+        main = emitted[emitted.index("int main(void)"):]
+        for stdio in ["printf(", "fputs(", "fgetc(", "fflush(", "putchar("]:
+            self.assertNotIn(stdio, main)
+        self.assert_program(
+            "print_int(-2147483648); println_int(2147483647); "
+            "print_bool(false); println_bool(true); "
+            "class Box { field flag: bool; "
+            "fn show(): bool { println_bool(self.flag); return self.flag; } } "
+            "let b = new Box(); b.flag = true; b.show(); "
+            "fn show(n: int) { print_int(n); return n; } show(3); "
+            "print true; print false;", "-21474836482147483647\nfalsetrue\ntrue\n31\n0\n",
+        )
+
+    def test_runtime_integer_utilities(self):
+        self.assert_program(
+            "println_int(min(-2147483648, 2147483647)); "
+            "println_int(max(-2147483648, 2147483647)); "
+            "print min(4, 4); print max(-4, -4); "
+            "print abs(-2147483647); print abs(2147483647); "
+            "print abs(0); print abs(-0); print abs(-1); "
+            "if (false) { print abs(-2147483648); } "
+            "fn f(n) { return max(abs(n), 10); } print f(-12);",
+            "-2147483648\n2147483647\n4\n-4\n2147483647\n2147483647\n0\n0\n1\n12\n",
+        )
+        text = "let n = abs(-2147483648); println_int(n); println_int(99);"
+        _, result = self.run_program(text)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((result.stdout, result.stderr), ("", "integer overflow in abs\n"))
+        self.assert_syntax_modes_accept(self.syntax_parser, text)
+
+    def test_runtime_input_valid_tokens(self):
+        self.assert_program(
+            "let a = read_int(); let b = read_int(); let c = read_int(); "
+            "let d = read_int(); let e = read_int(); let f = read_int(); "
+            "print a; print b; print c; print d; print e; print f;",
+            "0\n0\n2147483647\n-2147483648\n8\n-17\n",
+            " \t\r\n\v\f+0 -0 +2147483647 -2147483648 0008 -17",
+        )
+        self.assert_program("println_int(read_int());", "1\n", "0" * 10000 + "1")
+        self.assert_program(
+            "class Box { field n: int; constructor() { self.n = read_int(); } "
+            "fn update() { self.n = read_int(); return self.n; } } "
+            "let b = new Box(); print b.n; b.update(); print b.n;",
+            "3\n4\n", "3 4\n",
+        )
+
+    def test_runtime_input_failures(self):
+        for data, diagnostic in [
+            ("", "input EOF"), (" \t\r\n\v\f", "input EOF"),
+            ("x", "input malformed integer"), ("12x", "input malformed integer"),
+            ("1.0", "input malformed integer"), ("0x10", "input malformed integer"),
+            ("+", "input malformed integer"), ("- ", "input malformed integer"),
+            ("--1", "input malformed integer"), ("+ 1", "input malformed integer"),
+            ("1\x002", "input malformed integer"), ("1\u00a02", "input malformed integer"),
+            ("2147483648", "input integer outside int32 range"),
+            ("-2147483649", "input integer outside int32 range"),
+            ("9" * 10000, "input integer outside int32 range"),
+            ("9" * 10000 + "x", "input malformed integer"),
+        ]:
+            with self.subTest(data=data[:40]):
+                text = "print_int(7); let n: int = read_int(); println_int(n); println_int(99);"
+                _, result = self.run_program(text, data)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual((result.stdout, result.stderr), ("7", diagnostic + "\n"))
+        _, result = self.run_program(
+            "let a = read_int(); println_int(a); let b = read_int(); println_int(b);", "42",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((result.stdout, result.stderr), ("42\n", "input EOF\n"))
+
+    def test_runtime_stream_errors(self):
+        for text, instrumentation, diagnostic in [
+            ("println_int(read_int());",
+             "static int fail_get(FILE *s) { (void)s; return EOF; }\n"
+             "static int fail_error(FILE *s) { (void)s; return 1; }\n"
+             "#define fgetc fail_get\n#define ferror fail_error\n", "input error"),
+            ("print_int(1);",
+             "static int fail_print(const char *f, ...) { (void)f; return -1; }\n"
+             "#define printf fail_print\n", "output error"),
+            ("print_bool(true);",
+             "static int fail_puts(const char *t, FILE *s) { (void)t; (void)s; return EOF; }\n"
+             "#define fputs fail_puts\n", "output error"),
+            ("println_bool(true);",
+             "static int fail_put(int ch) { (void)ch; return EOF; }\n"
+             "#define putchar fail_put\n", "output error"),
+            ("", "static int fail_flush(FILE *s) { (void)s; return EOF; }\n"
+             "#define fflush fail_flush\n", "output error"),
+            ("println_int(read_int());",
+             "static int fail_flush(FILE *s) { (void)s; return EOF; }\n"
+             "#define fflush fail_flush\n", "output error"),
+        ]:
+            with self.subTest(text=text, instrumentation=instrumentation):
+                _, result = self.run_program(text, instrumentation=instrumentation)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stderr, diagnostic + "\n")
+
+    def test_runtime_types_arity_and_syntax_only(self):
+        for text, diagnostic in [
+            ("print_int(true);", "argument type mismatch"),
+            ("println_bool(1);", "argument type mismatch"),
+            ("print_bool();", "argument count mismatch"),
+            ("println_int(1, 2);", "argument count mismatch"),
+            ("let n = println_int(1);", "output builtin requires a statement"),
+            ("print min(1);", "argument count mismatch"),
+            ("print max(1, true);", "argument type mismatch"),
+            ("print abs(false);", "argument type mismatch"),
+            ("print read_int(1);", "argument count mismatch"),
+            ("class A {} println_int(new A());", "argument type mismatch"),
+            ("let n; println_int(n);", "read before definite initialization"),
+            ("absent();", "unknown function"),
+        ]:
+            with self.subTest(text=text):
+                result = self.invoke(text)
+                self.assertEqual((result.returncode, result.stdout), (1, ""))
+                self.assertIn(diagnostic, result.stderr)
+                self.assert_syntax_modes_accept(self.syntax_parser, text)
+        self.assert_syntax_modes_accept(self.syntax_parser, "println_int(read_int());")
+
+    def test_runtime_names_do_not_reserve_user_identifiers(self):
+        self.assert_program(
+            "fn min(n: bool): bool { return n; } "
+            "fn read_int(n) { return n; } "
+            "fn println_int(n: bool): bool { return n; } "
+            "let abs = 4; let print_bool = abs; "
+            "class Box { fn max() { return 3; } } "
+            "let b = new Box(); print min(true); print read_int(print_bool); "
+            "print println_int(false); println_int(true); print b.max();",
+            "1\n4\n0\n3\n",
+        )
 
     def test_int32_boundaries_and_storage(self):
         emitted = self.assert_program(
@@ -389,8 +532,8 @@ static void verify_cleanup(void) {
              "let a = new A(); print a.b.f();", 0, "uninitialized object reference\n", ""),
             ("class A { field b: A; field value: int; } "
              "let a = new A(); a.b.value = 1;", 0, "uninitialized object reference\n", ""),
-            ("class A {} let a = new A(); print 1;", 0, "", "printf"),
-            ("class A {} let a = new A();", 0, "", "fflush"),
+            ("class A {} let a = new A(); print 1;", 0, "output error\n", "printf"),
+            ("class A {} let a = new A();", 0, "output error\n", "fflush"),
         ]
         cases.extend(
             ("class A {} let a = new A(); let b = new A();",
@@ -949,6 +1092,8 @@ static int failing_fflush(FILE *stream) { (void)stream; return EOF; }
             (EXAMPLES / "statements.cpg").read_text(), backend="cwhip",
         )
         for text in [
+            "println_int(read_int()); println_bool(true); print abs(-2147483648);",
+            "let n = println_int(1); min(true, 1); read_int(3);",
             "let x; print x;",
             "let x; if (true) { x = 1; } print x;",
             "let x; while (false) { x = 1; } print x;",
