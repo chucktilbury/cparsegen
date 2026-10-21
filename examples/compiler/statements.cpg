@@ -1,7 +1,8 @@
 program : (class_decl | function | statement)* ;
-class_decl : "class" IDENT "{" (field | function)* "}" ;
+class_decl : "class" IDENT "{" (field | function | constructor)* "}" ;
 field : "field" IDENT ":" IDENT ";" ;
 function : "fn" IDENT "(" parameters ")" block ;
+constructor : "constructor" "(" parameters ")" block ;
 parameters : (parameter ("," parameter)*)? ;
 parameter : IDENT (":" IDENT)? ;
 statement : object_declaration | declaration | member_assignment | assignment | method_statement | output | conditional | loop | block | returning ;
@@ -23,7 +24,7 @@ sum : product (("+" | "-") product)* ;
 product : unary ("*" unary)* ;
 unary : ("+" | "-") unary | primary ;
 primary : INTEGER | construction | method_call | member | call | IDENT | "(" expression ")" ;
-construction : "new" IDENT "(" ")" ;
+construction : "new" IDENT "(" arguments ")" ;
 method_call : member "(" arguments ")" ;
 member : IDENT ("." IDENT)+ ;
 call : IDENT "(" arguments ")" ;

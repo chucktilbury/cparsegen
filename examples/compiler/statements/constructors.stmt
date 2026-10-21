@@ -1,0 +1,35 @@
+class Counter {
+    field value: int;
+    field updates: int;
+
+    constructor(start: int) {
+        let initial = start;
+        self.value = initial;
+        self.updates = 0;
+    }
+
+    fn advance(amount: int) {
+        if (amount < 0) {
+            if (self.value > 0) {
+                self.value = self.value - 1;
+                self.updates = self.updates + 1;
+                return self.value;
+            } else {
+                return 0;
+            }
+        }
+        let i = 0;
+        while (i < amount) {
+            self.value = self.value + 1;
+            self.updates = self.updates + 1;
+            i = i + 1;
+        }
+        return self.value;
+    }
+}
+
+let counter = new Counter(5);
+print counter.advance(2);
+print counter.advance(-1);
+print counter.value;
+print counter.updates;

@@ -354,6 +354,42 @@ static int failing_fflush(FILE *stream) { (void)stream; return EOF; }
             "print f(0); print f(1);", "0\n7\n",
         )
 
+    def test_constructors_initialize_fields_and_preserve_reference_semantics(self):
+        self.assert_program(
+            (EXAMPLES / "statements/constructors.stmt").read_text(),
+            "7\n6\n6\n3\n",
+        )
+        self.assert_program(
+            "class Seed { field value: int; "
+            "constructor(start: int) { self.value = start; } } "
+            "class Box { field seed: Seed; field total: int; "
+            "constructor(seed: Seed, scale: int) { "
+            "let initial = seed.value * scale; self.seed = seed; "
+            "self.total = initial; } "
+            "fn update(amount: int) { self.total = self.total + amount; "
+            "return self.total; } } "
+            "let seed = new Seed(4); let box = new Box(seed, 3); "
+            "let alias = box; print box.seed.value; print alias.update(2); "
+            "print box.total; let zero = new Seed(0); print zero.value;",
+            "4\n14\n14\n0\n",
+        )
+
+    def test_method_early_returns_nested_control_flow_and_receiver_mutation(self):
+        self.assert_program(
+            "class Counter { field value: int; "
+            "constructor(start: int) { self.value = start; } "
+            "fn advance(count: int) { let i = 0; "
+            "if (count < 0) { if (self.value > 0) { "
+            "self.value = self.value - 1; return self.value; } "
+            "else { return 99; } } "
+            "while (i < count) { self.value = self.value + 1; "
+            "i = i + 1; } return self.value; } } "
+            "let counter = new Counter(5); "
+            "print counter.advance(2); print counter.advance(-1); "
+            "print counter.value;",
+            "7\n6\n6\n",
+        )
+
     def test_object_semantic_errors_and_syntax_only_acceptance(self):
         box = "class Box { field x: int; fn add(n) { return n; } } "
         for text, diagnostic in [
@@ -362,6 +398,29 @@ static int failing_fflush(FILE *stream) { (void)stream; return EOF; }
             ("class A {} class A {}", "duplicate class"),
             ("class A { field x: int; field x: int; }", "duplicate member"),
             ("class A { field x: Missing; }", "unknown class type"),
+            ("class A { constructor(value: Missing) {} }", "unknown class type"),
+            ("class A { constructor() {} constructor(value: int) {} }",
+             "duplicate constructor"),
+            ("class A { field value: int; constructor() { let local; "
+             "self.value = local; } }", "read before definite initialization"),
+            ("class A { field value: int; constructor(flag: int) { let local; "
+             "if (flag) { local = 1; } self.value = local; } }",
+             "read before definite initialization"),
+            ("class A { constructor() { return 1; } }",
+             "return is not allowed in a constructor"),
+            ("class A { constructor() { return; } }",
+             "return is not allowed in a constructor"),
+            ("class A { constructor(value: int) { self.missing = value; } }",
+             "unknown field"),
+            ("class A { field value: int; constructor(value: int) { "
+             "self.value = value; } } let a = new A();",
+             "constructor argument count mismatch"),
+            ("class A { field value: int; constructor(value: int) { "
+             "self.value = value; } } let a = new A(1, 2);",
+             "constructor argument count mismatch"),
+            ("class A { field value: int; constructor(value: int) { "
+             "self.value = value; } } class B {} let a = new A(new B());",
+             "argument type mismatch"),
             ("class int {}", "class name conflicts with integer type"),
             ("class A { fn x() { return 1; } fn x() { return 2; } }",
              "duplicate member"),
@@ -455,7 +514,7 @@ static int failing_fflush(FILE *stream) { (void)stream; return EOF; }
         for text in [
             "class Box { field x int; }", "class Box { field x: int }",
             "class Box { let x = 1; }", "class Box { class Nested {} }",
-            "fn f() { class Box {} return 1; }", "let b = new Box(1);",
+            "fn f() { class Box {} return 1; }", "let b = new Box(1,);",
             "class Box {};", "let b = new Box;", "print b.;",
             "let class = 1;", "let field = 1;", "let new = 1;",
         ]:
@@ -814,6 +873,10 @@ static int failing_fflush(FILE *stream) { (void)stream; return EOF; }
             "class A {} class B {} let a: A = new B();",
             "class A { field b: A; fn f(x: A) { return 0; } } "
             "let a = new A(); a.b.f(1, 2);",
+            "class A { field value: int; constructor(value: int) { "
+            "self.value = value; return 1; } } let a = new A(1);",
+            "class A { field value: int; constructor(value: int) { "
+            "self.value = value; } } let a = new A(new A(1));",
         ]:
             with self.subTest(text=text):
                 self.assert_syntax_modes_accept(parser, text, json_mode=False)
