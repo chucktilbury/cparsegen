@@ -5,6 +5,10 @@ syntax and insertion-directive spelling are provisional until they are
 checked against a real user grammar. `examples/expression.cpg` is a fixture for
 discussion, not a compatibility promise.
 
+For current implemented behavior and practical usage, see the
+[input/output reference](INPUT-OUTPUT.md). Proposal-only interfaces below
+should not be treated as generated APIs.
+
 ## Pipeline
 
 ```text

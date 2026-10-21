@@ -5,6 +5,11 @@ backend emitters. The current executable is intentionally a small, bounded
 slice; its supported syntax and unimplemented areas are listed in the
 [architecture proposal](doc/ARCHITECTURE.md).
 
+See the [input, output, and usage reference](doc/INPUT-OUTPUT.md) for the
+implemented grammar/directives, CLI workflows, generated Cwhip/C artifacts,
+parser and visitor APIs, tree/JSON formats, diagnostics, ownership, and limits.
+It distinguishes generated infrastructure from the handwritten demonstrations.
+
 ## Get started
 
 Install the Cwhip SDK and its host prerequisites; cparsegen does not vendor,
