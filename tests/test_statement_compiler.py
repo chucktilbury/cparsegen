@@ -62,9 +62,9 @@ class StatementCompilerTests(GeneratorTestCase):
         emitted = self.assert_program(
             (EXAMPLES / "statements/basic.stmt").read_text(), "20\n56\n28\n",
         )
-        self.assertLess(emitted.index("double cpg_v0"), emitted.index("printf"))
-        self.assertEqual(emitted.count("double cpg_v0"), 1)
-        self.assertEqual(emitted.count("double cpg_v1"), 1)
+        self.assertLess(emitted.index("int32_t cpg_v0"), emitted.index("if (printf"))
+        self.assertEqual(emitted.count("int32_t cpg_v0"), 1)
+        self.assertEqual(emitted.count("int32_t cpg_v1"), 1)
         self.assert_program(
             "let x = 1; print x; x = x + 1; print x; "
             "let y = x; x = 99; print y; print x;", "1\n2\n2\n99\n",
@@ -90,24 +90,115 @@ class StatementCompilerTests(GeneratorTestCase):
         declarations = "".join(f"let x{i} = {i};" for i in range(24))
         self.assert_program(declarations + "print x0 + x23;", "23\n")
 
+    def test_int32_boundaries_and_storage(self):
+        emitted = self.assert_program(
+            "print 2147483647; print -2147483648; print - 0002147483648; "
+            "print +2147483647; print +-2147483648; print -(2147483647); "
+            "print 0000000000000000000000000000008; "
+            "class Box { field n: int; constructor(n) { self.n = n; } "
+            "fn read(): int { return self.n; } } "
+            "fn identity(n: int): int { return n; } "
+            "let b = new Box(identity(-2147483648)); print b.read(); "
+            "let x: int = 2147483647; b.n = x; print b.n;",
+            "2147483647\n-2147483648\n-2147483648\n2147483647\n"
+            "-2147483648\n-2147483647\n8\n-2147483648\n2147483647\n",
+        )
+        self.assertNotIn("double", emitted)
+        self.assertIn("int32_t cpg_field0;", emitted)
+        self.assertIn("INT32_MIN", emitted)
+        self.assertIn("INT32_C(8)", emitted)
+
+    def test_int32_literal_errors_have_exact_locations(self):
+        for expression, token in [
+            ("2147483648", "2147483648"),
+            ("+2147483648", "2147483648"),
+            ("-2147483649", "2147483649"),
+            ("-(2147483648)", "2147483648"),
+            ("-+2147483648", "2147483648"),
+            ("0002147483648", "0002147483648"),
+            ("9" * 200, "9" * 200),
+            ("-" + "9" * 200, "9" * 200),
+        ]:
+            with self.subTest(expression=expression):
+                text = f"print 1;\nprint {expression};"
+                offset = text.index(token)
+                result = self.invoke(text)
+                self.assertEqual((result.returncode, result.stdout), (1, ""))
+                self.assertEqual(
+                    result.stderr,
+                    f"{self.directory / 'source.stmt'}:2:{offset - text.index(chr(10))}: "
+                    f"byte {offset}: integer literal outside int32 range: '{token}'\n",
+                )
+                self.assert_syntax_modes_accept(self.syntax_parser, text)
+
+    def test_int32_valid_arithmetic_near_bounds(self):
+        self.assert_program(
+            "print 2147483646 + 1; print -2147483647 - 1; "
+            "print -2147483648 + 1; print 2147483647 - 1; "
+            "print -2147483648 - -2147483648; "
+            "print -2147483648 + 2147483647; "
+            "print 1073741823 * 2; print -1073741824 * 2; "
+            "print -2147483648 * 1; print -2147483648 * 0; "
+            "print 2147483647 * -1; print -(-2147483647); "
+            "print 2147483647 - 1 - 1; print 1073741823 * 2 * 1;",
+            "2147483647\n-2147483648\n-2147483647\n2147483646\n"
+            "0\n-1\n2147483646\n-2147483648\n-2147483648\n0\n"
+            "-2147483647\n2147483647\n2147483645\n2147483646\n",
+        )
+
+    def test_int32_runtime_overflow(self):
+        for expression, operator in [
+            ("2147483647 + 1", "+"), ("-2147483648 + -1", "+"),
+            ("2147483647 - -1", "-"), ("-2147483648 - 1", "-"),
+            ("1073741824 * 2", "*"), ("-1073741825 * 2", "*"),
+            ("-2147483648 * -1", "*"), ("-1 * -2147483648", "*"),
+            ("2147483647 * 2147483647", "*"),
+            ("-2147483648 * 2147483647", "*"),
+            ("-2147483648 * -2147483648", "*"),
+            ("--2147483648", "-"), ("-(-2147483648)", "-"),
+            ("2147483647 + 1 - 1", "+"),
+            ("1073741824 * 2 * 0", "*"),
+        ]:
+            with self.subTest(expression=expression):
+                emitted = self.invoke(
+                    "fn calculate(a: int, b: int) { return a + b; } "
+                    f"let n = {expression}; print n; print 99;"
+                )
+                self.assertEqual((emitted.returncode, emitted.stderr), (0, ""))
+                source = self.directory / "overflow.c"
+                source.write_text(emitted.stdout)
+                program = self.directory / "overflow"
+                self.compile_c(source, program)
+                result = subprocess.run(
+                    [str(program)], capture_output=True, text=True, timeout=30,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, "")
+                self.assertEqual(result.stderr, f"integer overflow in {operator}\n")
+        self.assert_program(
+            "if (false) { print 2147483647 + 1; } "
+            "let flag: bool = -2147483648 < 2147483647; "
+            "print flag; print flag == true; print false != true;", "1\n1\n1\n",
+        )
+
     def test_object_sample_layout_and_dispatch(self):
         emitted = self.assert_program(
             (EXAMPLES / "statements/objects.stmt").read_text(),
             "0\n15\n15\n4\n3\n4\n",
         )
         self.assertIn(
-            "struct cpg_class1 {\n    double cpg_field0;\n"
-            "    double cpg_field1;\n};", emitted,
+            "struct cpg_class1 {\n    int32_t cpg_field0;\n"
+            "    int32_t cpg_field1;\n};", emitted,
         )
-        self.assertIn("double cpg_f0(cpg_class1 *, double);", emitted)
-        self.assertIn("double cpg_f0(cpg_class1 *cpg_self, double cpg_v1)", emitted)
+        self.assertIn("int32_t cpg_f0(cpg_class1 *, int32_t);", emitted)
+        self.assertIn("int32_t cpg_f0(cpg_class1 *cpg_self, int32_t cpg_v1)", emitted)
         self.assertIn("cpg_require(cpg_self", emitted)
         self.assertIn("))->cpg_field0", emitted)
         self.assertIn("*object = (cpg_class1){0};", emitted)
         self.assertIn("cpg_f1(cpg_require(cpg_v", emitted)
         self.assertIn("atexit(cpg_cleanup)", emitted)
-        self.assertLess(emitted.index("struct cpg_class1 {"), emitted.index("double cpg_f0"))
-        self.assertLess(emitted.index("double cpg_f0"), emitted.index("int main"))
+        self.assertLess(emitted.index("struct cpg_class1 {"), emitted.index("int32_t cpg_f0"))
+        self.assertLess(emitted.index("int32_t cpg_f0"), emitted.index("int main"))
 
     def test_objects_forward_calls_alias_rebinding_and_function_locals(self):
         self.assert_program(
@@ -163,8 +254,8 @@ class StatementCompilerTests(GeneratorTestCase):
             "0\n15\n15\n20\n0\n20\n",
         )
         self.assertIn("cpg_class2 * cpg_field0;", emitted)
-        self.assertIn("double cpg_f0(cpg_class1 *, cpg_class2 *);", emitted)
-        self.assertIn("double cpg_f3(cpg_class1 *, double);", emitted)
+        self.assertIn("int32_t cpg_f0(cpg_class1 *, cpg_class2 *);", emitted)
+        self.assertIn("int32_t cpg_f3(cpg_class1 *, int32_t);", emitted)
         self.assertLess(emitted.index("typedef struct cpg_class2"),
                         emitted.index("struct cpg_class1 {"))
         self.assert_program(
@@ -527,7 +618,7 @@ static int failing_fflush(FILE *stream) { (void)stream; return EOF; }
         emitted = self.assert_program(
             (EXAMPLES / "statements/functions.stmt").read_text(), "12\n120\n7\n",
         )
-        self.assertLess(emitted.index("double cpg_f0(double);"),
+        self.assertLess(emitted.index("int32_t cpg_f0(int32_t);"),
                         emitted.index("int main(void)"))
         self.assert_program(
             "print add(one(), add(2, 3)); "
@@ -622,8 +713,8 @@ static int failing_fflush(FILE *stream) { (void)stream; return EOF; }
              "read before definite initialization", "x"),
             ("fn f() { return 1; print missing; }",
              "use before declaration (unknown name)", "missing"),
-            ("fn f() { return 1234567890; }", "integer literal exceeds nine digits",
-             "1234567890"),
+            ("fn f() { return 2147483648; }", "integer literal outside int32 range",
+             "2147483648"),
         ]
         for text, diagnostic, name in cases:
             with self.subTest(text=text):
@@ -893,7 +984,7 @@ static int failing_fflush(FILE *stream) { (void)stream; return EOF; }
         )
         self.assertIn("_Bool cpg_field1;", emitted)
         self.assertIn("_Bool cpg_f1(cpg_class1 *, _Bool);", emitted)
-        self.assertIn("void cpg_f0(cpg_class1 *, double, _Bool);", emitted)
+        self.assertIn("void cpg_f0(cpg_class1 *, int32_t, _Bool);", emitted)
         self.assertIn("_Bool cpg_v", emitted)
         self.assertIn("cpg_class1 * cpg_f", emitted)
 
@@ -1070,8 +1161,8 @@ static int failing_fflush(FILE *stream) { (void)stream; return EOF; }
             ("let x = 1;\nlet x = 2;", 2, 5, 15, "duplicate declaration", "x"),
             ("let Foo = 1;\nprint foo;", 2, 7, 19,
              "use before declaration (unknown name)", "foo"),
-            ("print 1234567890;", 1, 7, 6,
-             "integer literal exceeds nine digits", "1234567890"),
+            ("print 2147483648;", 1, 7, 6,
+             "integer literal outside int32 range", "2147483648"),
         ]:
             with self.subTest(text=text):
                 result = self.invoke(text)

@@ -2,12 +2,22 @@
 
 ## Unreleased
 
+- Replace only the optional statement compiler's `double` integer lowering
+  with signed 32-bit `int32_t`. Diagnose out-of-range decimal literals at their
+  source tokens, accept directly negated `-2147483648`, and check executed
+  addition, subtraction, multiplication, and unary negation via C99
+  `int_least64_t` intermediates. Overflow reports the operation and exits with
+  failure without signed-overflow UB. Keep `_Bool`, exact primitive typing,
+  class/reference behavior, syntax-only parsing, and the expression compiler
+  unchanged. Add strict C99 boundary/overflow execution regressions; wider
+  numeric types remain deferred.
+
 - Add explicit `int` and `bool` identities throughout the optional statement
   compiler: primitive/class annotations on locals, fields, parameters, and
   function/method returns; boolean literals; exact initialization, assignment,
   return, and call checking; integer-only arithmetic; boolean comparisons and
-  conditions with no implicit conversions. Retain integer-valued `double`
-  lowering and use C99 `_Bool` for booleans. Class-valued returns copy references;
+  conditions with no implicit conversions. Use C99 `_Bool` for booleans
+  (integer lowering is superseded above). Class-valued returns copy references;
   static dispatch, ownership, definite assignment, and conservative return-path
   checks remain intact. Add a typed sample, source-token error locations,
   strict C99 execution tests, and semantic-invalid syntax-only regressions.
