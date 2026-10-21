@@ -252,7 +252,7 @@ class StatementCompilerTests(GeneratorTestCase):
             ("let a = new A(); print a.b;", "type mismatch"),
             ("let a = new A(); print a.b + 1;", "type mismatch"),
             ("let a: A; print a.b.value;", "read before definite initialization"),
-            ("let a: A; if (1) { a = new A(); } print a.b.value;",
+            ("let a: A; if (true) { a = new A(); } print a.b.value;",
              "read before definite initialization"),
             ("class A {}", "duplicate class"),
             ("class C { field x: B; fn x() { return 0; } }", "duplicate member"),
@@ -340,9 +340,9 @@ static int failing_fflush(FILE *stream) { (void)stream; return EOF; }
     def test_object_definite_assignment_and_method_control_flow(self):
         self.assert_program(
             "class Box { field x: int; "
-            "fn f(n) { let y; if (n) { y = 3; } else { return self.x; } "
+            "fn f(n) { let y; if (n != 0) { y = 3; } else { return self.x; } "
             "while (y < 5) { y = y + 1; } self.x = y; return self.x; } } "
-            "let b: Box; if (1) { b = new Box(); } else { b = new Box(); } "
+            "let b: Box; if (true) { b = new Box(); } else { b = new Box(); } "
             "print b.f(1); print b.f(0); "
             "let i = 0; while (i < 2) { let c = new Box(); "
             "print c.x; c.x = 99; i = i + 1; }",
@@ -350,7 +350,7 @@ static int failing_fflush(FILE *stream) { (void)stream; return EOF; }
         )
         self.assert_program(
             "class Box { field x: int; } fn f(n) { let b: Box; "
-            "if (n) { return 7; } else { b = new Box(); } return b.x; } "
+            "if (n != 0) { return 7; } else { b = new Box(); } return b.x; } "
             "print f(0); print f(1);", "0\n7\n",
         )
 
@@ -404,7 +404,7 @@ static int failing_fflush(FILE *stream) { (void)stream; return EOF; }
             ("class A { field value: int; constructor() { let local; "
              "self.value = local; } }", "read before definite initialization"),
             ("class A { field value: int; constructor(flag: int) { let local; "
-             "if (flag) { local = 1; } self.value = local; } }",
+             "if (flag != 0) { local = 1; } self.value = local; } }",
              "read before definite initialization"),
             ("class A { constructor() { return 1; } }",
              "return is not allowed in a constructor"),
@@ -455,9 +455,9 @@ static int failing_fflush(FILE *stream) { (void)stream; return EOF; }
             (box + "let b: Box; print b.x;", "read before definite initialization"),
             (box + "let b: Box; b.x = 1;", "read before definite initialization"),
             (box + "let b: Box; b.add(1);", "read before definite initialization"),
-            (box + "let b: Box; if (1) { b = new Box(); } print b.x;",
+            (box + "let b: Box; if (true) { b = new Box(); } print b.x;",
              "read before definite initialization"),
-            (box + "let b: Box; while (0) { b = new Box(); } print b.x;",
+            (box + "let b: Box; while (false) { b = new Box(); } print b.x;",
              "read before definite initialization"),
             (box + "let b = new Box(); let b: Box;", "duplicate declaration"),
             (box + "let b: Box = b;", "use before declaration"),
@@ -552,7 +552,7 @@ static int failing_fflush(FILE *stream) { (void)stream; return EOF; }
             "print local(f23(1));", "47\n",
         )
         self.assert_program(
-            f"fn local(n) {{ if (n) {{ {declarations} return x23; }} "
+            f"fn local(n) {{ if (n != 0) {{ {declarations} return x23; }} "
             "else { let last = 7; } return last; } "
             "print local(0); print local(1);", "7\n23\n",
         )
@@ -567,15 +567,15 @@ static int failing_fflush(FILE *stream) { (void)stream; return EOF; }
 
     def test_return_aware_definite_assignment_and_control_flow(self):
         for text, expected in [
-            ("fn f(n) { let x; if (n) { return 10; } else { x = 20; } "
+            ("fn f(n) { let x; if (n != 0) { return 10; } else { x = 20; } "
              "return x; } print f(1); print f(0);", "10\n20\n"),
-            ("fn f(n) { let x; if (n) { x = 20; } else { return 10; } "
+            ("fn f(n) { let x; if (n != 0) { x = 20; } else { return 10; } "
              "return x; } print f(1); print f(0);", "20\n10\n"),
             ("fn f(n) { while (n > 0) { if (n == 2) { return n; } "
              "n = n - 1; } return 0; } print f(3); print f(0);", "2\n0\n"),
-            ("fn f(n) { if (n) { { return -n; } } return n + 1; } "
+            ("fn f(n) { if (n != 0) { { return -n; } } return n + 1; } "
              "print f(2); print f(0);", "-2\n1\n"),
-            ("fn f(n) { let x; if (n) { x = 1; } else { x = 2; } "
+            ("fn f(n) { let x; if (n != 0) { x = 1; } else { x = 2; } "
              "return x; } print f(0);", "2\n"),
             ("fn f(x) { return x; print 99; } print f(3);", "3\n"),
             ("fn f(x) { print x; return x * 2; } print f(3);", "3\n6\n"),
@@ -596,19 +596,19 @@ static int failing_fflush(FILE *stream) { (void)stream; return EOF; }
             ("fn f() { let x; { let x; } return 1; }", "duplicate declaration", "x"),
             ("fn f() { return 1; } fn f(x) { return x; }", "duplicate function", "f"),
             ("return 1;", "return outside function", "return"),
-            ("if (0) { return; }", "return outside function", "return"),
+            ("if (false) { return; }", "return outside function", "return"),
             ("fn f() { return; }", "return requires a value", "return"),
             ("fn f() {}", "function may finish without returning a value", "f"),
-            ("fn f(x) { if (x) { return 1; } }",
+            ("fn f(x) { if (x != 0) { return 1; } }",
              "function may finish without returning a value", "f"),
-            ("fn f() { while (1) { return 1; } }",
+            ("fn f() { while (true) { return 1; } }",
              "function may finish without returning a value", "f"),
             ("fn f() { let x; return x; }", "read before definite initialization", "x"),
             ("fn f() { let x; return g(x); } fn g(x) { return x; }",
              "read before definite initialization", "x"),
-            ("fn f(n) { let x; if (n) { x = 1; } return x; }",
+            ("fn f(n) { let x; if (n != 0) { x = 1; } return x; }",
              "read before definite initialization", "x"),
-            ("fn f(n) { let x; while (n) { x = 1; n = 0; } return x; }",
+            ("fn f(n) { let x; while (n != 0) { x = 1; n = 0; } return x; }",
              "read before definite initialization", "x"),
             ("let x = 1; fn f() { return x; }",
              "use before declaration (unknown name)", "x"),
@@ -689,23 +689,23 @@ static int failing_fflush(FILE *stream) { (void)stream; return EOF; }
                     f"print 3 {operator} 2;", expected,
                 )
         self.assert_program(
-            "print 1 + 2 * 3 < 8 == 1; print 0 == 2 < 1; "
-            "print (2 < 3) + (4 >= 4) * 2; print -2 < -1; "
-            "print 3 > 2 > 1; print 2 == 2 == 1;", "1\n1\n3\n1\n0\n1\n",
+            "print 1 + 2 * 3 < 8 == true; print false == 2 < 1; "
+            "print (2 < 3) == (4 >= 4); print -2 < -1; "
+            "print true == false == false;", "1\n1\n1\n1\n1\n",
         )
         self.assert_program(
             "let flag = 2 < 3; while (flag) { print flag; flag = 2 != 2; } "
             "if (flag) { print 99; } else { print flag; }", "1\n0\n",
         )
 
-    def test_branches_nested_blocks_and_truthiness(self):
+    def test_branches_nested_blocks_and_boolean_conditions(self):
         self.assert_program(
-            "let x = 0; if (1) { x = 1; } else { x = 99; } print x; "
-            "if (0) { x = 99; } else { x = 2; } print x; "
-            "if (0) { print 99; } if (-2) { { print 3; } } "
-            "if (1) { if (0) { print 99; } else { print 4; } } "
+            "let x = 0; if (true) { x = 1; } else { x = 99; } print x; "
+            "if (false) { x = 99; } else { x = 2; } print x; "
+            "if (false) { print 99; } if (true) { { print 3; } } "
+            "if (true) { if (false) { print 99; } else { print 4; } } "
             "else { print 99; } { { x = 5; } } print x; "
-            "if (1) {} else {} {}",
+            "if (true) {} else {} {}",
             "1\n2\n3\n4\n5\n",
         )
         self.assert_program(
@@ -718,7 +718,7 @@ static int failing_fflush(FILE *stream) { (void)stream; return EOF; }
             "let i = 0; while (i < 0) { print 99; } print i; "
             "while (i <= 0) { print i; i = i + 1; } print i; "
             "while (i != 3) { if (i == 2) { print i; } i = i + 1; } "
-            "print i; while (0) {}",
+            "print i; while (false) {}",
             "0\n0\n1\n2\n3\n",
         )
         self.assert_program(
@@ -730,20 +730,20 @@ static int failing_fflush(FILE *stream) { (void)stream; return EOF; }
     def test_nested_declarations_keep_one_source_order_scope(self):
         self.assert_program(
             "{ let x = 2; } print x; "
-            "if (0) { let skipped = 9; } skipped = x; print skipped; "
-            "if (0) { let shared = 8; } else { shared = x + 1; } print shared; "
-            "while (0) { let never = 7; } never = 4; print never; "
+            "if (false) { let skipped = 9; } skipped = x; print skipped; "
+            "if (false) { let shared = 8; } else { shared = x + 1; } print shared; "
+            "while (false) { let never = 7; } never = 4; print never; "
             "let i = 0; while (i < 2) { let local = i; print local; i = i + 1; } "
             "local = i; print local;", "2\n2\n3\n4\n0\n1\n2\n",
         )
         for text, diagnostic in [
             ("{ let x = 1; } let x = 2;", "duplicate declaration"),
-            ("if (1) { let x = 1; } else { let x = 2; }", "duplicate declaration"),
-            ("if (0) { print missing; }", "use before declaration"),
+            ("if (true) { let x = 1; } else { let x = 2; }", "duplicate declaration"),
+            ("if (false) { print missing; }", "use before declaration"),
             ("while (missing < 1) {}", "use before declaration"),
             ("if (missing) {}", "use before declaration"),
-            ("if (0) {} else { missing = 1; }", "assignment to unknown name"),
-            ("while (0) { let x = x; }", "use before declaration"),
+            ("if (false) {} else { missing = 1; }", "assignment to unknown name"),
+            ("while (false) { let x = x; }", "use before declaration"),
             ("print x; { let x = 1; }", "use before declaration"),
         ]:
             with self.subTest(text=text):
@@ -760,13 +760,13 @@ static int failing_fflush(FILE *stream) { (void)stream; return EOF; }
             ("let x; let y; x = 2; y = x + 1; print y;", "3\n"),
             ("let x = 1; let y = x; x = x + y; print x;", "2\n"),
             ("let x; { { x = 3; } print x; } print x;", "3\n3\n"),
-            ("let x; if (1) { x = 2; } else { x = 3; } print x;", "2\n"),
-            ("let x; if (0) { x = 2; } else { x = 3; } print x;", "3\n"),
-            ("let x = 1; if (0) { x = 2; } print x; "
-             "while (0) { x = 3; } print x;", "1\n1\n"),
-            ("if (0) { let x = 2; } else { x = 3; } print x;", "3\n"),
-            ("if (1) { let x = 2; } else { x = 3; } print x;", "2\n"),
-            ("let x; if (1) { if (0) { x = 1; } else { x = 2; } } "
+            ("let x; if (true) { x = 2; } else { x = 3; } print x;", "2\n"),
+            ("let x; if (false) { x = 2; } else { x = 3; } print x;", "3\n"),
+            ("let x = 1; if (false) { x = 2; } print x; "
+             "while (false) { x = 3; } print x;", "1\n1\n"),
+            ("if (false) { let x = 2; } else { x = 3; } print x;", "3\n"),
+            ("if (true) { let x = 2; } else { x = 3; } print x;", "2\n"),
+            ("let x; if (true) { if (false) { x = 1; } else { x = 2; } } "
              "else { { x = 3; } } print x;", "2\n"),
             ("let x; let i = 0; while (i < 2) { x = i; print x; i = i + 1; } "
              "x = 9; print x;", "0\n1\n9\n"),
@@ -777,7 +777,7 @@ static int failing_fflush(FILE *stream) { (void)stream; return EOF; }
             ("let x; let i = 0; while (i < 1) { x = 6; let j = 0; "
              "while (j < 1) { print x; j = j + 1; } print x; i = i + 1; }",
              "6\n6\n"),
-            ("let x; if (0) { let y = 1; x = y; } "
+            ("let x; if (false) { let y = 1; x = y; } "
              "else { y = 2; x = y; } print x;", "2\n"),
         ]:
             with self.subTest(text=text):
@@ -803,30 +803,30 @@ static int failing_fflush(FILE *stream) { (void)stream; return EOF; }
         for text, occurrence in [
             ("let x; print x;", "x;"),
             ("let x; print 1 + x * 2;", "x *"),
-            ("let x; if (x) {}", "x)"),
+            ("let x; if (x != 0) {}", "x !="),
             ("let x; while (x < 1) {}", "x <"),
             ("let x; let y = x;", "x;"),
             ("let x; x = x + 1;", "x +"),
             ("let x; let y; y = x;", "x;"),
             ("let x;\nprint x;", "x;"),
-            ("let x; if (1) { x = 1; } print x;", "x;"),
-            ("let x; if (0) {} else { x = 1; } print x;", "x;"),
-            ("let x; if (1) { x = 1; } else { print x; }", "x;"),
-            ("let x; if (1) { print x; } else { x = 1; }", "x;"),
-            ("if (0) { let x = 1; } print x;", "x;"),
-            ("if (1) {} else { let x = 1; } print x;", "x;"),
-            ("if (1) { let x = 1; } else { print x; }", "x;"),
-            ("let x; if (1) { if (1) { x = 1; } } else { x = 2; } print x;",
+            ("let x; if (true) { x = 1; } print x;", "x;"),
+            ("let x; if (false) {} else { x = 1; } print x;", "x;"),
+            ("let x; if (true) { x = 1; } else { print x; }", "x;"),
+            ("let x; if (true) { print x; } else { x = 1; }", "x;"),
+            ("if (false) { let x = 1; } print x;", "x;"),
+            ("if (true) {} else { let x = 1; } print x;", "x;"),
+            ("if (true) { let x = 1; } else { print x; }", "x;"),
+            ("let x; if (true) { if (true) { x = 1; } } else { x = 2; } print x;",
              "x;"),
-            ("let x; while (0) { x = 1; } print x;", "x;"),
-            ("let x; while (1) { x = 1; } print x;", "x;"),
-            ("while (0) { let x = 1; } print x;", "x;"),
-            ("let x; while (0) { print x; x = 1; }", "x;"),
-            ("let x; while (0) { if (1) { x = 1; } print x; }", "x;"),
-            ("let x; while (0) { while (0) { x = 1; } print x; }", "x;"),
-            ("let x; if (1) { while (0) { x = 1; } } "
+            ("let x; while (false) { x = 1; } print x;", "x;"),
+            ("let x; while (true) { x = 1; } print x;", "x;"),
+            ("while (false) { let x = 1; } print x;", "x;"),
+            ("let x; while (false) { print x; x = 1; }", "x;"),
+            ("let x; while (false) { if (true) { x = 1; } print x; }", "x;"),
+            ("let x; while (false) { while (false) { x = 1; } print x; }", "x;"),
+            ("let x; if (true) { while (false) { x = 1; } } "
              "else { x = 2; } print x;", "x;"),
-            ("let x; if (0) { x = 1; } else { let y = x; }", "x;"),
+            ("let x; if (false) { x = 1; } else { let y = x; }", "x;"),
             ("let x; { let y = x; } x = 1;", "x;"),
         ]:
             with self.subTest(text=text):
@@ -846,10 +846,10 @@ static int failing_fflush(FILE *stream) { (void)stream; return EOF; }
         declarations = "".join(f"let x{i} = {i};" for i in range(24))
         assignments = "".join(f"x{i} = {i + 1};" for i in range(24))
         self.assert_program(
-            f"if (0) {{ {declarations} }} else {{ {assignments} }} print x23;",
+            f"if (false) {{ {declarations} }} else {{ {assignments} }} print x23;",
             "24\n",
         )
-        result = self.invoke(f"while (0) {{ {declarations} }} print x23;")
+        result = self.invoke(f"while (false) {{ {declarations} }} print x23;")
         self.assertEqual((result.returncode, result.stdout), (1, ""))
         self.assertIn("read before definite initialization: 'x23'", result.stderr)
 
@@ -859,8 +859,8 @@ static int failing_fflush(FILE *stream) { (void)stream; return EOF; }
         )
         for text in [
             "let x; print x;",
-            "let x; if (1) { x = 1; } print x;",
-            "let x; while (0) { x = 1; } print x;",
+            "let x; if (true) { x = 1; } print x;",
+            "let x; while (false) { x = 1; } print x;",
             "let x = x; let x;",
             "fn f(x, x) { return x; }",
             "fn f() { return; } print unknown(1);",
@@ -877,9 +877,159 @@ static int failing_fflush(FILE *stream) { (void)stream; return EOF; }
             "self.value = value; return 1; } } let a = new A(1);",
             "class A { field value: int; constructor(value: int) { "
             "self.value = value; } } let a = new A(new A(1));",
+            "let flag: bool = 1; if (3) { print flag + true; }",
+            "fn f(n: bool): bool { return 1; } print f(2);",
+            "class A { field flag: bool; constructor(flag: bool) { "
+            "self.flag = 3; } fn f(): bool { return self.flag; } } "
+            "let a = new A(1); a.flag = 2;",
         ]:
             with self.subTest(text=text):
                 self.assert_syntax_modes_accept(parser, text, json_mode=False)
+
+    def test_primitive_types_sample_and_lowering(self):
+        emitted = self.assert_program(
+            (EXAMPLES / "statements/types.stmt").read_text(),
+            "0\n1\n3\n1\n0\n7\n",
+        )
+        self.assertIn("_Bool cpg_field1;", emitted)
+        self.assertIn("_Bool cpg_f1(cpg_class1 *, _Bool);", emitted)
+        self.assertIn("void cpg_f0(cpg_class1 *, double, _Bool);", emitted)
+        self.assertIn("_Bool cpg_v", emitted)
+        self.assertIn("cpg_class1 * cpg_f", emitted)
+
+    def test_typed_returns_forward_recursion_and_reference_aliases(self):
+        self.assert_program(
+            "print even(6); print even(5); "
+            "fn even(n: int): bool { if (n == 0) { return true; } "
+            "return odd(n - 1); } "
+            "fn odd(n: int): bool { if (n == 0) { return false; } "
+            "return even(n - 1); } "
+            "class Box { field flag: bool; field value: int; "
+            "constructor(flag: bool) { self.flag = flag; } "
+            "fn alias(): Box { return self; } "
+            "fn choose(other: Box, useSelf: bool): Box { "
+            "if (useSelf) { return self; } else { return other; } } } "
+            "fn identity(box: Box): Box { return box.alias(); } "
+            "let a: Box = new Box(true); let b = new Box(false); "
+            "let chosen = a.choose(b, false); chosen.value = 7; "
+            "let copy = identity(a); copy.flag = false; "
+            "print a.flag; print b.value; print chosen.flag;",
+            "1\n0\n0\n7\n0\n",
+        )
+        self.assert_program(
+            "fn f(flag: bool): bool { let result: bool; "
+            "if (flag) { return false; } else { result = true; } "
+            "while (flag) { result = false; flag = false; } return result; } "
+            "print f(false); print f(true); "
+            "let flag: bool; if (true) { flag = true; } else { flag = false; } "
+            "print flag; let inferred = false; inferred = 1 < 2; print inferred; "
+            "let bool = 3; let int: int = bool; print int;",
+            "1\n0\n1\n1\n3\n",
+        )
+
+    def test_primitive_defaults_nested_fields_and_constructor_calls(self):
+        self.assert_program(
+            "class Flags { field enabled: bool; field count: int; } "
+            "class Holder { field flags: Flags; "
+            "constructor(flags: Flags, enabled: bool) { "
+            "self.flags = flags; self.flags.enabled = enabled; } "
+            "fn toggle(): bool { self.flags.enabled = self.flags.enabled == false; "
+            "return self.flags.enabled; } } "
+            "fn create(): Flags { return new Flags(); } "
+            "let flags: Flags = create(); print flags.enabled; print flags.count; "
+            "let holder = new Holder(flags, 1 < 2); "
+            "print flags.enabled; print holder.toggle(); print flags.enabled; "
+            "let ready: bool; ready = holder.flags.enabled != true; print ready; "
+            "let count: int; count = 000008; print count; "
+            "print true; print false; print (1 < 2) != (3 < 4);",
+            "0\n0\n1\n0\n0\n1\n8\n1\n0\n0\n",
+        )
+
+    def test_primitive_type_errors_are_semantic_and_source_located(self):
+        cases = [
+            ("print true + 1;", "true", "type mismatch"),
+            ("print 1 - false;", "false", "type mismatch"),
+            ("print false * true;", "false", "type mismatch"),
+            ("print -true;", "true", "type mismatch"),
+            ("print +false;", "false", "type mismatch"),
+            ("print true < false;", "true", "type mismatch"),
+            ("print 1 >= false;", "false", "type mismatch"),
+            ("print 3 > 2 > 1;", "1;", "type mismatch"),
+            ("print 1 == true;", "true", "type mismatch"),
+            ("print false != 0;", "0;", "type mismatch"),
+            ("print 2 == 2 == 1;", "1;", "type mismatch"),
+            ("if (1) {}", "1)", "condition type mismatch"),
+            ("while (0) {}", "0)", "condition type mismatch"),
+            ("let flag: bool = 1;", "flag:", "initializer type mismatch"),
+            ("let n: int = true;", "n:", "initializer type mismatch"),
+            ("let flag = false; flag = 1;", "flag = 1", "assignment type mismatch"),
+            ("let n = 0; n = 1 < 2;", "n = 1", "assignment type mismatch"),
+            ("let flag: bool; flag = 0;", "flag =", "assignment type mismatch"),
+            ("fn f(): bool { return 1; }", "1;", "return type mismatch"),
+            ("fn f(): int { return false; }", "false", "return type mismatch"),
+            ("fn f() { return true; }", "true", "return type mismatch"),
+            ("fn f(flag: bool) { return 1; } print f(1);", "1);",
+             "argument type mismatch"),
+            ("fn f(n: int): bool { return true; } print f(false);", "false);",
+             "argument type mismatch"),
+            ("fn f(flag: bool): bool { return flag; } print f();", "f();",
+             "argument count mismatch"),
+            ("class A { field flag: bool; constructor(flag: bool) {} } "
+             "let a = new A(1);", "1);", "argument type mismatch"),
+            ("class A { constructor(flag: bool) {} } let a = new A(true, false);",
+             "A(true", "constructor argument count mismatch"),
+            ("class A { field flag: bool; } let a = new A(); a.flag = 1;",
+             "a.flag", "field assignment type mismatch"),
+            ("class A { field n: int; } let a = new A(); a.n = false;",
+             "a.n", "field assignment type mismatch"),
+            ("class A { field flag: bool; constructor() { self.flag = 0; } }",
+             "self.flag", "field assignment type mismatch"),
+            ("class A { fn f(flag: bool): bool { return flag; } } "
+             "let a = new A(); print a.f(1);", "1);", "argument type mismatch"),
+            ("class A { fn f(): bool { return true; } } let a = new A(); "
+             "let n: int = a.f();", "n:", "initializer type mismatch"),
+            ("class A { fn f(): bool { return 0; } }", "0;", "return type mismatch"),
+            ("let flag = true; print flag.nope;", "flag.nope",
+             "member access requires object"),
+            ("let flag = false; flag.nope();", "flag.nope",
+             "member access requires object"),
+            ("let flag: bool; print flag;", "flag;", "read before definite initialization"),
+            ("let flag: bool; if (true) { flag = true; } print flag;",
+             "flag;", "read before definite initialization"),
+            ("let flag: bool; while (true) { flag = false; } print flag;",
+             "flag;", "read before definite initialization"),
+            ("fn f(flag: bool): bool { if (flag) { return true; } }", "f(",
+             "function may finish without returning"),
+            ("fn f(): bool { while (true) { return false; } }", "f(",
+             "function may finish without returning"),
+            ("fn f(): Missing { return 0; }", "Missing", "unknown class type"),
+            ("class bool {}", "bool", "class name conflicts with boolean type"),
+            ("class A {} fn f(): A { return false; }", "false", "return type mismatch"),
+            ("class A {} class B {} fn f(): A { return new B(); }",
+             "new B", "return type mismatch"),
+            ("fn f(): bool { return; }", "return", "return requires a value"),
+        ]
+        for body, occurrence, diagnostic in cases:
+            with self.subTest(text=body):
+                text = "\n" + body
+                result = self.invoke(text)
+                self.assertEqual((result.returncode, result.stdout), (1, ""))
+                self.assertIn(diagnostic, result.stderr)
+                offset = text.index(occurrence)
+                self.assertIn(f":2:{offset}: byte {offset}:", result.stderr)
+                self.assert_syntax_modes_accept(self.syntax_parser, text)
+
+    def test_primitive_type_syntax_errors(self):
+        for text in [
+            "let flag: = true;", "fn f(): { return true; }",
+            "fn f(): bool: int { return true; }",
+            "class A { constructor(): bool {} }",
+            "let true = 1;", "fn false() { return 0; }",
+        ]:
+            with self.subTest(text=text):
+                result = self.invoke(text)
+                self.assertEqual((result.returncode, result.stdout), (1, ""))
+                self.assertIn("parse error", result.stderr)
 
     def test_malformed_control_flow_has_source_locations_and_no_c(self):
         result = self.invoke(
@@ -893,8 +1043,8 @@ static int failing_fflush(FILE *stream) { (void)stream; return EOF; }
         for text in [
             "print 1;\nif () {}", "if (1 <) {}", "while (== 1) {}",
             "while (1 !=) {}", "if (1 < = 2) {}", "if (1 = 2) {}",
-            "if (1) print 2;", "while 1 {}", "while (1 {}",
-            "if (1) { print 2;", "else {}", "if (1) {} else",
+            "if (true) print 2;", "while 1 {}", "while (1 {}",
+            "if (true) { print 2;", "else {}", "if (true) {} else",
             "let if = 1;", "let else = 1;", "let while = 1;",
         ]:
             with self.subTest(text=text):
