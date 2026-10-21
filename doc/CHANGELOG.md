@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Add a one-class object slice to the optional statement compiler: typed
+  integer fields, zero construction, value-copy bindings, field reads/stores,
+  and statically dispatched methods with explicit mutable receivers. Keep
+  function/method scopes isolated and compose object initialization with
+  definite-assignment/control-flow analysis. Add strict C99 execution,
+  layout/lowering, semantic-diagnostic and syntax-only regressions, a runnable
+  object sample, and pipeline/semantics documentation. Inheritance and dynamic
+  dispatch remain deferred.
+
 - Add integer-valued functions to the optional statement compiler: collected
   signatures, initialized parameters, isolated function-local symbols,
   value returns, nested/forward/recursive calls, arity validation, and

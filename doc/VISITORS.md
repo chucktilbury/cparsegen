@@ -26,7 +26,11 @@ initialization on every incoming path. Both `if`/`else` arms must establish it;
 an `if` without `else` or a possibly zero-iteration `while` cannot. This is
 opt-in compiler behavior, not a parser restriction. Storage is program-wide;
 visitor dispatch recursively emits conditions and bodies without introducing
-lexical scopes. Generated parsers remain syntax-only.
+block-local scopes. Functions and methods have isolated local tables. Its
+one-class object slice shares application-owned class/member signatures,
+tracks arithmetic versus value-copy object bindings, validates member access,
+and lowers zero construction, struct copies, and static calls with explicit
+receiver pointers. Generated parsers remain syntax-only.
 
 ## Build and run the standalone C consumer
 

@@ -1,4 +1,4 @@
-"""Visitor scopes, function/control flow, C execution, and syntax-only parsing."""
+"""Visitor scopes, objects/function/control flow, C execution, and syntax parsing."""
 
 import json
 import shutil
@@ -89,6 +89,196 @@ class StatementCompilerTests(GeneratorTestCase):
     def test_symbol_table_growth(self):
         declarations = "".join(f"let x{i} = {i};" for i in range(24))
         self.assert_program(declarations + "print x0 + x23;", "23\n")
+
+    def test_object_sample_layout_and_dispatch(self):
+        emitted = self.assert_program(
+            (EXAMPLES / "statements/objects.stmt").read_text(),
+            "0\n10\n15\n4\n2\n15\n",
+        )
+        self.assertIn(
+            "typedef struct {\n    double cpg_field0;\n"
+            "    double cpg_field1;\n} cpg_object;", emitted,
+        )
+        self.assertIn("double cpg_f0(cpg_object *, double);", emitted)
+        self.assertIn("double cpg_f0(cpg_object *cpg_self, double cpg_v1)", emitted)
+        self.assertIn("(*cpg_self)", emitted)
+        self.assertIn(").cpg_field0", emitted)
+        self.assertIn("(cpg_object){0}", emitted)
+        self.assertIn("cpg_f1(&(cpg_v", emitted)
+        self.assertLess(emitted.index("} cpg_object;"), emitted.index("double cpg_f0"))
+        self.assertLess(emitted.index("double cpg_f0"), emitted.index("int main"))
+
+    def test_objects_forward_calls_copy_reset_and_function_locals(self):
+        self.assert_program(
+            "let x = new Box(); x.value = 7; let y = (x); y.value = 9; "
+            "print x.value; print y.value; x = y; y = new Box(); "
+            "print x.value; print y.value; print local(3); "
+            "class Box { field value: int; "
+            "fn first(n) { return self.second(n); } "
+            "fn second(n) { self.value = plus(self.value, n); return self.value; } } "
+            "fn plus(a, b) { return a + b; } "
+            "fn local(n) { let x: Box = new Box(); x.first(n); return x.value; }",
+            "7\n9\n9\n0\n3\n",
+        )
+        self.assert_program(
+            "class Box { field x: int; fn reset() { self = new Box(); return 0; } "
+            "fn recurse(n) { if (n == 0) { return self.x; } "
+            "self.x = self.x + 1; return self.recurse(n - 1); } } "
+            "let b = new Box(); print -1; print b.recurse(4); b.reset(); print b.x;",
+            "-1\n4\n0\n",
+        )
+        self.assert_program(
+            "class main { field printf: int; fn switch(ignored) { return 1; } } "
+            "fn switch() { return 2; } let cpg_object = new main(); "
+            "cpg_object.printf = switch(); print cpg_object.printf; "
+            "print cpg_object.switch(0);", "2\n1\n",
+        )
+        self.assert_program(
+            "class Empty { fn unused(n) { return n; } } "
+            "let e = new Empty(); let copy = e; e = copy;", "",
+        )
+        self.assert_program("class Empty {}", "")
+        self.assert_program(
+            "class Box { field x: int; fn combine(Box, other) { "
+            "let copy = self; copy.x = Box * 10 + other; self = copy; "
+            "return self.x; } } let b = new Box(); "
+            "print b.combine(2, 3); print b.x;", "23\n23\n",
+        )
+
+    def test_object_metadata_and_local_table_growth(self):
+        fields = "".join(f"field x{i}: int;" for i in range(24))
+        methods = "".join(f"fn f{i}(n) {{ return self.x{i} + n; }}" for i in range(24))
+        locals = "".join(f"let v{i} = {i};" for i in range(24))
+        self.assert_program(
+            f"class Box {{ {fields} {methods} "
+            f"fn local(n) {{ {locals} self.x23 = v23; return self.f23(n); }} }} "
+            "let b = new Box(); print b.local(1); print b.x23; print b.f0(2);",
+            "24\n23\n2\n",
+        )
+
+    def test_object_definite_assignment_and_method_control_flow(self):
+        self.assert_program(
+            "class Box { field x: int; "
+            "fn f(n) { let y; if (n) { y = 3; } else { return self.x; } "
+            "while (y < 5) { y = y + 1; } self.x = y; return self.x; } } "
+            "let b: Box; if (1) { b = new Box(); } else { b = new Box(); } "
+            "print b.f(1); print b.f(0); "
+            "let i = 0; while (i < 2) { let c = new Box(); "
+            "print c.x; c.x = 99; i = i + 1; }",
+            "5\n5\n0\n0\n",
+        )
+        self.assert_program(
+            "class Box { field x: int; } fn f(n) { let b: Box; "
+            "if (n) { return 7; } else { b = new Box(); } return b.x; } "
+            "print f(0); print f(1);", "0\n7\n",
+        )
+
+    def test_object_semantic_errors_and_syntax_only_acceptance(self):
+        box = "class Box { field x: int; fn add(n) { return n; } } "
+        for text, diagnostic in [
+            ("let b = new Missing();", "unknown class"),
+            ("let b: Missing;", "unknown class"),
+            ("class A {} class A {}", "duplicate class"),
+            ("class A {} class B {}", "only one class declaration"),
+            ("class A { field x: int; field x: int; }", "duplicate member"),
+            ("class A { field x: Missing; }", "unknown field type"),
+            ("class A { field x: A; }", "unknown field type"),
+            ("class A { fn x() { return 1; } fn x() { return 2; } }",
+             "duplicate member"),
+            ("class A { fn x() { return 1; } field x: int; }", "duplicate member"),
+            ("class A { fn f(self) { return 1; } }", "duplicate declaration"),
+            ("class A { fn f() { let self = 1; return 1; } }",
+             "duplicate declaration"),
+            (box + "let b = new Box(); print b.missing;", "unknown field"),
+            (box + "let b = new Box(); b.missing = 1;", "unknown field"),
+            (box + "let b = new Box(); b.missing();", "unknown method"),
+            (box + "let b = new Box(); print b.x();", "unknown method"),
+            (box + "let b = new Box(); print b.add;", "unknown field"),
+            (box + "let b = new Box(); b.add();", "method argument count mismatch"),
+            (box + "let b = new Box(); b.add(1, 2);", "method argument count mismatch"),
+            (box + "let b = new Box(); b.add(b);", "type mismatch"),
+            (box + "let b = 1; print b.x;", "member access requires object"),
+            (box + "let b = 1; b.add(2);", "member access requires object"),
+            (box + "let b = 1; b.x = 2;", "member access requires object"),
+            (box + "let b = new Box(); b.x = b;", "type mismatch"),
+            (box + "let b: Box = 1;", "initializer type mismatch"),
+            (box + "let b = new Box(); b = 1;", "assignment type mismatch"),
+            (box + "let b = 1; b = new Box();", "assignment type mismatch"),
+            (box + "let b = new Box(); print b;", "type mismatch"),
+            (box + "if (new Box()) {}", "type mismatch"),
+            (box + "while (new Box()) {}", "type mismatch"),
+            (box + "print -new Box();", "type mismatch"),
+            (box + "print 1 + new Box();", "type mismatch"),
+            (box + "print new Box() * 1;", "type mismatch"),
+            (box + "print new Box() == new Box();", "type mismatch"),
+            (box + "fn f(x) { return x; } print f(new Box());", "type mismatch"),
+            (box + "fn f() { return new Box(); }", "type mismatch"),
+            (box + "let b: Box; print b.x;", "read before definite initialization"),
+            (box + "let b: Box; b.x = 1;", "read before definite initialization"),
+            (box + "let b: Box; b.add(1);", "read before definite initialization"),
+            (box + "let b: Box; if (1) { b = new Box(); } print b.x;",
+             "read before definite initialization"),
+            (box + "let b: Box; while (0) { b = new Box(); } print b.x;",
+             "read before definite initialization"),
+            (box + "let b = new Box(); let b: Box;", "duplicate declaration"),
+            (box + "let b: Box = b;", "use before declaration"),
+            (box + "let b = new Box(); fn f() { return b.x; }", "use before declaration"),
+            (box + "print self.x;", "use before declaration"),
+            (box + "fn f() { return self.x; }", "use before declaration"),
+            (box + "print add(1);", "unknown function"),
+            ("let global = 1; class Box { fn f() { return global; } }",
+             "use before declaration"),
+            ("class Box { field x: int; fn f() { return x; } }", "use before declaration"),
+            ("class Box { fn f() { return self; } }", "type mismatch"),
+            ("class Box { fn f() { return self.g(); } "
+             "fn g() { return n; } }", "use before declaration"),
+            ("class Box { fn f() { let n; return n; } }",
+             "read before definite initialization"),
+            ("class Box { fn f() {} }", "function may finish without returning"),
+        ]:
+            with self.subTest(text=text):
+                result = self.invoke(text)
+                self.assertEqual((result.returncode, result.stdout), (1, ""))
+                self.assertIn(diagnostic, result.stderr)
+                self.assertRegex(result.stderr, r"source\.stmt:1:\d+: byte \d+:")
+                self.assert_syntax_modes_accept(self.syntax_parser, text)
+
+    def test_object_errors_have_exact_locations(self):
+        for text, occurrence, name, diagnostic in [
+            ("class Box { field x: int; }\nlet b = new Missing();", "Missing",
+             "Missing", "unknown class"),
+            ("class Box { field x: int; }\nlet b = new Box();\nprint b.absent;",
+             "absent", "absent", "unknown field"),
+            ("class Box { fn f(x) { return x; } }\nlet b = new Box();\nb.f();",
+             "f();", "f", "method argument count mismatch"),
+            ("class Box {\nfield x: int;\nfield x: int;\n}", "x: int;\n}",
+             "x", "duplicate member"),
+            ("class Box {}\nlet b: Box = 1;", "b:", "b", "initializer type mismatch"),
+            ("let n = 1;\nprint n.x;", "n.x", "n", "member access requires object"),
+        ]:
+            with self.subTest(text=text):
+                offset = text.index(occurrence)
+                line = text.count("\n", 0, offset) + 1
+                column = offset - text.rfind("\n", 0, offset)
+                result = self.invoke(text)
+                self.assertEqual((result.returncode, result.stdout), (1, ""))
+                self.assertEqual(
+                    result.stderr, f"{self.directory / 'source.stmt'}:{line}:{column}: "
+                    f"byte {offset}: {diagnostic}: '{name}'\n",
+                )
+
+    def test_object_syntax_errors(self):
+        for text in [
+            "class Box { field x int; }", "class Box { field x: int }",
+            "class Box { let x = 1; }", "class Box { class Nested {} }",
+            "fn f() { class Box {} return 1; }", "let b = new Box(1);",
+            "class Box {};", "let b = new Box;", "print b.;",
+            "let class = 1;", "let field = 1;", "let new = 1;",
+        ]:
+            with self.subTest(text=text):
+                result = self.invoke(text)
+                self.assertEqual((result.returncode, result.stdout), (1, ""))
+                self.assertIn("parse error", result.stderr)
 
     def test_function_sample_and_nested_forward_calls(self):
         emitted = self.assert_program(
@@ -432,6 +622,9 @@ class StatementCompilerTests(GeneratorTestCase):
             "fn f(x, x) { return x; }",
             "fn f() { return; } print unknown(1);",
             "fn f() { let x; return x; }",
+            "class Box { field x: Unknown; } let b = new Missing();",
+            "class Box { fn f(self) { return absent; } }",
+            "class Box { field x: int; } let b: Box; b.missing = new Box();",
         ]:
             with self.subTest(text=text):
                 self.assert_syntax_modes_accept(parser, text, json_mode=False)
