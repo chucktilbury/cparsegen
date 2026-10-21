@@ -1,4 +1,4 @@
-"""Persistent visitor symbols, source-order emission, and syntax-only parsing."""
+"""Visitor scopes, function/control flow, C execution, and syntax-only parsing."""
 
 import json
 import shutil
@@ -76,7 +76,7 @@ class StatementCompilerTests(GeneratorTestCase):
             ("print 20 - 5 - 3; print -2 * -3 + +4;", "12\n10\n"),
             ("let x = 000008; print -(x + 009) * 2;", "-34\n"),
             ("print 2 * (3 + (4 - 1)); print 999999999 + 1;", "12\n1000000000\n"),
-            ("let return = 1; let printf = return + 1; let main = printf * 2; "
+            ("let switch = 1; let printf = switch + 1; let main = printf * 2; "
              "let cpg_v0 = main + 1; let _x2 = cpg_v0; print _x2;", "5\n"),
             ("let printer = 3; let letter = 4; print printer + letter;", "7\n"),
             (" \r\n let A_0 = 0;\t A_0 = -1;\n print A_0; ", "-1\n"),
@@ -89,6 +89,153 @@ class StatementCompilerTests(GeneratorTestCase):
     def test_symbol_table_growth(self):
         declarations = "".join(f"let x{i} = {i};" for i in range(24))
         self.assert_program(declarations + "print x0 + x23;", "23\n")
+
+    def test_function_sample_and_nested_forward_calls(self):
+        emitted = self.assert_program(
+            (EXAMPLES / "statements/functions.stmt").read_text(), "12\n120\n7\n",
+        )
+        self.assertLess(emitted.index("double cpg_f0(double);"),
+                        emitted.index("int main(void)"))
+        self.assert_program(
+            "print add(one(), add(2, 3)); "
+            "fn add(a, b) { let total = a + b; return total; } "
+            "fn one() { return 1; }", "6\n",
+        )
+
+    def test_function_scopes_and_c_safe_names(self):
+        self.assert_program(
+            "let x = 100; fn first(x) { let y = x + 1; return y; } "
+            "fn second(x) { let y = first(x); return y * 2; } "
+            "fn main(printf) { let switch = printf; return switch; } "
+            "fn unused(ignored) { let local; return 0; } "
+            "fn x() { return 9; } "
+            "print first(2); print second(3); print x; print main(x());",
+            "3\n8\n100\n9\n",
+        )
+        declarations = "".join(f"let x{i} = {i};" for i in range(24))
+        functions = "".join(f"fn f{i}(x) {{ return x + {i}; }}" for i in range(24))
+        self.assert_program(
+            f"{functions} fn local(x) {{ {declarations} return x + x23; }} "
+            "print local(f23(1));", "47\n",
+        )
+        self.assert_program(
+            f"fn local(n) {{ if (n) {{ {declarations} return x23; }} "
+            "else { let last = 7; } return last; } "
+            "print local(0); print local(1);", "7\n23\n",
+        )
+
+    def test_recursive_and_mutually_recursive_functions(self):
+        self.assert_program(
+            "fn even(n) { if (n == 0) { return 1; } "
+            "else { return odd(n - 1); } } "
+            "fn odd(n) { if (n == 0) { return 0; } return even(n - 1); } "
+            "print even(8); print odd(8); print odd(7);", "1\n0\n1\n",
+        )
+
+    def test_return_aware_definite_assignment_and_control_flow(self):
+        for text, expected in [
+            ("fn f(n) { let x; if (n) { return 10; } else { x = 20; } "
+             "return x; } print f(1); print f(0);", "10\n20\n"),
+            ("fn f(n) { let x; if (n) { x = 20; } else { return 10; } "
+             "return x; } print f(1); print f(0);", "20\n10\n"),
+            ("fn f(n) { while (n > 0) { if (n == 2) { return n; } "
+             "n = n - 1; } return 0; } print f(3); print f(0);", "2\n0\n"),
+            ("fn f(n) { if (n) { { return -n; } } return n + 1; } "
+             "print f(2); print f(0);", "-2\n1\n"),
+            ("fn f(n) { let x; if (n) { x = 1; } else { x = 2; } "
+             "return x; } print f(0);", "2\n"),
+            ("fn f(x) { return x; print 99; } print f(3);", "3\n"),
+            ("fn f(x) { print x; return x * 2; } print f(3);", "3\n6\n"),
+        ]:
+            with self.subTest(text=text):
+                self.assert_program(text, expected)
+
+    def test_function_semantic_errors_are_syntax_only_accepted(self):
+        cases = [
+            ("print absent(1);", "unknown function", "absent"),
+            ("fn f() { return missing(); }", "unknown function", "missing"),
+            ("fn f(x) { return x; } print f();", "argument count mismatch", "f"),
+            ("fn f() { return 1; } print f(1);", "argument count mismatch", "f"),
+            ("fn f(a, b) { return a; } print f(1, 2, 3);",
+             "argument count mismatch", "f"),
+            ("fn f(x, x) { return x; }", "duplicate declaration", "x"),
+            ("fn f(x) { let x = 1; return x; }", "duplicate declaration", "x"),
+            ("fn f() { let x; { let x; } return 1; }", "duplicate declaration", "x"),
+            ("fn f() { return 1; } fn f(x) { return x; }", "duplicate function", "f"),
+            ("return 1;", "return outside function", "return"),
+            ("if (0) { return; }", "return outside function", "return"),
+            ("fn f() { return; }", "return requires a value", "return"),
+            ("fn f() {}", "function may finish without returning a value", "f"),
+            ("fn f(x) { if (x) { return 1; } }",
+             "function may finish without returning a value", "f"),
+            ("fn f() { while (1) { return 1; } }",
+             "function may finish without returning a value", "f"),
+            ("fn f() { let x; return x; }", "read before definite initialization", "x"),
+            ("fn f() { let x; return g(x); } fn g(x) { return x; }",
+             "read before definite initialization", "x"),
+            ("fn f(n) { let x; if (n) { x = 1; } return x; }",
+             "read before definite initialization", "x"),
+            ("fn f(n) { let x; while (n) { x = 1; n = 0; } return x; }",
+             "read before definite initialization", "x"),
+            ("let x = 1; fn f() { return x; }",
+             "use before declaration (unknown name)", "x"),
+            ("fn f(x) { return x; } print x;",
+             "use before declaration (unknown name)", "x"),
+            ("fn f(x) { return x; } fn g() { x = 1; return 0; }",
+             "assignment to unknown name", "x"),
+            ("fn f() { let x = 1; return x; } fn g() { return x; }",
+             "use before declaration (unknown name)", "x"),
+            ("fn f(x) { return x; } fn g() { let x; return x; }",
+             "read before definite initialization", "x"),
+            ("fn f() { return 1; print missing; }",
+             "use before declaration (unknown name)", "missing"),
+            ("fn f() { return 1234567890; }", "integer literal exceeds nine digits",
+             "1234567890"),
+        ]
+        for text, diagnostic, name in cases:
+            with self.subTest(text=text):
+                result = self.invoke(text)
+                self.assertEqual((result.returncode, result.stdout), (1, ""))
+                self.assertRegex(result.stderr, r"source\.stmt:1:\d+: byte \d+:")
+                self.assertTrue(result.stderr.endswith(f"{diagnostic}: '{name}'\n"),
+                                result.stderr)
+                self.assert_syntax_modes_accept(self.syntax_parser, text)
+
+    def test_function_errors_have_exact_source_locations(self):
+        for text, occurrence, diagnostic in [
+            ("fn f(x) {\n  let x = 1;\n  return x;\n}", "x =",
+             "duplicate declaration"),
+            ("fn f(x) {\n  return x;\n}\nprint f();", "f();",
+             "argument count mismatch"),
+            ("fn f() {\n  return absent();\n}", "absent",
+             "unknown function"),
+            ("fn f() {\n  return;\n}", "return",
+             "return requires a value"),
+        ]:
+            with self.subTest(text=text):
+                offset = text.index(occurrence)
+                name = text[offset:].split()[0].split("(")[0].split(";")[0]
+                line = text.count("\n", 0, offset) + 1
+                column = offset - text.rfind("\n", 0, offset)
+                result = self.invoke(text)
+                self.assertEqual((result.returncode, result.stdout), (1, ""))
+                self.assertEqual(
+                    result.stderr,
+                    f"{self.directory / 'source.stmt'}:{line}:{column}: "
+                    f"byte {offset}: {diagnostic}: '{name}'\n",
+                )
+
+    def test_function_syntax_errors(self):
+        for text in [
+            "fn f(x, x,) { return 1; }", "fn f(x) return x;",
+            "fn f() { fn g() { return 1; } return g(); }",
+            "print f(,);", "print f(1,);", "fn f() { return 1 }",
+            "let return = 1;", "let fn = 1;", "fn f() { return 1, 2; }",
+        ]:
+            with self.subTest(text=text):
+                result = self.invoke(text)
+                self.assertEqual((result.returncode, result.stdout), (1, ""))
+                self.assertIn("parse error", result.stderr)
 
     def test_control_flow_sample(self):
         emitted = self.assert_program(
@@ -282,6 +429,9 @@ class StatementCompilerTests(GeneratorTestCase):
             "let x; if (1) { x = 1; } print x;",
             "let x; while (0) { x = 1; } print x;",
             "let x = x; let x;",
+            "fn f(x, x) { return x; }",
+            "fn f() { return; } print unknown(1);",
+            "fn f() { let x; return x; }",
         ]:
             with self.subTest(text=text):
                 self.assert_syntax_modes_accept(parser, text, json_mode=False)

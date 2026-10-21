@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add integer-valued functions to the optional statement compiler: collected
+  signatures, initialized parameters, isolated function-local symbols,
+  value returns, nested/forward/recursive calls, arity validation, and
+  return-aware definite-assignment joins. Emit C99 prototypes and definitions;
+  keep parser-generator/visitor APIs and syntax-only semantics unchanged.
+  Add strict C99 execution/error regressions and an end-to-end function sample.
+
 - Add opt-in definite-assignment checking to the statement compiler visitor,
   with optional declaration initializers, both-arm `if`/`else` intersection,
   conservative no-else/zero-iteration loop handling, and source-located
