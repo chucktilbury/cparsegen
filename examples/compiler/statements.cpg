@@ -1,7 +1,12 @@
-program : (function | statement)* ;
+program : (class_decl | function | statement)* ;
+class_decl : "class" IDENT "{" (field | function)* "}" ;
+field : "field" IDENT ":" IDENT ";" ;
 function : "fn" IDENT "(" parameters ")" block ;
 parameters : (IDENT ("," IDENT)*)? ;
-statement : declaration | assignment | output | conditional | loop | block | returning ;
+statement : object_declaration | declaration | member_assignment | assignment | method_statement | output | conditional | loop | block | returning ;
+object_declaration : "let" IDENT ":" IDENT ("=" expression)? ";" ;
+member_assignment : member "=" expression ";" ;
+method_statement : method_call ";" ;
 returning : "return" expression? ";" ;
 declaration : "let" IDENT ("=" expression)? ";" ;
 assignment : IDENT "=" expression ";" ;
@@ -16,7 +21,10 @@ comparison : sum (("<" | "<=" | ">" | ">=") sum)* ;
 sum : product (("+" | "-") product)* ;
 product : unary ("*" unary)* ;
 unary : ("+" | "-") unary | primary ;
-primary : INTEGER | call | IDENT | "(" expression ")" ;
+primary : INTEGER | construction | method_call | member | call | IDENT | "(" expression ")" ;
+construction : "new" IDENT "(" ")" ;
+method_call : IDENT "." IDENT "(" arguments ")" ;
+member : IDENT "." IDENT ;
 call : IDENT "(" arguments ")" ;
 arguments : (expression ("," expression)*)? ;
 
