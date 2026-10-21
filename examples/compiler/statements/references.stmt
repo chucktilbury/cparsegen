@@ -1,0 +1,39 @@
+class Pair {
+    field left: Counter;
+    field right: Counter;
+    fn attach(counter: Counter) {
+        self.left = counter;
+        self.right = counter;
+        return 0;
+    }
+    fn bump(amount: int) {
+        return self.left.add(amount);
+    }
+}
+class Counter {
+    field value: int;
+    fn add(amount) {
+        self.value = self.value + amount;
+        return self.value;
+    }
+}
+fn initialize(pair: Pair, start) {
+    let local = new Counter();
+    local.value = start;
+    pair.attach(local);
+    return 0;
+}
+fn read(counter: Counter) {
+    return counter.value;
+}
+let pair = new Pair();
+print initialize(pair, 10);
+let alias = pair;
+print alias.bump(5);
+print pair.right.value;
+pair.right.value = 20;
+print read(pair.left);
+alias = new Pair();
+alias.attach(new Counter());
+print alias.left.value;
+print pair.left.value;

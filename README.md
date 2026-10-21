@@ -37,8 +37,8 @@ which pieces are generated versus handwritten.
 The [tiny statement compiler](examples/compiler/STATEMENTS.md) extends that
 pattern with declarations, assignments, printing, braced `if`/`else` and `while`,
 comparisons, nested blocks, and integer-valued functions with parameters,
-locals, returns, forward calls, recursion, and one class with value-copy objects,
-zero-initialized integer fields, field access/stores, and static method calls.
+locals, returns, forward calls, recursion, and multiple classes with reference
+semantics, typed fields/parameters, nested objects, and static method calls.
 Its handwritten visitor collects class/member and function signatures, keeps
 isolated function/method-local symbol tables with explicit receivers,
 checks source-located semantic errors (including control-flow-sensitive reads

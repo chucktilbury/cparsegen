@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Extend the statement compiler to multiple classes with class-specific type
+  metadata, class-typed fields and function/method parameters, nested member
+  paths, and static dispatch. Object assignment/passing now preserves aliases
+  instead of copying structs; receiver rebinding is local. Emit typed C99
+  pointers, checked null dereferences, and program-lifetime allocations freed
+  by an exit handler, including cycles and runtime failure paths. Add a
+  reference sample, strict execution/diagnostic tests, and allocation-failure/
+  cleanup instrumentation. Object returns, inheritance, virtual dispatch, and
+  generics remain deferred; the parser-generator core is unchanged.
+
 - Add a one-class object slice to the optional statement compiler: typed
   integer fields, zero construction, value-copy bindings, field reads/stores,
   and statically dispatched methods with explicit mutable receivers. Keep
