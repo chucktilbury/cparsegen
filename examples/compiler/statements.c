@@ -118,13 +118,37 @@ static CpgVisit check_name(const Node *node, void *user) {
     return CPG_CONTINUE;
 }
 
-static CpgVisit check_integer(const Node *node, void *user) {
-    Compiler *compiler = user;
-    compiler->value_type = TYPE_INT;
-    if (cpg_node_text_length(node) > 9) {
-        return semantic_error(compiler, node, "integer literal exceeds nine digits");
+static CpgVisit integer_magnitude(Compiler *compiler, const Node *node,
+                                  unsigned long limit, unsigned long *value) {
+    const unsigned char *text = cpg_node_text(compiler->parser, node);
+    *value = 0;
+    for (size_t i = 0; i < cpg_node_text_length(node); ++i) {
+        unsigned long digit = text[i] - '0';
+        if (*value > (limit - digit) / 10)
+            return semantic_error(compiler, node, "integer literal outside int32 range");
+        *value = *value * 10 + digit;
     }
     return CPG_CONTINUE;
+}
+
+static CpgVisit check_integer(const Node *node, void *user) {
+    Compiler *compiler = user;
+    unsigned long value;
+    compiler->value_type = TYPE_INT;
+    return integer_magnitude(compiler, node, 2147483647UL, &value);
+}
+
+/* Only a directly negated decimal token may have magnitude 2147483648. */
+static const Node *negative_integer(const Compiler *compiler, const Node *node) {
+    if (strcmp(cpg_node_kind(node), "unary") || cpg_child_count(node) != 2 ||
+        *cpg_node_text(compiler->parser, cpg_child_at(node, 0)) != '-') return NULL;
+    const Node *operand = cpg_child_at(node, 1);
+    if (cpg_child_count(operand) != 1) return NULL;
+    const Node *primary = cpg_child_at(operand, 0);
+    if (strcmp(cpg_node_kind(primary), "primary") || cpg_child_count(primary) != 1)
+        return NULL;
+    const Node *token = cpg_child_at(primary, 0);
+    return !strcmp(cpg_node_kind(token), "INTEGER") ? token : NULL;
 }
 
 static CpgVisit check_boolean(const Node *node, void *user) {
@@ -173,6 +197,12 @@ static CpgVisit check_declaration(const Node *node, void *user) {
 
 static CpgVisit check_numeric(const Node *node, void *user) {
     Compiler *compiler = user;
+    const Node *integer = negative_integer(compiler, node);
+    if (integer) {
+        unsigned long value;
+        compiler->value_type = TYPE_INT;
+        return integer_magnitude(compiler, integer, 2147483648UL, &value);
+    }
     size_t count = cpg_child_count(node);
     int unary = count == 2;
     int equality = !strcmp(cpg_node_kind(node), "equality");
@@ -625,14 +655,10 @@ static CpgVisit emit_name(const Node *node, void *user) {
 
 static CpgVisit emit_integer(const Node *node, void *user) {
     Compiler *compiler = user;
-    const unsigned char *text = cpg_node_text(compiler->parser, node);
-    size_t length = cpg_node_text_length(node);
-    while (length > 1 && *text == '0') {
-        ++text;
-        --length;
-    }
-    fwrite(text, 1, length, stdout);
-    fputs(".0 ", stdout);
+    unsigned long value;
+    if (integer_magnitude(compiler, node, 2147483647UL, &value) != CPG_CONTINUE)
+        return CPG_ERROR;
+    fprintf(stdout, "INT32_C(%lu) ", value);
     return ferror(stdout) ? CPG_ERROR : CPG_CONTINUE;
 }
 
@@ -656,6 +682,39 @@ static CpgVisit emit_group(const Node *node, void *user) {
     CpgVisit result = dispatch_children(node, user);
     if (result != CPG_CONTINUE) return result;
     return fputs(") ", stdout) == EOF ? CPG_ERROR : CPG_CONTINUE;
+}
+
+static CpgVisit emit_arithmetic(const Node *node, void *user) {
+    Compiler *compiler = user;
+    size_t count = cpg_child_count(node);
+    const Node *integer = negative_integer(compiler, node);
+    if (integer) {
+        unsigned long value;
+        if (integer_magnitude(compiler, integer, 2147483648UL, &value) != CPG_CONTINUE)
+            return CPG_ERROR;
+        if (value == 2147483648UL) fputs("INT32_MIN ", stdout);
+        else fprintf(stdout, "(-INT32_C(%lu)) ", value);
+    } else if (count == 2) {
+        int negative = *cpg_node_text(compiler->parser, cpg_child_at(node, 0)) == '-';
+        fputs(negative ? "cpg_sub(INT32_C(0), " : "(", stdout);
+        CpgVisit result = cpg_dispatch(cpg_child_at(node, 1), compiler->visitor, user);
+        if (result != CPG_CONTINUE) return result;
+        fputs(") ", stdout);
+    } else {
+        for (size_t i = count - 1; i > 0; i -= 2) {
+            unsigned char op = *cpg_node_text(compiler->parser, cpg_child_at(node, i - 1));
+            fputs(op == '+' ? "cpg_add(" : op == '-' ? "cpg_sub(" : "cpg_mul(", stdout);
+        }
+        CpgVisit result = cpg_dispatch(cpg_child_at(node, 0), compiler->visitor, user);
+        if (result != CPG_CONTINUE) return result;
+        for (size_t i = 2; i < count; i += 2) {
+            fputs(", ", stdout);
+            result = cpg_dispatch(cpg_child_at(node, i), compiler->visitor, user);
+            if (result != CPG_CONTINUE) return result;
+            fputs(") ", stdout);
+        }
+    }
+    return ferror(stdout) ? CPG_ERROR : CPG_CONTINUE;
 }
 
 static CpgVisit emit_comparison(const Node *node, void *user) {
@@ -767,7 +826,7 @@ static CpgVisit emit_method_statement(const Node *node, void *user) {
 static CpgVisit emit_output(const Node *node, void *user) {
     Compiler *compiler = user;
     emit_indent(compiler);
-    fputs("if (printf(\"%.17g\\n\", (double)", stdout);
+    fputs("if (printf(\"%\" PRId32 \"\\n\", (int32_t)", stdout);
     CpgVisit result = cpg_dispatch(cpg_child_at(node, 1), compiler->visitor, user);
     if (result != CPG_CONTINUE) return result;
     fputs(") < 0) exit(EXIT_FAILURE);\n", stdout);
@@ -833,7 +892,7 @@ static CpgVisit emit_return(const Node *node, void *user) {
 static void emit_type(Type type) {
     if (type > 0) fprintf(stdout, "cpg_class%d *", type);
     else if (type == TYPE_BOOL) fputs("_Bool", stdout);
-    else fputs("double", stdout);
+    else fputs("int32_t", stdout);
 }
 
 static void emit_signature(const Function *function, size_t index, int definition) {
@@ -872,7 +931,24 @@ static void emit_slots(const Compiler *compiler, size_t parameters) {
 
 static CpgVisit emit_program(const Node *root, void *user) {
     Compiler *compiler = user;
-    fputs("#include <stdio.h>\n#include <stdlib.h>\n\n", stdout);
+    fputs("#include <stdio.h>\n#include <stdlib.h>\n"
+          "#include <stdint.h>\n#include <inttypes.h>\n\n"
+          "int32_t cpg_checked(int_least64_t value, const char *operation) {\n"
+          "    if (value < INT32_MIN || value > INT32_MAX) {\n"
+          "        fprintf(stderr, \"integer overflow in %s\\n\", operation);\n"
+          "        exit(EXIT_FAILURE);\n"
+          "    }\n"
+          "    return (int32_t)value;\n"
+          "}\n\n"
+          "int32_t cpg_add(int32_t left, int32_t right) {\n"
+          "    return cpg_checked((int_least64_t)left + right, \"+\");\n"
+          "}\n\n"
+          "int32_t cpg_sub(int32_t left, int32_t right) {\n"
+          "    return cpg_checked((int_least64_t)left - right, \"-\");\n"
+          "}\n\n"
+          "int32_t cpg_mul(int32_t left, int32_t right) {\n"
+          "    return cpg_checked((int_least64_t)left * right, \"*\");\n"
+          "}\n\n", stdout);
     if (compiler->class_count) {
         fputs("typedef struct cpg_allocation {\n"
               "    void *object;\n"
@@ -1108,9 +1184,9 @@ int main(int argc, char **argv) {
             emitter.on_rule_expression = emit_group;
             emitter.on_rule_equality = emit_comparison;
             emitter.on_rule_comparison = emit_comparison;
-            emitter.on_rule_sum = emit_group;
-            emitter.on_rule_product = emit_group;
-            emitter.on_rule_unary = emit_group;
+            emitter.on_rule_sum = emit_arithmetic;
+            emitter.on_rule_product = emit_arithmetic;
+            emitter.on_rule_unary = emit_arithmetic;
             emitter.on_rule_primary = emit_group;
             emitter.on_rule_program = emit_program;
             emitter.on_rule_statement = dispatch_children;

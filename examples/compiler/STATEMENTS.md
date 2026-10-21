@@ -1,11 +1,13 @@
 # A tiny statement-to-C compiler
 
 This incremental companion to the [expression compiler](README.md) keeps its
-arithmetic grammar, precedence, numeric representation, and visitor-dispatch
+arithmetic grammar, precedence, and visitor-dispatch
 pattern, adding named bindings, source-order statements, structured control
 flow, statically typed functions, and multiple classes with object references. It is a compiler,
 not an interpreter: its stdout is C source, not the program's output.
 The original `expression-compiler` and generated parser APIs are unchanged.
+Unlike the expression compiler's `double` backend, this example uses signed
+32-bit integers with checked arithmetic.
 
 ## Build, compile, and run
 
@@ -63,7 +65,7 @@ cc -std=c99 -Wall -Wextra -Werror -pedantic \
 ```
 
 It prints `12`, `120`, and `7`. Functions use the same integer-literal
-arithmetic language and `double` representation as existing expressions:
+arithmetic language, with checked `int32_t` values:
 
 ```text
 fn add(left, right) {
@@ -123,8 +125,8 @@ Programs may declare multiple top-level classes. All class names are collected
 first, followed by field and function/method signatures, before body validation.
 Construction, type annotations, and calls may precede declarations; fields may
 refer to later classes, their own class, or mutually referential classes.
-Fields use `field name: int;`, `field name: bool;`, or `field name: ClassName;`. `int` is the existing
-integer-valued arithmetic type, represented by C `double`, not a machine integer.
+Fields use `field name: int;`, `field name: bool;`, or `field name: ClassName;`.
+`int` is a signed 32-bit integer, represented by C `int32_t`.
 `bool` lowers to C99 `_Bool`. Neither primitive can also name a class.
 Fields and methods share a namespace **per class**;
 different classes may reuse member names. Free functions and variables have
@@ -198,13 +200,13 @@ constructors, all function/method prototypes and definitions, and finally
 ```c
 typedef struct cpg_class1 cpg_class1;
 struct cpg_class1 {
-    double cpg_field0;
+    int32_t cpg_field0;
 };
 
-double cpg_f0(cpg_class1 *, double);
-double cpg_f0(cpg_class1 *cpg_self, double cpg_v1) {
+int32_t cpg_f0(cpg_class1 *, int32_t);
+int32_t cpg_f0(cpg_class1 *cpg_self, int32_t cpg_v1) {
     ((cpg_class1 *)cpg_require(cpg_self))->cpg_field0 =
-        ((cpg_class1 *)cpg_require(cpg_self))->cpg_field0 + cpg_v1;
+        cpg_add(((cpg_class1 *)cpg_require(cpg_self))->cpg_field0, cpg_v1);
     return ((cpg_class1 *)cpg_require(cpg_self))->cpg_field0;
 }
 ```
@@ -212,7 +214,7 @@ double cpg_f0(cpg_class1 *cpg_self, double cpg_v1) {
 Class fields, bindings, and parameters lower to `cpg_classN *`. Construction
 calls `cpg_newN()`, which allocates storage and assigns `(cpg_classN){0}` for
 portable arithmetic-zero/null-pointer initialization. Aliases use pointer
-assignment, and calls emit `cpg_f0(cpg_require(cpg_v0), 5.0)`. Member access
+assignment, and calls emit `cpg_f0(cpg_require(cpg_v0), INT32_C(5))`. Member access
 checks each dereferenced reference. Numeric class/field/function/variable names
 avoid C identifier collisions. Empty classes have a dummy byte for C99.
 
@@ -261,7 +263,7 @@ values, and all function/method/constructor arguments. Arity must also match.
 
 | Expression/context | Rule |
 |---|---|
-| Decimal integer literal | `int`; existing one-to-nine-digit limit |
+| Decimal integer literal | `int`; signed 32-bit range (see below) |
 | `true`, `false` | `bool`; reserved keywords |
 | Unary `+`, `-`; binary `+`, `-`, `*` | `int` operands, `int` result |
 | `<`, `<=`, `>`, `>=` | `int` operands, `bool` result |
@@ -283,12 +285,42 @@ field initializer expressions are not part of the grammar. Constructors perform
 explicit initialization through checked field assignments and have no return
 annotation or source-level return statement.
 
-This milestone deliberately retains the existing integer-valued C `double`
-backend for `int`: no division or fractional literals are added, and arithmetic
-rounding/range limitations remain as below. Semantic identity is independent of
-storage representation: the compiler rejects `let flag: bool = 1;` and
-`let n: int = true;` even though C could convert either. Booleans use `_Bool`,
-and printing casts either primitive to `double` for the existing format.
+### Integer range and overflow
+
+`int` is exactly signed 32-bit, from **-2147483648 through 2147483647**.
+Decimal tokens normally have magnitude at most 2147483647. A directly preceding
+unary `-` permits magnitude 2147483648: `-2147483648` and `- 0002147483648`
+are valid. Whitespace and leading zeros do not change the value, and there is no
+digit-count limit beyond the parser's input limits. `2147483648`,
+`-2147483649`, `+2147483648`, and `-(2147483648)` are semantic errors:
+the compiler reports `integer literal outside int32 range` at the decimal
+token's line, column, and byte offset and emits no C. Even unreachable literals
+are checked. The standalone syntax parser still accepts these tokens.
+Magnitude conversion checks each digit before accumulation, without host
+integer overflow or floating-point conversion.
+
+Every executed binary `+`, `-`, and `*` and unary negation checks its result
+before narrowing to `int32_t`. Overflow writes `integer overflow in +`, `-`,
+or `*` to stderr and terminates with `EXIT_FAILURE` (a nonzero C failure status).
+There is no wrapping, saturation, rounding, or compile-time constant folding.
+Unary negation uses checked subtraction from zero, so negating `INT32_MIN`
+(including `--2147483648`) fails at runtime; unary `+` preserves the value.
+Checks apply to each left-associated intermediate: `2147483647 + 1 - 1` fails,
+even though its mathematical final result fits. Unexecuted arithmetic does not
+fail. Existing object cleanup runs on overflow via `exit`.
+
+Generated helpers widen operands **before** arithmetic to C99 `int_least64_t`.
+All sums, differences, and products of two signed 32-bit operands fit that
+type; bounds are checked against `INT32_MIN`/`INT32_MAX` before conversion.
+This avoids C signed-overflow undefined behavior. Generated C requires a C99
+implementation providing `int32_t`; `<stdint.h>` and `<inttypes.h>` supply
+the types, limits, constants, and portable `PRId32` print format.
+Wider source-language numeric types, division, and fractions remain deferred.
+
+Exact primitive typing is unchanged: the compiler rejects `let flag: bool = 1;`
+and `let n: int = true;` even though C could convert either. Booleans still
+use C99 `_Bool`. Printing uses decimal `PRId32` output, casting booleans to
+`int32_t` so they continue to print `0` or `1`.
 
 ## Explicit generation, syntax parsing, and compilation
 
@@ -360,19 +392,20 @@ function prototypes, then definitions, then the top-level statements in C
 `main`. Prototypes support forward calls, self-recursion, and mutual recursion.
 Calls emit `cpg_f0(...)`, `cpg_f1(...)`, etc.; function names cannot collide
 with C keywords or library symbols. Function signatures lower their declared
-return types (`double`, `_Bool`, or a class pointer) and their
+return types (`int32_t`, `_Bool`, or a class pointer) and their
 parameters are passed by value (object pointers preserve aliases). The visitor reuses each completed symbol table
 and dispatches statements in source order within each body. Declarations
 with initializers and assignments emit stores; declarations without initializers
 emit no store. Print callbacks emit checked `printf` calls,
-converting comparison results to `double` for the variadic format.
+using `PRId32` and converting primitive values to `int32_t` for the variadic format.
 The block callback dispatches its statement children between C braces.
 Conditional and loop callbacks dispatch the condition and body blocks, emitting
 `if`/`else` and `while` rather than evaluating conditions in the compiler.
 Validation visits every body, including unreachable branches.
-Expression callbacks follow the arithmetic example: grouping preserves
-precedence and left associativity, and integer tokens become decimal `double`
-constants (`000008` becomes `8.0`, never C octal). Identifiers map to stable
+Expression callbacks preserve precedence and left associativity using nested
+checked arithmetic helper calls. Integer tokens become decimal `INT32_C`
+constants (`000008` becomes `INT32_C(8)`, never C octal); the minimum signed
+literal becomes `INT32_MIN`. Identifiers map to stable
 `cpg_v0`, `cpg_v1`, ... slots, so C keywords and names such as `printf` or `main`
 are safe source-language variables. All non-parameter slots are declared and
 zero-initialized at the start of `main` or their function, with an explicit
@@ -383,19 +416,21 @@ that would depend on it. Initializer expressions remain at their source
 positions, so loop-body declarations reassign their slots on every iteration.
 
 For example, `let x = 2; print x; x = x + 3; print x;` emits this shape
-(expression parentheses/spacing abbreviated):
+(expression parentheses/spacing abbreviated; checked helpers omitted):
 
 ```c
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
+#include <inttypes.h>
 
 int main(void) {
-    double cpg_v0 = 0;
+    int32_t cpg_v0 = 0;
     (void)cpg_v0;
-    cpg_v0 = 2.0;
-    if (printf("%.17g\n", (double)cpg_v0) < 0) exit(EXIT_FAILURE);
-    cpg_v0 = cpg_v0 + 3.0;
-    if (printf("%.17g\n", (double)cpg_v0) < 0) exit(EXIT_FAILURE);
+    cpg_v0 = INT32_C(2);
+    if (printf("%" PRId32 "\n", (int32_t)cpg_v0) < 0) exit(EXIT_FAILURE);
+    cpg_v0 = cpg_add(cpg_v0, INT32_C(3));
+    if (printf("%" PRId32 "\n", (int32_t)cpg_v0) < 0) exit(EXIT_FAILURE);
     return fflush(stdout) ? 1 : 0;
 }
 ```
@@ -441,9 +476,9 @@ matching `[a-zA-Z_][a-zA-Z0-9_]*`; `let`, `print`, `if`, `else`, `while`,
 and cannot be used as binding names. `int` and `bool` remain identifiers outside
 type annotations, but cannot name classes.
 Declarations may omit initializers and cannot redeclare a name. Assignment does
-not declare names. Arithmetic supports one-to-nine-digit integer literals,
-unary `+`/`-`, binary `+`/`-`/`*`, and parentheses, just like the expression
-example. Comparisons add `<`, `<=`, `>`, `>=`, `==`, and `!=`; their results
+not declare names. Arithmetic supports signed 32-bit decimal integer literals,
+unary `+`/`-`, binary `+`/`-`/`*`, and parentheses.
+Comparisons add `<`, `<=`, `>`, `>=`, `==`, and `!=`; their results
 are `bool`, usable in prints, boolean stores, and conditions, but not arithmetic.
 Precedence from highest to lowest is parentheses, unary signs, multiplication,
 addition/subtraction, relational comparisons, then equality/inequality.
@@ -544,9 +579,9 @@ This is deliberately not SmallC or the calculator CLI. There are no
 inheritance, dynamic/polymorphic dispatch,
 generics, external interfaces, non-integer numeric types, block-local
 scopes, logical `&&`/`||`/`!`, `break`/`continue`, comments,
-strings, division, or fractions. Numbers use host C `double`; arithmetic
-rounding, overflow, and finite-range checks are not implemented. Keep values
-small enough for the host's range. The generated parser's existing input,
+strings, division, or fractions. Integers use the fixed-width range and checked
+overflow contract above; wider numeric types are deferred.
+The generated parser's existing input,
 allocation, nesting, work, and result-count limits apply unchanged; this is a
 bounded integration example, not a production language compiler.
 Runtime recursion uses the host C stack with no additional depth check.
@@ -595,5 +630,10 @@ call/return compatibility, bool fields and constructor writes, class-valued
 returns, bool-aware definite assignment and conservative return analysis,
 source-token locations for expression errors, rejected numeric truthiness,
 and syntax-only acceptance of semantic-invalid typed programs in both backends.
+Integer boundary regressions cover minimum/maximum literals and typed storage,
+leading zeros, exact out-of-range token locations, very long literals,
+positive/negative add/subtract/multiply overflow, minimum-value negation,
+valid arithmetic near the bounds, left-associated intermediate overflow,
+unexecuted overflow, and unchanged boolean results.
 Direct test runs use the same SDK discovery and `CPARSEGEN_C_COMPILER`,
 `CC`, and optional `CPARSEGEN_C_FLAGS` conventions as the expression tests.
