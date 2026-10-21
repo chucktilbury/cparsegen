@@ -36,9 +36,11 @@ which pieces are generated versus handwritten.
 
 The [tiny statement compiler](examples/compiler/STATEMENTS.md) extends that
 pattern with declarations, assignments, printing, braced `if`/`else` and `while`,
-comparisons, nested blocks, and integer-valued functions with parameters,
+comparisons, nested blocks, and statically typed functions with parameters,
 locals, returns, forward calls, recursion, and multiple classes with reference
-semantics, typed fields/parameters, nested objects, and static method calls.
+semantics, typed fields/parameters, nested objects, constructors, and static method calls.
+Explicit `int`/`bool`/class annotations cover fields, parameters, locals, and returns;
+the visitor checks exact assignment/call compatibility and boolean conditions.
 Its handwritten visitor collects class/member and function signatures, keeps
 isolated function/method-local symbol tables with explicit receivers,
 checks source-located semantic errors (including control-flow-sensitive reads

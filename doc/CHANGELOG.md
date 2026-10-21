@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Add explicit `int` and `bool` identities throughout the optional statement
+  compiler: primitive/class annotations on locals, fields, parameters, and
+  function/method returns; boolean literals; exact initialization, assignment,
+  return, and call checking; integer-only arithmetic; boolean comparisons and
+  conditions with no implicit conversions. Retain integer-valued `double`
+  lowering and use C99 `_Bool` for booleans. Class-valued returns copy references;
+  static dispatch, ownership, definite assignment, and conservative return-path
+  checks remain intact. Add a typed sample, source-token error locations,
+  strict C99 execution tests, and semantic-invalid syntax-only regressions.
+  Overloading, inheritance, and dynamic dispatch remain deferred.
+
 - Extend the statement compiler to multiple classes with class-specific type
   metadata, class-typed fields and function/method parameters, nested member
   paths, and static dispatch. Object assignment/passing now preserves aliases

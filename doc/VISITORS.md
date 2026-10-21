@@ -28,11 +28,15 @@ opt-in compiler behavior, not a parser restriction. Storage is program-wide;
 visitor dispatch recursively emits conditions and bodies without introducing
 block-local scopes. Functions and methods have isolated local tables. Its
 object slice shares application-owned multi-class/member signatures,
-tracks arithmetic versus class-specific reference bindings, validates nested
-member access and typed parameters, and lowers construction, pointer aliases,
+tracks distinct `int`, `bool`, and class-specific reference identities, validates
+nested member access, typed locals/fields/parameters/returns, and exact assignment/
+call compatibility, and lowers construction, pointer aliases,
 and static calls with explicit receiver pointers. A generated allocation list
 owns objects until program exit and frees them through `atexit`; field
-dereferences check for null. Generated parsers remain syntax-only.
+dereferences check for null. Conditions require `bool`, arithmetic requires `int`,
+and comparisons produce `bool`; there are no implicit conversions. Expression
+diagnostics locate the first source token, since rule nodes have no source span.
+Generated parsers remain syntax-only.
 
 ## Build and run the standalone C consumer
 

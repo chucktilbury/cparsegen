@@ -3,7 +3,7 @@
 This incremental companion to the [expression compiler](README.md) keeps its
 arithmetic grammar, precedence, numeric representation, and visitor-dispatch
 pattern, adding named bindings, source-order statements, structured control
-flow, integer-valued functions, and multiple classes with object references. It is a compiler,
+flow, statically typed functions, and multiple classes with object references. It is a compiler,
 not an interpreter: its stdout is C source, not the program's output.
 The original `expression-compiler` and generated parser APIs are unchanged.
 
@@ -123,13 +123,15 @@ Programs may declare multiple top-level classes. All class names are collected
 first, followed by field and function/method signatures, before body validation.
 Construction, type annotations, and calls may precede declarations; fields may
 refer to later classes, their own class, or mutually referential classes.
-Fields use `field name: int;` or `field name: ClassName;`. `int` is the existing
+Fields use `field name: int;`, `field name: bool;`, or `field name: ClassName;`. `int` is the existing
 integer-valued arithmetic type, represented by C `double`, not a machine integer.
-It cannot also name a class. Fields and methods share a namespace **per class**;
+`bool` lowers to C99 `_Bool`. Neither primitive can also name a class.
+Fields and methods share a namespace **per class**;
 different classes may reuse member names. Free functions and variables have
 separate namespaces. All members are public. Empty classes are allowed.
 
 `new Counter()` allocates a fresh, distinct object. Integer fields start at zero;
+boolean fields start at `false`;
 class-typed fields start as null references, not recursively constructed objects.
 Initialize nested objects explicitly, for example `pair.left = new Counter();`.
 An optional single `constructor(parameters) { statements }` per class runs after
@@ -150,8 +152,8 @@ initialization copy **references**, never fields. Aliases observe each other's
 field writes. Rebinding an alias to `new Counter()` does not reset the original
 object. Each execution of `new`, including in loops, allocates a fresh object.
 Binding types never change and distinct class types are incompatible.
-An unannotated `let name;` retains the arithmetic type; local type annotations
-name classes, not `int`. Field writes do not initialize an uninitialized binding:
+An unannotated `let name;` retains the `int` type; local type annotations
+may name either primitive or a class. Field writes do not initialize an uninitialized binding:
 its receiver must already be definitely initialized. Definite assignment tracks
 bindings, not the non-nullness of fields; field dereferences are checked at runtime.
 
@@ -167,16 +169,17 @@ method-local receiver, not the caller's binding.
 available in free functions or top-level code. Field names are never implicit:
 write `self.value`, not `value`. Methods have isolated local/parameter tables
 like free functions and cannot capture top-level variables or other methods'
-locals. Every method must return an arithmetic value on every continuing path.
-Method, free-function, and constructor parameters may be unannotated (arithmetic), explicitly
-`: int`, or class-typed: `fn update(box: Box, amount: int) { ... }`.
+locals. Every method must return a value of its declared type on every continuing path.
+Method, free-function, and constructor parameters may be unannotated (`int`), explicitly
+`: int`, `: bool`, or class-typed: `fn update(box: Box, amount: int) { ... }`.
 Arguments must match the exact declared type. Passing a class argument copies
 its reference: field mutation is shared, but rebinding a parameter is local.
-Function/method returns remain arithmetic-only. Objects cannot be printed, used
-as conditions, compared, returned, or passed to arithmetic operators.
+Function/method return annotations support the same types, defaulting to `int`.
+Returning an object copies its reference and preserves its lifetime and aliases.
+Objects cannot be printed, used as conditions, compared, or passed to arithmetic operators.
 
 Method calls may be expressions or standalone statements (`counter.add(5);`,
-which discards the numeric result). Free-function calls remain expression-only.
+which discards the result). Free-function calls remain expression-only.
 Method lookup uses the
 compile-time class of the receiver; there are no virtual tables or runtime
 type tests.
@@ -233,6 +236,60 @@ These checks, including definite assignment, run only in the handwritten
 compiler visitor; generated syntax parsers still accept semantically invalid
 object programs.
 
+## Primitive types and compatibility
+
+The [typed sample](statements/types.stmt) exercises `int` and `bool` fields,
+constructor/method/function parameters, locals, returns, aliases, early returns,
+and nested branches/loops. Compile it with the build pipeline above, substituting
+`types` for `basic`. It prints `0`, `1`, `3`, `1`, `0`, and `7`.
+
+```text
+fn selected(flag: bool, yes: int, no: int): int {
+    let result: int;
+    if (flag) { result = yes; } else { return no; }
+    return result;
+}
+let active: bool = 2 < 3;
+print selected(active, 7, 9);
+```
+
+Compatibility is **exact type identity**, not C convertibility. `int`, `bool`,
+and each declared class have distinct identities. There are no implicit
+int/bool conversions, subtype conversions, overloading, inheritance, or dynamic
+dispatch. Matching applies to initializers, binding/field assignments, return
+values, and all function/method/constructor arguments. Arity must also match.
+
+| Expression/context | Rule |
+|---|---|
+| Decimal integer literal | `int`; existing one-to-nine-digit limit |
+| `true`, `false` | `bool`; reserved keywords |
+| Unary `+`, `-`; binary `+`, `-`, `*` | `int` operands, `int` result |
+| `<`, `<=`, `>`, `>=` | `int` operands, `bool` result |
+| `==`, `!=` | Two `int` or two `bool` operands, `bool` result; no reference equality |
+| Parentheses | Preserve the enclosed type |
+| Binding/field read | Its fixed declared or inferred type |
+| Function/method call | Its declared return type (default `int`) |
+| `new Class(...)` | That class's reference type |
+| `if`, `while` | Require `bool`; numeric truthiness is rejected |
+| `print` | Either primitive; booleans print `0` or `1` |
+
+`let x: int;` and `let flag: bool;` require definite initialization before reads.
+`let x = expression;` infers the expression's type once, including `bool` and
+class references; `let x;` defaults to `int`. Unannotated parameters and returns
+default to `int` for compatibility with previous arithmetic programs; annotations
+do not change name visibility, definite assignment, or return-path analysis.
+Fields always require an annotation and receive typed zero/false/null defaults;
+field initializer expressions are not part of the grammar. Constructors perform
+explicit initialization through checked field assignments and have no return
+annotation or source-level return statement.
+
+This milestone deliberately retains the existing integer-valued C `double`
+backend for `int`: no division or fractional literals are added, and arithmetic
+rounding/range limitations remain as below. Semantic identity is independent of
+storage representation: the compiler rejects `let flag: bool = 1;` and
+`let n: int = true;` even though C could convert either. Booleans use `_Bool`,
+and printing casts either primitive to `double` for the existing format.
+
 ## Explicit generation, syntax parsing, and compilation
 
 ```sh
@@ -272,11 +329,11 @@ function names and parameter types, all class names, ordered typed fields,
 and class-specific method signatures. It then uses `cpg_dispatch` and
 per-rule/token hooks for a semantic pass. A caller-owned `Compiler` context
 holds an ordered symbol table of borrowed `IDENT` nodes and definite-initialization
-flags and arithmetic/object types. Class/member metadata is shared across
+flags and primitive/class identities. Class/member metadata is shared across
 isolated function/method contexts; methods add an initialized implicit
-receiver slot. Expression visitors propagate types and require arithmetic
-operands at operators, conditions, prints, and returns; arguments match their
-declared parameter types. Generic callbacks
+receiver slot. Expression visitors propagate types, check operator compatibility,
+and require boolean conditions; arguments and returns match their declared
+types. Generic callbacks
 dispatch children in stored AST order; no generated walker is reimplemented.
 Declaration callbacks check for duplicates, dispatch any initializer with the
 current symbols, and only then add the new binding. Assignment callbacks
@@ -302,7 +359,8 @@ Only a successful semantic pass starts output. A second visitor emits numeric
 function prototypes, then definitions, then the top-level statements in C
 `main`. Prototypes support forward calls, self-recursion, and mutual recursion.
 Calls emit `cpg_f0(...)`, `cpg_f1(...)`, etc.; function names cannot collide
-with C keywords or library symbols. All functions return `double` and their
+with C keywords or library symbols. Function signatures lower their declared
+return types (`double`, `_Bool`, or a class pointer) and their
 parameters are passed by value (object pointers preserve aliases). The visitor reuses each completed symbol table
 and dispatches statements in source order within each body. Declarations
 with initializers and assignments emit stores; declarations without initializers
@@ -332,7 +390,7 @@ For example, `let x = 2; print x; x = x + 3; print x;` emits this shape
 #include <stdlib.h>
 
 int main(void) {
-    double cpg_v0 = 0.0;
+    double cpg_v0 = 0;
     (void)cpg_v0;
     cpg_v0 = 2.0;
     if (printf("%.17g\n", (double)cpg_v0) < 0) exit(EXIT_FAILURE);
@@ -355,6 +413,8 @@ and class declarations:
 ```text
 let name;
 let name = expression;
+let name: int = expression;
+let flag: bool;
 name = expression;
 print expression;
 { statements }
@@ -362,7 +422,7 @@ if (expression) { statements }
 if (expression) { statements } else { statements }
 while (expression) { statements }
 fn name(parameter, ...) { statements }
-fn name(parameter: Type, amount: int, ...) { statements }
+fn name(parameter: Type, amount: int, flag: bool, ...): ReturnType { statements }
 return expression;
 class Type { field member: OtherType; fn method(parameter, ...) { statements } }
 class Type { field member: int; constructor(parameter: int, ...) { statements } }
@@ -377,19 +437,21 @@ There is one scope for top-level statements and a separate lexical scope for
 each function. Functions cannot read or assign top-level variables or another
 function's parameters/locals. Names are case-sensitive ASCII identifiers
 matching `[a-zA-Z_][a-zA-Z0-9_]*`; `let`, `print`, `if`, `else`, `while`,
-`fn`, `return`, `class`, `field`, `constructor`, and `new` are keywords and cannot be used
-as binding names. `int` remains an identifier outside type annotations, but
-cannot name a class.
+`fn`, `return`, `class`, `field`, `constructor`, `new`, `true`, and `false` are keywords
+and cannot be used as binding names. `int` and `bool` remain identifiers outside
+type annotations, but cannot name classes.
 Declarations may omit initializers and cannot redeclare a name. Assignment does
 not declare names. Arithmetic supports one-to-nine-digit integer literals,
 unary `+`/`-`, binary `+`/`-`/`*`, and parentheses, just like the expression
 example. Comparisons add `<`, `<=`, `>`, `>=`, `==`, and `!=`; their results
-are numeric `0` or `1`, usable in prints, stores, arithmetic, and conditions.
+are `bool`, usable in prints, boolean stores, and conditions, but not arithmetic.
 Precedence from highest to lowest is parentheses, unary signs, multiplication,
 addition/subtraction, relational comparisons, then equality/inequality.
 Binary operators at each level associate left, including comparison chains:
-`3 > 2 > 1` means `(3 > 2) > 1`, not a mathematical range test.
-Zero is false; any nonzero value is true. `while` checks before every iteration.
+`3 > 2 > 1` means `(3 > 2) > 1`, not a mathematical range test, and is now
+rejected because the second `>` receives a boolean operand. Likewise
+`2 == 2 == 1` fails; `(2 == 2) == true` is valid.
+Only booleans may be conditions. `while` checks before every iteration.
 Whitespace includes spaces, tabs, CR, and LF.
 
 Control-flow conditions require parentheses and bodies require braces, with no
@@ -411,7 +473,7 @@ locals that redeclare parameters. Parameters are initialized on entry.
 Zero-parameter functions and zero-argument calls use `name()`. Every call
 must name a collected function and pass exactly its declared number of
 arguments; arguments must match parameter types, and return expressions must
-use the arithmetic type. There are no conversions or return-type annotations.
+match the annotated return type (or `int` when omitted). There are no conversions.
 Functions are not first-class values, and calls are expressions, not standalone
 statements. Definitions cannot be nested inside blocks/functions.
 `return` is only valid inside a function and must have a value; a bare
@@ -428,7 +490,7 @@ Definite-assignment checking follows control flow, separately from visibility:
   arm guarantees it. Each arm starts from the same incoming initialization
   state. Returning arms are excluded from the join.
 - An `if` without `else` cannot establish initialization after the conditional.
-  Conditions are not constant-folded: even `if (1) { x = 1; }` is conservative.
+  Conditions are not constant-folded: even `if (true) { x = 1; }` is conservative.
 - A `while` may execute zero times. Its condition and body are checked using
   the incoming state; earlier assignments within that iteration count for later
   statements, but body assignments do not establish initialization afterward
@@ -436,13 +498,13 @@ Definite-assignment checking follows control flow, separately from visibility:
 - Nested blocks share the same scope and propagate initialization in source
   order; nested branches and loops apply these same rules recursively.
 
-For example, `let x; if (1) { x = 2; } else { x = 3; } print x;` is valid.
-`if (0) { let x = 9; } print x;` and
-`while (0) { let x = 9; } print x;` are semantic errors, not zero-valued reads.
+For example, `let x; if (true) { x = 2; } else { x = 3; } print x;` is valid.
+`if (false) { let x = 9; } print x;` and
+`while (false) { let x = 9; } print x;` are semantic errors, not zero-valued reads.
 Unreachable bodies are still checked.
 The same checks apply to call arguments and returned expressions, independently
 for each function. For example,
-`fn f(n) { let x; if (n) { return 1; } else { x = 2; } return x; }`
+`fn f(n: bool) { let x; if (n) { return 1; } else { x = 2; } return x; }`
 is valid; omitting the `else` assignment makes the final read invalid.
 
 ```sh
@@ -479,7 +541,7 @@ build/statements-manual/syntax-parser --json \
 ```
 
 This is deliberately not SmallC or the calculator CLI. There are no
-inheritance, dynamic/polymorphic dispatch, object-valued returns,
+inheritance, dynamic/polymorphic dispatch,
 generics, external interfaces, non-integer numeric types, block-local
 scopes, logical `&&`/`||`/`!`, `break`/`continue`, comments,
 strings, division, or fractions. Numbers use host C `double`; arithmetic
@@ -528,5 +590,10 @@ reads/stores/calls, typed free-function/method parameters, escaped local objects
 receiver/parameter rebinding, and multi-class metadata growth. Allocation
 instrumentation checks cleanup of cycles and loop allocations, null-receiver
 failure paths, and each partial/complete allocation-failure position.
+Primitive regressions check explicit/inferred `int`/`bool`, exact operator and
+call/return compatibility, bool fields and constructor writes, class-valued
+returns, bool-aware definite assignment and conservative return analysis,
+source-token locations for expression errors, rejected numeric truthiness,
+and syntax-only acceptance of semantic-invalid typed programs in both backends.
 Direct test runs use the same SDK discovery and `CPARSEGEN_C_COMPILER`,
 `CC`, and optional `CPARSEGEN_C_FLAGS` conventions as the expression tests.
