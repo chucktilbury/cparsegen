@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Scope cleanup: remove the object-oriented extensions (classes, objects,
+  references, constructors, single inheritance, virtual dispatch) that were
+  added to the optional statement compiler, along with their runtime, lowering,
+  samples, tests, and documentation. cwhip is the separate full-featured OOP
+  compiler. The bounded statement demo keeps variables, control flow, definite
+  assignment, `int`/`bool` typed functions and calls, checked int32 arithmetic,
+  and the small runtime helpers. The generator, scanner features, EBNF, AST
+  accessors, visitors, C/Cwhip backends, SmallC, and the expression compiler
+  are unchanged. The entries below are historical.
+
 - Add single inheritance to the optional statement compiler, including
   `extends`, inherited field/method lookup, subtype-compatible reference
   upcasts, base-constructor initialization, and virtual dispatch through

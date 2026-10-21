@@ -1,38 +1,3 @@
-class Counter {
-    field value: int;
-    field enabled: bool;
-
-    constructor(start: int, enabled: bool) {
-        self.value = start;
-        self.enabled = enabled;
-    }
-
-    fn setEnabled(enabled: bool): bool {
-        self.enabled = enabled;
-        return self.enabled;
-    }
-
-    fn advance(limit: int): int {
-        let done: bool = false;
-        while (done == false) {
-            if (self.enabled) {
-                if (self.value < limit) {
-                    self.value = self.value + 1;
-                } else {
-                    done = true;
-                }
-            } else {
-                done = true;
-            }
-        }
-        return self.value;
-    }
-
-    fn alias(): Counter {
-        return self;
-    }
-}
-
 fn selected(flag: bool, yes: int, no: int): int {
     let result: int;
     if (flag) {
@@ -43,13 +8,30 @@ fn selected(flag: bool, yes: int, no: int): int {
     return result;
 }
 
-let empty = new Counter(0, false);
-print empty.enabled;
-let counter: Counter = new Counter(1, true);
-let active: bool = counter.enabled;
+fn advance(start: int, limit: int, enabled: bool): int {
+    let value: int = start;
+    let done: bool = false;
+    while (done == false) {
+        if (enabled) {
+            if (value < limit) {
+                value = value + 1;
+            } else {
+                done = true;
+            }
+        } else {
+            done = true;
+        }
+    }
+    return value;
+}
+
+let empty: int;
+empty = 0;
+let enabled: bool = true;
+print enabled;
+let counter: int = advance(1, 3, enabled);
+let active: bool = counter == 3;
 print active;
-print counter.advance(3);
-let alias = counter.alias();
-print alias.setEnabled(false) == false;
-print counter.enabled;
-print selected(counter.value == 3, 7, 9);
+print counter;
+print advance(1, 3, false);
+print selected(counter == 3, 7, 9);
