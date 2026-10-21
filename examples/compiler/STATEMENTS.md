@@ -89,6 +89,18 @@ The first read demonstrates zero-initialized integer fields; `copy` aliases
 `counter`, so either binding can mutate the same object. Both conditional arms
 initialize `selected` before its read.
 
+For constructor parameters, initialized fields, nested control flow, early
+returns, and receiver mutation, compile the
+[constructor sample](statements/constructors.stmt) through the same pipeline:
+
+```sh
+./bin/statement-compiler examples/compiler/statements/constructors.stmt \
+  > build/statement-compiler/constructors.c
+cc -std=c99 -Wall -Wextra -Werror -pedantic \
+  build/statement-compiler/constructors.c -o build/statement-compiler/constructors
+./build/statement-compiler/constructors
+```
+
 ```text
 class Counter {
     field value: int;
@@ -120,6 +132,12 @@ separate namespaces. All members are public. Empty classes are allowed.
 `new Counter()` allocates a fresh, distinct object. Integer fields start at zero;
 class-typed fields start as null references, not recursively constructed objects.
 Initialize nested objects explicitly, for example `pair.left = new Counter();`.
+An optional single `constructor(parameters) { statements }` per class runs after
+zero-initialization. It can initialize fields and nested objects using `self`,
+and supports local declarations, assignments, conditionals, loops, and method
+calls. Constructors may not return a value and always produce the newly
+allocated receiver. An omitted constructor preserves zero-argument construction;
+an explicit constructor's argument count and types are checked exactly.
 There is no source-level null literal or null comparison. Dereferencing a null
 field, including as a method receiver, prints `uninitialized object reference`
 to stderr and exits with failure instead of invoking C undefined behavior.
@@ -150,7 +168,7 @@ available in free functions or top-level code. Field names are never implicit:
 write `self.value`, not `value`. Methods have isolated local/parameter tables
 like free functions and cannot capture top-level variables or other methods'
 locals. Every method must return an arithmetic value on every continuing path.
-Method and free-function parameters may be unannotated (arithmetic), explicitly
+Method, free-function, and constructor parameters may be unannotated (arithmetic), explicitly
 `: int`, or class-typed: `fn update(box: Box, amount: int) { ... }`.
 Arguments must match the exact declared type. Passing a class argument copies
 its reference: field mutation is shared, but rebinding a parameter is local.
@@ -159,8 +177,7 @@ as conditions, compared, returned, or passed to arithmetic operators.
 
 Method calls may be expressions or standalone statements (`counter.add(5);`,
 which discards the numeric result). Free-function calls remain expression-only.
-No implicit method calls or constructor arguments are supported; an ordinary
-method such as `init` can perform explicit setup. Method lookup uses the
+Method lookup uses the
 compile-time class of the receiver; there are no virtual tables or runtime
 type tests.
 
@@ -348,8 +365,10 @@ fn name(parameter, ...) { statements }
 fn name(parameter: Type, amount: int, ...) { statements }
 return expression;
 class Type { field member: OtherType; fn method(parameter, ...) { statements } }
+class Type { field member: int; constructor(parameter: int, ...) { statements } }
 let object: Type;
 let object = new Type();
+let object = new Type(argument, ...);
 object.member = expression;
 object.method(expression);
 ```
@@ -358,7 +377,7 @@ There is one scope for top-level statements and a separate lexical scope for
 each function. Functions cannot read or assign top-level variables or another
 function's parameters/locals. Names are case-sensitive ASCII identifiers
 matching `[a-zA-Z_][a-zA-Z0-9_]*`; `let`, `print`, `if`, `else`, `while`,
-`fn`, `return`, `class`, `field`, and `new` are keywords and cannot be used
+`fn`, `return`, `class`, `field`, `constructor`, and `new` are keywords and cannot be used
 as binding names. `int` remains an identifier outside type annotations, but
 cannot name a class.
 Declarations may omit initializers and cannot redeclare a name. Assignment does
