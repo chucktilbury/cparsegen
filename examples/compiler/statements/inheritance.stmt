@@ -1,0 +1,67 @@
+class Grand extends Dog {
+    field tail: int;
+    constructor(start: int, extra: int, tail: int): base(start, extra) {
+        self.tail = tail;
+    }
+    fn sound(): int {
+        return self.value + self.bonus + self.tail;
+    }
+}
+class Dog extends Animal {
+    field bonus: int;
+    constructor(start: int, extra: int): base(start) {
+        self.bonus = extra;
+    }
+    fn sound(): int {
+        return self.value + self.bonus;
+    }
+}
+class Animal {
+    field value: int;
+    constructor(start: int) {
+        self.value = start;
+    }
+    fn sound(): int {
+        return self.value;
+    }
+    fn adjusted(amount: int): int {
+        return self.sound() + amount;
+    }
+}
+class Kennel {
+    field resident: Animal;
+    fn install(animal: Animal) {
+        self.resident = animal;
+        return 0;
+    }
+    fn installDog(dog: Grand) {
+        self.resident = dog;
+        return 0;
+    }
+    fn sound(): int {
+        return self.resident.sound();
+    }
+}
+fn render(animal: Animal): int {
+    return animal.sound();
+}
+fn identity(animal: Animal): Animal {
+    return animal;
+}
+fn make(): Animal {
+    return new Grand(2, 3, 4);
+}
+let dog = new Grand(1, 2, 3);
+print dog.value;
+let animal: Animal = dog;
+print animal.sound();
+print animal.adjusted(2);
+print render(new Grand(1, 2, 3));
+let kennel = new Kennel();
+kennel.installDog(dog);
+print kennel.resident.value;
+print kennel.sound();
+let returned: Animal = identity(dog);
+print returned.adjusted(2);
+let created: Animal = make();
+print created.sound();
