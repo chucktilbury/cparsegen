@@ -36,10 +36,12 @@ which pieces are generated versus handwritten.
 
 The [tiny statement compiler](examples/compiler/STATEMENTS.md) extends that
 pattern with declarations, assignments, printing, braced `if`/`else` and `while`,
-comparisons, and nested blocks. Its handwritten visitor
-keeps a symbol table across statements, checks source-located semantic errors
-(including control-flow-sensitive reads before definite initialization),
-and emits C in source order. Build the optional `statement-compiler` target;
+comparisons, nested blocks, and integer-valued functions with parameters,
+locals, returns, forward calls, and recursion. Its handwritten visitor
+collects function signatures, keeps isolated function-local symbol tables,
+checks source-located semantic errors (including control-flow-sensitive reads
+before definite initialization), and emits C prototypes/definitions plus
+source-order statements. Build the optional `statement-compiler` target;
 the original arithmetic compiler and syntax-only parsers remain unchanged.
 
 Build a calculator with variables and an interactive CLI:

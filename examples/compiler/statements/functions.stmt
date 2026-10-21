@@ -1,0 +1,24 @@
+print twice(add(2, 4));
+print factorial(5);
+let value = 7;
+print identity(value);
+
+fn twice(value) {
+    let result = value * 2;
+    return result;
+}
+
+fn add(left, right) {
+    return left + right;
+}
+
+fn factorial(value) {
+    if (value <= 1) {
+        return 1;
+    }
+    return value * factorial(value - 1);
+}
+
+fn identity(value) {
+    return value;
+}

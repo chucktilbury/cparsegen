@@ -7,11 +7,22 @@ typedef struct {
 } Symbol;
 
 typedef struct {
+    const Node *node;
+    const Node *name;
+    size_t arity;
+    Symbol *symbols;
+    size_t count;
+} Function;
+
+typedef struct {
     const Context *parser;
     const CpgVisitor *visitor;
     Symbol *symbols;
     size_t count, capacity;
     size_t depth;
+    Function *functions;
+    size_t function_count;
+    int in_function, falls_through;
     const char *problem;
     const Node *error;
 } Compiler;
@@ -22,12 +33,23 @@ static CpgVisit semantic_error(Compiler *compiler, const Node *node, const char 
     return CPG_ERROR;
 }
 
+static int same_name(const Compiler *compiler, const Node *left, const Node *right) {
+    return cpg_node_text_length(left) == cpg_node_text_length(right) &&
+        !memcmp(cpg_node_text(compiler->parser, left),
+                cpg_node_text(compiler->parser, right), cpg_node_text_length(right));
+}
+
+static size_t find_function(const Compiler *compiler, const Node *name) {
+    for (size_t i = 0; i < compiler->function_count; ++i) {
+        if (same_name(compiler, compiler->functions[i].name, name)) return i;
+    }
+    return compiler->function_count;
+}
+
 static size_t find_symbol(const Compiler *compiler, const Node *name) {
     for (size_t i = 0; i < compiler->count; ++i) {
         const Node *symbol = compiler->symbols[i].name;
-        if (cpg_node_text_length(symbol) == cpg_node_text_length(name) &&
-            !memcmp(cpg_node_text(compiler->parser, symbol),
-                    cpg_node_text(compiler->parser, name), cpg_node_text_length(name))) {
+        if (same_name(compiler, symbol, name)) {
             return i;
         }
     }
@@ -54,17 +76,9 @@ static CpgVisit check_integer(const Node *node, void *user) {
     return CPG_CONTINUE;
 }
 
-static CpgVisit check_declaration(const Node *node, void *user) {
-    Compiler *compiler = user;
-    const Node *name = cpg_child_at(node, 1);
+static CpgVisit add_symbol(Compiler *compiler, const Node *name, int initialized) {
     if (find_symbol(compiler, name) != compiler->count) {
         return semantic_error(compiler, name, "duplicate declaration");
-    }
-    /* The new binding is not visible in its own initializer. */
-    int initialized = cpg_child_count(node) > 3;
-    if (initialized) {
-        CpgVisit result = cpg_dispatch(cpg_child_at(node, 3), compiler->visitor, user);
-        if (result != CPG_CONTINUE) return result;
     }
     if (compiler->count == compiler->capacity) {
         size_t capacity = compiler->capacity ? compiler->capacity * 2 : 8;
@@ -78,6 +92,96 @@ static CpgVisit check_declaration(const Node *node, void *user) {
         compiler->capacity = capacity;
     }
     compiler->symbols[compiler->count++] = (Symbol){name, initialized};
+    return CPG_CONTINUE;
+}
+
+static CpgVisit check_declaration(const Node *node, void *user) {
+    Compiler *compiler = user;
+    const Node *name = cpg_child_at(node, 1);
+    if (find_symbol(compiler, name) != compiler->count) {
+        return semantic_error(compiler, name, "duplicate declaration");
+    }
+    /* The new binding is not visible in its own initializer. */
+    int initialized = cpg_child_count(node) > 3;
+    if (initialized) {
+        CpgVisit result = cpg_dispatch(cpg_child_at(node, 3), compiler->visitor, user);
+        if (result != CPG_CONTINUE) return result;
+    }
+    return add_symbol(compiler, name, initialized);
+}
+
+static CpgVisit check_call(const Node *node, void *user) {
+    Compiler *compiler = user;
+    const Node *name = cpg_child_at(node, 0);
+    size_t index = find_function(compiler, name);
+    if (index == compiler->function_count) {
+        return semantic_error(compiler, name, "unknown function");
+    }
+    const Node *arguments = cpg_child_at(node, 2);
+    size_t arity = (cpg_child_count(arguments) + 1) / 2;
+    if (arity != compiler->functions[index].arity) {
+        return semantic_error(compiler, name, "argument count mismatch");
+    }
+    return cpg_dispatch(arguments, compiler->visitor, user);
+}
+
+static CpgVisit check_return(const Node *node, void *user) {
+    Compiler *compiler = user;
+    if (!compiler->in_function) {
+        return semantic_error(compiler, cpg_child_at(node, 0), "return outside function");
+    }
+    if (cpg_child_count(node) != 3) {
+        return semantic_error(compiler, cpg_child_at(node, 0), "return requires a value");
+    }
+    CpgVisit result = cpg_dispatch(cpg_child_at(node, 1), compiler->visitor, user);
+    compiler->falls_through = 0;
+    return result;
+}
+
+static CpgVisit check_function(const Node *node, void *user) {
+    Compiler *compiler = user;
+    size_t index = find_function(compiler, cpg_child_at(node, 1));
+    Function *function = &compiler->functions[index];
+    Compiler local = *compiler;
+    local.symbols = NULL;
+    local.count = local.capacity = 0;
+    local.in_function = local.falls_through = 1;
+    CpgVisit result = CPG_CONTINUE;
+    const Node *parameters = cpg_child_at(node, 3);
+    for (size_t i = 0; i < cpg_child_count(parameters) && result == CPG_CONTINUE; i += 2) {
+        result = add_symbol(&local, cpg_child_at(parameters, i), 1);
+    }
+    if (result == CPG_CONTINUE) {
+        result = cpg_dispatch(cpg_child_at(node, 5), local.visitor, &local);
+    }
+    if (result == CPG_CONTINUE && local.falls_through) {
+        result = semantic_error(&local, function->name, "function may finish without returning a value");
+    }
+    function->symbols = local.symbols;
+    function->count = local.count;
+    if (result != CPG_CONTINUE) {
+        compiler->problem = local.problem;
+        compiler->error = local.error;
+    }
+    return result;
+}
+
+static CpgVisit collect_functions(const Node *root, Compiler *compiler) {
+    size_t count = cpg_child_count(root);
+    compiler->functions = calloc(count ? count : 1, sizeof(*compiler->functions));
+    if (!compiler->functions) return semantic_error(compiler, root, "function table allocation failed");
+    for (size_t i = 0; i < count; ++i) {
+        const Node *node = cpg_child_at(root, i);
+        if (strcmp(cpg_node_kind(node), "function")) continue;
+        const Node *name = cpg_child_at(node, 1);
+        if (find_function(compiler, name) != compiler->function_count) {
+            return semantic_error(compiler, name, "duplicate function");
+        }
+        Function *function = &compiler->functions[compiler->function_count++];
+        function->node = node;
+        function->name = name;
+        function->arity = (cpg_child_count(cpg_child_at(node, 3)) + 1) / 2;
+    }
     return CPG_CONTINUE;
 }
 
@@ -118,9 +222,12 @@ static CpgVisit check_control(const Node *node, void *user) {
     CpgVisit result = cpg_dispatch(cpg_child_at(node, 2), compiler->visitor, user);
     if (result != CPG_CONTINUE) return result;
     size_t entry_count = compiler->count;
+    int incoming = compiler->falls_through;
     unsigned char *entry = save_initialization(compiler, node);
     if (!entry) return CPG_ERROR;
+    compiler->falls_through = 1;
     result = cpg_dispatch(cpg_child_at(node, 4), compiler->visitor, user);
+    int then_live = compiler->falls_through;
     if (result == CPG_CONTINUE && cpg_child_count(node) > 5) {
         size_t then_count = compiler->count;
         unsigned char *then_state = save_initialization(compiler, node);
@@ -129,15 +236,20 @@ static CpgVisit check_control(const Node *node, void *user) {
             return CPG_ERROR;
         }
         restore_initialization(compiler, entry, entry_count);
+        compiler->falls_through = 1;
         result = cpg_dispatch(cpg_child_at(node, 6), compiler->visitor, user);
+        int else_live = compiler->falls_through;
         for (size_t i = 0; i < compiler->count; ++i) {
             compiler->symbols[i].initialized =
-                compiler->symbols[i].initialized && i < then_count && then_state[i];
+                (!else_live || compiler->symbols[i].initialized) &&
+                (!then_live || (i < then_count && then_state[i]));
         }
+        compiler->falls_through = incoming && (then_live || else_live);
         free(then_state);
     } else {
         /* An if without else or a while body may never execute. */
         restore_initialization(compiler, entry, entry_count);
+        compiler->falls_through = incoming;
     }
     free(entry);
     return result;
@@ -226,7 +338,7 @@ static CpgVisit emit_output(const Node *node, void *user) {
     fputs("if (printf(\"%.17g\\n\", (double)", stdout);
     CpgVisit result = cpg_dispatch(cpg_child_at(node, 1), compiler->visitor, user);
     if (result != CPG_CONTINUE) return result;
-    fputs(") < 0) return 1;\n", stdout);
+    fputs(") < 0) exit(EXIT_FAILURE);\n", stdout);
     return ferror(stdout) ? CPG_ERROR : CPG_CONTINUE;
 }
 
@@ -260,6 +372,80 @@ static CpgVisit emit_control(const Node *node, void *user) {
         result = cpg_dispatch(cpg_child_at(node, 6), compiler->visitor, user);
         if (result != CPG_CONTINUE) return result;
     }
+    return ferror(stdout) ? CPG_ERROR : CPG_CONTINUE;
+}
+
+static CpgVisit emit_call(const Node *node, void *user) {
+    Compiler *compiler = user;
+    size_t index = find_function(compiler, cpg_child_at(node, 0));
+    if (index == compiler->function_count) {
+        return semantic_error(compiler, node, "unresolved function during emission");
+    }
+    fprintf(stdout, "cpg_f%zu(", index);
+    CpgVisit result = cpg_dispatch(cpg_child_at(node, 2), compiler->visitor, user);
+    if (result != CPG_CONTINUE) return result;
+    fputs(") ", stdout);
+    return ferror(stdout) ? CPG_ERROR : CPG_CONTINUE;
+}
+
+static CpgVisit emit_return(const Node *node, void *user) {
+    Compiler *compiler = user;
+    emit_indent(compiler);
+    fputs("return ", stdout);
+    CpgVisit result = cpg_dispatch(cpg_child_at(node, 1), compiler->visitor, user);
+    if (result != CPG_CONTINUE) return result;
+    fputs(";\n", stdout);
+    return ferror(stdout) ? CPG_ERROR : CPG_CONTINUE;
+}
+
+static void emit_signature(const Function *function, size_t index, int definition) {
+    fprintf(stdout, "double cpg_f%zu(", index);
+    if (!function->arity) fputs("void", stdout);
+    for (size_t i = 0; i < function->arity; ++i) {
+        if (i) fputs(", ", stdout);
+        fputs("double", stdout);
+        if (definition) fprintf(stdout, " cpg_v%zu", i);
+    }
+    fputc(')', stdout);
+}
+
+static void emit_slots(const Compiler *compiler, size_t parameters) {
+    /* Hoist storage, not initializers; blocks share their enclosing scope. */
+    for (size_t i = 0; i < compiler->count; ++i) {
+        if (i >= parameters) fprintf(stdout, "    double cpg_v%zu = 0.0;\n", i);
+        fprintf(stdout, "    (void)cpg_v%zu;\n", i);
+    }
+}
+
+static CpgVisit emit_program(const Node *root, void *user) {
+    Compiler *compiler = user;
+    fputs("#include <stdio.h>\n#include <stdlib.h>\n\n", stdout);
+    for (size_t i = 0; i < compiler->function_count; ++i) {
+        emit_signature(&compiler->functions[i], i, 0);
+        fputs(";\n", stdout);
+    }
+    for (size_t i = 0; i < compiler->function_count; ++i) {
+        const Function *function = &compiler->functions[i];
+        Compiler local = *compiler;
+        local.symbols = function->symbols;
+        local.count = function->count;
+        local.depth = 1;
+        emit_signature(function, i, 1);
+        fputs(" {\n", stdout);
+        emit_slots(&local, function->arity);
+        CpgVisit result = cpg_dispatch(cpg_child_at(function->node, 5), local.visitor, &local);
+        if (result != CPG_CONTINUE) return result;
+        fputs("}\n\n", stdout);
+    }
+    fputs("int main(void) {\n", stdout);
+    emit_slots(compiler, 0);
+    for (size_t i = 0; i < cpg_child_count(root); ++i) {
+        const Node *node = cpg_child_at(root, i);
+        if (!strcmp(cpg_node_kind(node), "function")) continue;
+        CpgVisit result = cpg_dispatch(node, compiler->visitor, user);
+        if (result != CPG_CONTINUE) return result;
+    }
+    fputs("    return fflush(stdout) ? 1 : 0;\n}\n", stdout);
     return ferror(stdout) ? CPG_ERROR : CPG_CONTINUE;
 }
 
@@ -321,6 +507,7 @@ int main(int argc, char **argv) {
     int status = 1;
     Compiler compiler = {0};
     compiler.parser = &parser;
+    compiler.falls_through = 1;
     if (!root) {
         diagnostic(&parser, parser.error_offset, parser.problem, NULL);
     } else {
@@ -329,11 +516,15 @@ int main(int argc, char **argv) {
         validator.on_rule_assignment = check_assignment;
         validator.on_rule_conditional = check_control;
         validator.on_rule_loop = check_control;
+        validator.on_rule_function = check_function;
+        validator.on_rule_call = check_call;
+        validator.on_rule_returning = check_return;
         validator.on_token_IDENT = check_name;
         validator.on_token_INTEGER = check_integer;
         validator.on_node = dispatch_children;
         compiler.visitor = &validator;
-        if (cpg_dispatch(root, &validator, &compiler) != CPG_CONTINUE) {
+        if (collect_functions(root, &compiler) != CPG_CONTINUE ||
+            cpg_dispatch(root, &validator, &compiler) != CPG_CONTINUE) {
             diagnostic(&parser, compiler.error ? compiler.error->offset : 0,
                        compiler.problem ? compiler.problem : "validation failed", compiler.error);
         } else {
@@ -344,6 +535,9 @@ int main(int argc, char **argv) {
             emitter.on_rule_conditional = emit_control;
             emitter.on_rule_loop = emit_control;
             emitter.on_rule_block = emit_block;
+            emitter.on_rule_call = emit_call;
+            emitter.on_rule_arguments = dispatch_children;
+            emitter.on_rule_returning = emit_return;
             emitter.on_rule_expression = emit_group;
             emitter.on_rule_equality = emit_comparison;
             emitter.on_rule_comparison = emit_comparison;
@@ -351,27 +545,21 @@ int main(int argc, char **argv) {
             emitter.on_rule_product = emit_group;
             emitter.on_rule_unary = emit_group;
             emitter.on_rule_primary = emit_group;
-            emitter.on_rule_program = dispatch_children;
+            emitter.on_rule_program = emit_program;
             emitter.on_rule_statement = dispatch_children;
             emitter.on_token_IDENT = emit_name;
             emitter.on_token_INTEGER = emit_integer;
             emitter.on_node = emit_literal;
             compiler.visitor = &emitter;
             compiler.depth = 1;
-            fputs("#include <stdio.h>\n\nint main(void) {\n", stdout);
-            /* Hoist storage, not initializers: all source blocks share one scope. */
-            for (size_t i = 0; i < compiler.count; ++i) {
-                fprintf(stdout, "    double cpg_v%zu = 0.0;\n    (void)cpg_v%zu;\n", i, i);
-            }
             CpgVisit result = cpg_dispatch(root, &emitter, &compiler);
-            if (result == CPG_CONTINUE) {
-                fputs("    return fflush(stdout) ? 1 : 0;\n}\n", stdout);
-            }
             int failed = fflush(stdout) != 0 || ferror(stdout);
             if (result != CPG_CONTINUE || failed) {
                 fputs("statement-compiler: C source output failed\n", stderr);
             } else status = 0;
         }
+        for (size_t i = 0; i < compiler.function_count; ++i) free(compiler.functions[i].symbols);
+        free(compiler.functions);
     }
     free(compiler.symbols);
     cpg_destroy(&parser);

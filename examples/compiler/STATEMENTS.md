@@ -2,8 +2,8 @@
 
 This incremental companion to the [expression compiler](README.md) keeps its
 arithmetic grammar, precedence, numeric representation, and visitor-dispatch
-pattern, adding named bindings, source-order statements, and structured control
-flow. It is a compiler,
+pattern, adding named bindings, source-order statements, structured control
+flow, and integer-valued functions. It is a compiler,
 not an interpreter: its stdout is C source, not the program's output.
 The original `expression-compiler` and generated parser APIs are unchanged.
 
@@ -51,6 +51,28 @@ It prints `3`, `3`, `3`, and `4` on separate lines. The first loop accumulates
 inclusive-boundary loop executes once before its next condition check fails.
 Standalone nested blocks group statements without creating lexical scopes.
 
+For parameters, locals, nested/forward calls, and recursion, run the
+[function sample](statements/functions.stmt) through the same pipeline:
+
+```sh
+./bin/statement-compiler examples/compiler/statements/functions.stmt \
+  > build/statement-compiler/functions.c
+cc -std=c99 -Wall -Wextra -Werror -pedantic \
+  build/statement-compiler/functions.c -o build/statement-compiler/functions
+./build/statement-compiler/functions
+```
+
+It prints `12`, `120`, and `7`. Functions use the same integer-literal
+arithmetic language and `double` representation as existing expressions:
+
+```text
+fn add(left, right) {
+    let total = left + right;
+    return total;
+}
+print add(2, add(3, 4));
+```
+
 ## Explicit generation, syntax parsing, and compilation
 
 ```sh
@@ -85,7 +107,8 @@ enables it; generated parser modes do not.
 
 ## Visitor state and generated C
 
-The compiler first parses the entire source file, then uses `cpg_dispatch` and
+The compiler first parses the entire source file and collects all top-level
+function names and parameter counts. It then uses `cpg_dispatch` and
 per-rule/token hooks for a semantic pass. A caller-owned `Compiler` context
 holds an ordered symbol table of borrowed `IDENT` nodes and definite-initialization
 flags. Generic callbacks
@@ -97,13 +120,26 @@ the binding initialized. Identifier
 callbacks reject names not yet declared, including self-reference in an
 initializer, and reads of declared but not definitely initialized bindings.
 Control-flow callbacks snapshot entry flags, validate each arm from that entry
-state, and intersect the flags after `if`/`else`. Loops and conditionals without
+state, and intersect the flags of continuing arms after `if`/`else`.
+A returning arm does not constrain the continuing arm's initialization state;
+two returning arms terminate that path. Loops and conditionals without
 `else` restore the entry flags. Snapshots never remove textual declarations.
 The context survives all statement callbacks, rather than being
 recreated for each node. It is freed before destroying the parser and input.
+Each function body is dispatched with a separate symbol table, initially
+containing its initialized parameters. The completed local tables are retained
+for emission; function validation never changes the top-level table.
+Return callbacks check their value expression and mark the path as terminated.
+Every function must terminate all paths with a value return. A loop is still
+conservatively allowed to execute zero times, even with a constant condition.
 
-Only a successful semantic pass starts output. A second visitor reuses the
-completed symbol table and dispatches statements in source order. Declarations
+Only a successful semantic pass starts output. A second visitor emits numeric
+function prototypes, then definitions, then the top-level statements in C
+`main`. Prototypes support forward calls, self-recursion, and mutual recursion.
+Calls emit `cpg_f0(...)`, `cpg_f1(...)`, etc.; function names cannot collide
+with C keywords or library symbols. All functions return `double` and their
+parameters are passed by value. The visitor reuses each completed symbol table
+and dispatches statements in source order within each body. Declarations
 with initializers and assignments emit stores; declarations without initializers
 emit no store. Print callbacks emit checked `printf` calls,
 converting comparison results to `double` for the variadic format.
@@ -115,9 +151,10 @@ Expression callbacks follow the arithmetic example: grouping preserves
 precedence and left associativity, and integer tokens become decimal `double`
 constants (`000008` becomes `8.0`, never C octal). Identifiers map to stable
 `cpg_v0`, `cpg_v1`, ... slots, so C keywords and names such as `printf` or `main`
-are safe source-language variables. All slots are declared and zero-initialized
-at the start of `main`, with an explicit `(void)` read to keep unused bindings
-warning-free under strict C99. This storage initialization is a C-emission
+are safe source-language variables. All non-parameter slots are declared and
+zero-initialized at the start of `main` or their function, with an explicit
+`(void)` read to keep unused bindings warning-free under strict C99.
+This storage initialization is a C-emission
 detail, **not** a source-language fallback: the semantic visitor rejects reads
 that would depend on it. Initializer expressions remain at their source
 positions, so loop-body declarations reassign their slots on every iteration.
@@ -127,14 +164,15 @@ For example, `let x = 2; print x; x = x + 3; print x;` emits this shape
 
 ```c
 #include <stdio.h>
+#include <stdlib.h>
 
 int main(void) {
     double cpg_v0 = 0.0;
     (void)cpg_v0;
     cpg_v0 = 2.0;
-    if (printf("%.17g\n", (double)cpg_v0) < 0) return 1;
+    if (printf("%.17g\n", (double)cpg_v0) < 0) exit(EXIT_FAILURE);
     cpg_v0 = cpg_v0 + 3.0;
-    if (printf("%.17g\n", (double)cpg_v0) < 0) return 1;
+    if (printf("%.17g\n", (double)cpg_v0) < 0) exit(EXIT_FAILURE);
     return fflush(stdout) ? 1 : 0;
 }
 ```
@@ -146,7 +184,7 @@ dispatch behavior, AST lifetimes, and terminal source positions.
 
 ## Language and diagnostics
 
-Programs contain zero or more statements:
+Programs contain zero or more statements and top-level function definitions:
 
 ```text
 let name;
@@ -157,11 +195,16 @@ print expression;
 if (expression) { statements }
 if (expression) { statements } else { statements }
 while (expression) { statements }
+fn name(parameter, ...) { statements }
+return expression;
 ```
 
-There is one program-wide scope. Names are case-sensitive ASCII identifiers
-matching `[a-zA-Z_][a-zA-Z0-9_]*`; `let`, `print`, `if`, `else`, and `while`
-are keywords.
+There is one scope for top-level statements and a separate lexical scope for
+each function. Functions cannot read or assign top-level variables or another
+function's parameters/locals. Names are case-sensitive ASCII identifiers
+matching `[a-zA-Z_][a-zA-Z0-9_]*`; `let`, `print`, `if`, `else`, `while`,
+`fn`, and `return` are keywords. The two new keywords can no longer be used
+as binding names.
 Declarations may omit initializers and cannot redeclare a name. Assignment does
 not declare names. Arithmetic supports one-to-nine-digit integer literals,
 unary `+`/`-`, binary `+`/`-`/`*`, and parentheses, just like the expression
@@ -181,10 +224,23 @@ nested blocks are supported within the parser's existing resource limits.
 
 Name visibility still follows **textual declaration order**, not execution
 order. A binding declared inside a block remains visible after the block;
-shadowing or redeclaring it in any other block is an error, even in mutually
-exclusive branches. References textually before a declaration (or in its own
+shadowing or redeclaring it in any other block of the same function/top-level
+scope is an error, even in mutually exclusive branches. References textually
+before a declaration (or in its own
 initializer) fail. A later `else` arm can assign a name declared in the first arm,
 but cannot assume that arm's initializer executed.
+
+Function names occupy a separate namespace from variables. Duplicate function
+names are rejected (no overloading), as are duplicate parameter names and
+locals that redeclare parameters. Parameters are initialized on entry.
+Zero-parameter functions and zero-argument calls use `name()`. Every call
+must name a collected function and pass exactly its declared number of
+arguments; all argument and return expressions use the sole arithmetic type,
+so there are no conversions or distinct return-type annotations to validate.
+Functions are not first-class values, and calls are expressions, not standalone
+statements. Definitions cannot be nested inside blocks/functions.
+`return` is only valid inside a function and must have a value; a bare
+`return;` is accepted by the grammar but rejected by the semantic visitor.
 
 Definite-assignment checking follows control flow, separately from visibility:
 
@@ -193,8 +249,9 @@ Definite-assignment checking follows control flow, separately from visibility:
   after its right-hand side has been checked, so `let x; x = x + 1;` fails.
 - Every read, including expressions, initializers, assignment right-hand sides,
   prints, and conditions, requires definite initialization.
-- An `if`/`else` guarantees initialization afterward only if both arms guarantee
-  it. Each arm starts from the same incoming initialization state.
+- An `if`/`else` guarantees initialization afterward only if every continuing
+  arm guarantees it. Each arm starts from the same incoming initialization
+  state. Returning arms are excluded from the join.
 - An `if` without `else` cannot establish initialization after the conditional.
   Conditions are not constant-folded: even `if (1) { x = 1; }` is conservative.
 - A `while` may execute zero times. Its condition and body are checked using
@@ -208,6 +265,10 @@ For example, `let x; if (1) { x = 2; } else { x = 3; } print x;` is valid.
 `if (0) { let x = 9; } print x;` and
 `while (0) { let x = 9; } print x;` are semantic errors, not zero-valued reads.
 Unreachable bodies are still checked.
+The same checks apply to call arguments and returned expressions, independently
+for each function. For example,
+`fn f(n) { let x; if (n) { return 1; } else { x = 2; } return x; }`
+is valid; omitting the `else` assignment makes the final read invalid.
 
 ```sh
 ./bin/statement-compiler examples/compiler/statements/use-before.stmt
@@ -225,10 +286,14 @@ Reading a known but not definitely initialized binding reports
 These diagnostics include the file, one-based line/byte-column, zero-based
 byte offset, and offending name. Lexical and parse errors also report source
 locations. Syntax/semantic errors return `1` and emit **no C**, even if earlier
-statements were valid. Incorrect argument counts return `2`. File-read and
-C-source write failures return `1` with diagnostics; an I/O failure during
+statements were valid. Incorrect CLI argument counts return `2`; function-call
+arity errors return `1`. Function diagnostics include `unknown function`,
+`argument count mismatch`, `duplicate function`, `return outside function`,
+`return requires a value`, and `function may finish without returning a value`.
+File-read and C-source write failures return `1` with diagnostics; an I/O failure during
 emission can leave partial C. The emitted program checks print and final
-flush failures too.
+flush failures too. A failed print inside a function terminates the program
+with failure via `exit`, rather than returning an ordinary arithmetic value.
 
 The following still succeeds, demonstrating that semantic checks belong to
 the application, not to the generated parser:
@@ -238,13 +303,17 @@ build/statements-manual/syntax-parser --json \
   examples/compiler/statements/use-before.stmt
 ```
 
-This is deliberately not SmallC or the calculator CLI. There are no functions,
-classes, nested scopes, logical `&&`/`||`/`!`, `break`/`continue`, comments,
+This is deliberately not SmallC or the calculator CLI. There are no
+classes/objects, external interfaces, non-integer source types, block-local
+scopes, logical `&&`/`||`/`!`, `break`/`continue`, comments,
 strings, division, or fractions. Numbers use host C `double`; arithmetic
 rounding, overflow, and finite-range checks are not implemented. Keep values
 small enough for the host's range. The generated parser's existing input,
 allocation, nesting, work, and result-count limits apply unchanged; this is a
 bounded integration example, not a production language compiler.
+Runtime recursion uses the host C stack with no additional depth check.
+Sibling operands and call arguments follow C's unspecified evaluation order;
+do not rely on the ordering of prints in sibling function calls.
 
 ## Tests
 
@@ -266,5 +335,10 @@ malformed conditions with source locations, file/usage errors, and syntax-only
 acceptance of semantic failures inside control flow in C default, `--complete`,
 and `--json` modes and Cwhip default/`--complete` modes. Existing
 arithmetic tests run unchanged. The full target discovers both suites.
+Function regressions additionally cover parameters, unused functions/parameters,
+independent locals, nested/forward/self-recursive/mutually recursive calls,
+return-aware joins, early returns, function/symbol-table growth, duplicate
+signatures/parameters/locals, unknown functions, arity mismatches, missing/bare/
+top-level returns, uninitialized arguments/returns, and scope leakage.
 Direct test runs use the same SDK discovery and `CPARSEGEN_C_COMPILER`,
 `CC`, and optional `CPARSEGEN_C_FLAGS` conventions as the expression tests.

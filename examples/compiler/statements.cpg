@@ -1,5 +1,8 @@
-program : statement* ;
-statement : declaration | assignment | output | conditional | loop | block ;
+program : (function | statement)* ;
+function : "fn" IDENT "(" parameters ")" block ;
+parameters : (IDENT ("," IDENT)*)? ;
+statement : declaration | assignment | output | conditional | loop | block | returning ;
+returning : "return" expression? ";" ;
 declaration : "let" IDENT ("=" expression)? ";" ;
 assignment : IDENT "=" expression ";" ;
 output : "print" expression ";" ;
@@ -13,7 +16,9 @@ comparison : sum (("<" | "<=" | ">" | ">=") sum)* ;
 sum : product (("+" | "-") product)* ;
 product : unary ("*" unary)* ;
 unary : ("+" | "-") unary | primary ;
-primary : INTEGER | IDENT | "(" expression ")" ;
+primary : INTEGER | call | IDENT | "(" expression ")" ;
+call : IDENT "(" arguments ")" ;
+arguments : (expression ("," expression)*)? ;
 
 IDENT = [a-zA-Z_][a-zA-Z0-9_]*
 INTEGER = [0-9]+
