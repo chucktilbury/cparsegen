@@ -154,13 +154,30 @@ Neither Graphviz nor a generated executable is run by cparsegen itself.
 
 ## Generator command-line contract
 
-The supported invocation forms are exactly:
+The supported target selections are:
 
 ```text
 cparsegen GRAMMAR OUTPUT OUTPUT.dot
 cparsegen --library GRAMMAR OUTPUT OUTPUT.dot
 cparsegen --target c GRAMMAR OUTPUT OUTPUT.dot
 ```
+
+Each form also accepts repeated `--include-path DIR:DIR...` options before
+the positional paths, in any order relative to the target selection:
+
+```sh
+./bin/cparsegen --include-path grammars:vendor/grammars \
+  --include-path /opt/project/grammars --target c \
+  grammar/main.cpg build/parser.c build/grammar.dot
+```
+
+The list separator is a literal POSIX colon (`:`), not a comma. Search
+directories are tried in list/option order. Relative directories are relative
+to the generator's working directory. Empty components mean that working
+directory: `:shared`, `shared:`, `shared::vendor`, and an entirely empty
+argument `--include-path ""` all explicitly add it. Quote the shell argument
+when a directory contains spaces. Colons cannot be escaped in this list.
+These paths locate included grammars, not the main `GRAMMAR` argument.
 
 | Selection | Parser source written | Embedded entry point |
 | --- | --- | --- |
@@ -175,8 +192,8 @@ documented stream selector. Create parent directories before generation.
 Use distinct grammar/source/graph paths: the CLI does not validate path
 collisions or protect existing output files from replacement.
 
-Options are recognized by fixed argument counts and positions, not a general
-option parser. Put the selected option before the three paths. There is no
+Put options before the three paths. `--` ends option processing, allowing a
+grammar filename beginning with `-`. There is no
 generator `--help`, `--version`, `--target cwhip`, C++/Python target, combined
 `--library --target c`, entry-rule option, or resource-limit option.
 
@@ -184,18 +201,20 @@ Successful generation returns `0` without a success message. Explicit usage
 errors return `2` and print this line on stderr:
 
 ```text
-usage: cparsegen [--library | --target c] GRAMMAR OUTPUT OUTPUT.dot
+usage: cparsegen [--library | --target c] [--include-path DIR:DIR...] [--] GRAMMAR OUTPUT OUTPUT.dot
 ```
 
 Grammar/target validation errors return `1` on stderr, normally as
 `GRAMMAR: line N: diagnostic`; some whole-model checks omit the line number.
+Included-file errors name the resolved absolute file and original line,
+followed by `included from PATH: line N` entries back to the main file.
 The generator reads and validates the grammar and constructs both output
 strings **before opening either output**. Invalid grammars do not create or
 truncate outputs. Once validation succeeds, outputs are opened in write mode;
 writing them is not transactional. An incomplete write reports
-`PATH: incomplete write` and returns `1`. File open/read exceptions are
-handled by the Cwhip system runtime, not normalized by an application-level
-catch in this CLI; do not assume every I/O failure has the validation format.
+`PATH: incomplete write` and returns `1`. Grammar file open/read errors return
+`1` with the input path and, for includes, the include site's location/context.
+Output open/write exceptions still use the Cwhip system runtime's diagnostics.
 
 ## Grammar input format
 
@@ -398,14 +417,16 @@ span-feasible position, not a guarantee of the most helpful offending token.
 
 ### Directives
 
-Directive syntax is `@name payload;`. The reader collects payload bytes up to
-the **first semicolon**, trims the surrounding whitespace, and does not parse
+Directive syntax is `@name payload;`. Except for `@include`, the reader
+collects payload bytes up to the **first semicolon**, trims the surrounding
+whitespace, and does not parse
 the payload as a parser expression. Quotes/comments inside the payload do
 not protect a semicolon. Payloads can cross lines. A directive must be a
 declaration, not part of a parser-rule expression.
 
 | Directive | Implemented effect and constraints |
 | --- | --- |
+| `@include "parts/tokens.cpg";` | Expand another grammar at this declaration position, once per resolved path; see below. Bare paths without whitespace and single-quoted paths are also accepted. |
 | `@skip SPACE;` | Mark exactly one declared lexer token as discarded. A skipped token cannot be referenced by a parser rule. Multiple skip directives are allowed. |
 | `@keywords IDENT;` | Designate one declared `=` lexer token for exact literal remapping. Only one such directive is allowed; the token cannot be quoted or skipped. Its name does not itself guarantee an identifier-shaped pattern. |
 | `@reserved struct typedef;` | Add one or more identifier spellings that become `@reserved` when the designated keyword token wins. Requires `@keywords`; repeated directives accumulate spellings. |
@@ -430,8 +451,56 @@ errors. **Quotes and escape spellings are preserved, not decoded.**
 The Cwhip backend stores other directives as opaque declarations with no
 generation effect; this is not support for an extension named by the
 directive. The C backend explicitly rejects directives outside the table.
-For example, `@include file.cpg;` does not include a file in Cwhip and is
-rejected for C. Neither backend implements grammar includes or code insertion.
+Neither backend implements code insertion.
+
+### Grammar includes
+
+```text
+@include "parts/entry.cpg";
+@include shared-tokens.cpg;
+@include '/opt/project/grammar files/common.cpg';
+```
+
+`@include` requires exactly one nonempty filename followed by `;`. Single or
+double quotes permit spaces and semicolons in filenames. The matching quote
+cannot appear within that filename; backslashes are literal path bytes, not
+escape sequences. Control bytes/newlines inside a filename, empty paths,
+extra arguments, and missing terminators are errors. Comments are supported
+around directives, not inside their path payloads.
+
+An absolute path is used directly. A relative path is tried first against the
+**including file's directory**, then against each `--include-path` directory
+in order. Nested includes use their own including file's directory. The
+working directory is not an implicit fallback (unless a search component
+explicitly adds it). The first existing candidate wins; a directory,
+unreadable file, or other non-regular candidate is an error, not a reason to
+silently try a later search directory. Filesystem APIs resolve existing
+symlinks to absolute paths; nested relative paths use that resolved directory.
+There are no additional traversal restrictions or automatic extensions.
+
+Expansion is depth-first at the directive's position. Included files may
+interleave lexer declarations, parser rules, and directives, including further
+includes. All declarations are collected into the same grammar before
+reference resolution/validation, so lexer and parser forward references work
+across files. Encounter order is the same as manually inlining the files;
+the first encountered parser rule is the entry rule. `@include` cannot split
+a lexer declaration or parser expression, and an included parser rule must
+terminate within its own file. Other directive payloads remain opaque:
+`@note @include missing.cpg;` does not load a file.
+
+Each resolved absolute path is expanded **once per generator invocation**.
+Repeated includes, normalized `.`/`..` paths, symlink aliases, and diamonds
+reuse the first expansion, without repeating declarations or changing their
+order. Hard links with different paths are distinct sources. Including a file
+already active in the include stack is a cycle error, not a skipped include.
+The generator allows at most 128 simultaneously active files (including the
+main file) and 1,024 distinct files per invocation; exceeding either bound is
+an explicit error. This prevents unbounded nesting and exponential expansion.
+
+These semantics apply to default Cwhip, `--library`, and `--target c`.
+Missing/unreadable files, malformed includes, cycles, included syntax/semantic
+errors, and unsupported C-target directives all fail before either output
+is created or truncated.
 
 ## Scanner and parser behavior
 
@@ -981,7 +1050,8 @@ Use the dedicated guides for application-specific language/checking limits:
 | A suffix causes a lexical error despite prefix mode | The scanner validates the entire file before selecting a parse. |
 | `left recursion` | A cycle can repeat without consuming tokens. Remove the unit/nullable cycle or require a nonnullable prefix or suffix on every cycle; consuming left recursion is supported. |
 | `nullable repetition` | Quantified operands must be nonnullable, including under `?`; rewrite the optional/repeated expression. |
-| `@include`/other directive appears accepted in Cwhip | Opaque payload collection is not execution; only the supported lexical directives have effects. C rejects unknown directives. |
+| `cannot find included grammar` | Check the including file's directory and the ordered `--include-path DIR:DIR...` list. An empty path component explicitly adds the working directory. |
+| Other directive appears accepted in Cwhip | Unknown payloads are opaque, not executed. C rejects unknown directives; `@include` and the listed lexical directives are implemented by both targets. |
 | Tree text is not a number or decoded string | Terminal values are source spellings; conversion belongs to a handwritten consumer. |
 | Syntax success but application rejects input | Application visitors/checkers implement their own semantics; parse success does not imply semantic validity. |
 
@@ -1009,7 +1079,7 @@ before parsing), not precise explanations of where exhaustion originated.
 
 Limits are hardcoded, not CLI settings. There is no promised linear parsing
 time, incremental/streaming parsing, automatic recovery, full source spans,
-grammar source stack, include processing, general regex engine, semantic
+general regex engine, semantic
 action execution, or C++/Python emitter. Walkers/serializers recurse over
 trees and do not provide a separate configurable traversal budget.
 
@@ -1028,6 +1098,7 @@ inferring features from the architecture proposal:
 | --- | --- |
 | Generator arguments, outputs, validation ordering | [main.cw](../src/main.cw), [generator tests](../tests/test_generator.py), [C backend tests](../tests/test_c_backend.py) |
 | Grammar syntax, directives, validation | [grammar.cw](../src/grammar.cw), [grammar conformance tests](../tests/test_grammar_conformance.py) |
+| Include expansion, search paths, source diagnostics | [grammar.cw](../src/grammar.cw), [include tests](../tests/test_includes.py) |
 | Left-recursive recognition, AST/order preservation, rejection boundary and budgets | [left-recursion tests](../tests/test_left_recursion.py), [grammar.cw](../src/grammar.cw), both runtimes |
 | Cwhip source/API, tree structure, DOT | [emitter.cw](../src/emitter.cw), [generator tests](../tests/test_generator.py) |
 | C source, runtime/API, JSON, budgets | [c_emitter.cw](../src/c_emitter.cw), [c_runtime.cw](../src/c_runtime.cw), [C backend tests](../tests/test_c_backend.py) |
