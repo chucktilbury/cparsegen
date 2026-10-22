@@ -58,7 +58,7 @@ The equivalent explicit generation/compilation sequence is:
 ```sh
 mkdir -p build/visitor-manual-c
 ./bin/cparsegen --target c examples/words.cpg \
-  build/visitor-manual-c/parser.c build/visitor-manual-c/grammar.dot
+  build/visitor-manual-c/parser.c --dot build/visitor-manual-c/grammar.dot
 cc -std=c99 -Wall -Wextra -Werror -pedantic \
   -I build/visitor-manual-c examples/visitor/words.c \
   -o build/visitor-manual-c/words
@@ -138,7 +138,7 @@ With the same selected SDK, and `cwhip` on PATH:
 ```sh
 mkdir -p build/visitor-manual-cwhip
 ./bin/cparsegen --library examples/words.cpg \
-  build/visitor-manual-cwhip/parser.cw build/visitor-manual-cwhip/grammar.dot
+  build/visitor-manual-cwhip/parser.cw --dot build/visitor-manual-cwhip/grammar.dot
 cp examples/visitor/words.cw build/visitor-manual-cwhip/words.cw
 cwhip build/visitor-manual-cwhip/words.cw -o build/visitor-manual-cwhip/words
 build/visitor-manual-cwhip/words 'alpha, beta, gamma'

@@ -67,7 +67,7 @@ class SmallCTests(unittest.TestCase):
         cls.executable = cls.directory / "smallc-ast"
         subprocess.run(
             [str(generator), "--library", str(EXAMPLE / "smallc.cpg"),
-             str(cls.directory / "parser.cw"), str(cls.directory / "grammar.dot")],
+             str(cls.directory / "parser.cw"), "--dot", str(cls.directory / "grammar.dot")],
             env=cls.env, check=True, capture_output=True, text=True, timeout=60,
         )
         subprocess.run(
@@ -503,7 +503,7 @@ class SmallCStandaloneTests(SmallCTests):
         graph = cls.directory / "grammar-c.dot"
         subprocess.run(
             [str(cls.generator), "--target", "c", str(EXAMPLE / "smallc.cpg"),
-             str(source), str(graph)],
+             str(source), "--dot", str(graph)],
             env=cls.env, check=True, capture_output=True, text=True, timeout=60,
         )
         if graph.read_bytes() != (cls.directory / "grammar.dot").read_bytes():

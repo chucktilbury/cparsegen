@@ -22,7 +22,7 @@ outputs:
 ./scripts/setup
 cmake --build .
 mkdir -p generated
-../bin/cparsegen ../tests/fixtures/shortest.cpg generated/shortest.cw generated/shortest.dot
+../bin/cparsegen --dot generated/shortest.dot ../tests/fixtures/shortest.cpg generated/shortest.cw
 cwhip generated/shortest.cw -o generated/shortest-parser
 printf '123+456' > generated/input.txt
 generated/shortest-parser generated/input.txt
@@ -38,7 +38,7 @@ options:
 
 ```sh
 ./bin/cparsegen --include-path grammars:vendor/grammars --target c \
-  grammar/main.cpg generated/parser.c generated/grammar.dot
+  grammar/main.cpg generated/parser.c --dot generated/grammar.dot
 ```
 
 Empty list components mean the current working directory. Nested includes,
@@ -46,6 +46,25 @@ cross-file forward references, and source-located include errors work for both
 backends; cycles and invalid inputs fail before outputs are opened. See
 [grammar includes](doc/INPUT-OUTPUT.md#grammar-includes) for ordering,
 duplicate handling, path syntax, and limits.
+
+Only the grammar input is required:
+
+```sh
+cparsegen grammar.cpg                         # grammar.cw, no DOT
+cparsegen --target c grammar.cpg              # grammar.c, no DOT
+cparsegen --dot grammar.dot grammar.cpg       # grammar.cw and grammar.dot
+cparsegen grammar.cpg generated/parser.cw     # explicit parser-output override
+```
+
+The default parser output stays beside the input grammar, replacing only the
+last extension of its filename with `.cw` (`--library` too) or `.c` (`--target c`).
+Extensionless names and leading-dot-only names such as `.grammar` get the suffix
+appended; dots in directory names are ignored. Explicit output names are used
+unchanged. DOT is written **only** with `--dot FILE`, at most once.
+Options may appear before or after positional paths, up to `--`. Input/output
+aliases (including included grammars) and parser/DOT collisions are rejected
+before any output is opened. See the
+[CLI contract](doc/INPUT-OUTPUT.md#generator-command-line-contract).
 
 ## Generated examples
 
@@ -116,7 +135,7 @@ To generate and compile directly:
 ```sh
 mkdir -p build/generated-c
 ./bin/cparsegen --target c examples/calculator/calculator.cpg \
-  build/generated-c/parser.c build/generated-c/grammar.dot
+  build/generated-c/parser.c --dot build/generated-c/grammar.dot
 cc -std=c99 build/generated-c/parser.c -o build/generated-c/parser
 build/generated-c/parser --complete build/calculator-c/input.txt
 ```

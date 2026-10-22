@@ -39,7 +39,7 @@ The equivalent steps without the example target show which files are generated:
 cmake --build build --target cparsegen
 mkdir -p build/compiler-manual
 ./bin/cparsegen --target c examples/compiler/compiler.cpg \
-  build/compiler-manual/parser.c build/compiler-manual/grammar.dot
+  build/compiler-manual/parser.c --dot build/compiler-manual/grammar.dot
 cc -std=c99 -Wall -Wextra -Werror -pedantic -I build/compiler-manual \
   examples/compiler/compiler.c -o build/compiler-manual/expression-compiler
 build/compiler-manual/expression-compiler '2 + 3 * 4' > build/compiler-manual/program.c

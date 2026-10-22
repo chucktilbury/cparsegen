@@ -68,7 +68,7 @@ class GeneratorTestCase(unittest.TestCase):
         generated = self.generated.with_suffix(".c" if backend == "c" else ".cw")
         return subprocess.run(
             [str(self.generator), *(["--target", "c"] if backend == "c" else []),
-             str(grammar), str(generated), str(self.graph)],
+             "--dot", str(self.graph), str(grammar), str(generated)],
             capture_output=True,
             text=True,
             timeout=60,

@@ -26,8 +26,10 @@ def run(executable, grammar, mode, directory, name="grammar.cpg", extra=()):
         source.write_text(grammar)
     out = Path(directory) / ("out." + mode)
     dot = Path(directory) / ("out." + mode + ".dot")
+    # Historical pre-analysis binaries require the old positional DOT argument.
+    dot_args = [str(dot)] if str(executable) == BASELINE else ["--dot", str(dot)]
     result = subprocess.run(
-        [str(executable), *MODES[mode], *extra, str(source), str(out), str(dot)],
+        [str(executable), *MODES[mode], *extra, str(source), str(out), *dot_args],
         capture_output=True, text=True, cwd=directory,
     )
     outputs = tuple(p.read_text() if p.exists() else None for p in (out, dot))

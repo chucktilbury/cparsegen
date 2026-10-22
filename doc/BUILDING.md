@@ -96,6 +96,11 @@ registered selections fail rather than reuse a cached SDK.
 
 ## Configure and build
 
+The generator links a small C99/POSIX path-identity helper (`src/paths.c`)
+with CMake's host C compiler. It detects existing hard-link aliases, which
+the SDK's path API does not expose; parser/scanner/AST generation remains
+in Cwhip. This helper is not needed by generated parsers.
+
 The optional `calculator-c` and `smallc-c` targets generate and compile standalone
 ISO C99 syntax parsers with CMake's host C compiler (strict warnings-as-errors
 on GCC/Clang). The Cwhip SDK is needed to
@@ -120,7 +125,7 @@ shell:
 ```sh
 cmake --build .
 mkdir -p generated
-../bin/cparsegen ../tests/fixtures/shortest.cpg generated/shortest.cw generated/shortest.dot
+../bin/cparsegen --dot generated/shortest.dot ../tests/fixtures/shortest.cpg generated/shortest.cw
 cwhip generated/shortest.cw -o generated/shortest-parser
 printf '123+456' > generated/input.txt
 generated/shortest-parser generated/input.txt

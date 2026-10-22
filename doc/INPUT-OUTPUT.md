@@ -1,9 +1,8 @@
 # cparsegen input, output, and usage reference
 
-This is a reference to the **implemented behavior** on `main` at commit
-`2f770442b82f456476f355710fbbd647381226cf`, not a proposed grammar standard.
+This is a reference to the **implemented behavior**, not a proposed grammar standard.
 cparsegen is a bounded parser generator written in Cwhip. It reads a grammar
-file and writes parser source plus a DOT dependency graph. Its supported
+file and writes parser source plus an optional `--dot FILE` dependency graph. Its supported
 source targets are **Cwhip** and **standalone ISO C99**. It does not compile
 the generated source, evaluate the parsed language, or generate an application
 compiler automatically.
@@ -79,7 +78,7 @@ expression argument:
 
 ```sh
 ./bin/cparsegen tests/fixtures/shortest.cpg \
-  build/reference/shortest.cw build/reference/shortest.dot
+  build/reference/shortest.cw --dot build/reference/shortest.dot
 cwhip build/reference/shortest.cw -o build/reference/shortest
 printf '123+456' > build/reference/input.txt
 build/reference/shortest build/reference/input.txt
@@ -101,7 +100,7 @@ scanner still checks the entire file in either mode.
 
 ```sh
 ./bin/cparsegen --target c tests/fixtures/shortest.cpg \
-  build/reference/shortest.c build/reference/shortest-c.dot
+  build/reference/shortest.c --dot build/reference/shortest-c.dot
 cc -std=c99 -Wall -Wextra -Werror -pedantic \
   build/reference/shortest.c -o build/reference/shortest-c
 build/reference/shortest-c --json build/reference/input.txt
@@ -131,7 +130,7 @@ SPACE = [ \t\r\n]+
 
 ```sh
 ./bin/cparsegen --target c examples/words.cpg \
-  build/reference/words.c build/reference/words.dot
+  build/reference/words.c --dot build/reference/words.dot
 cc -std=c99 build/reference/words.c -o build/reference/words
 printf 'alpha, beta_2, gamma' > build/reference/words.txt
 build/reference/words --complete build/reference/words.txt
@@ -157,18 +156,18 @@ Neither Graphviz nor a generated executable is run by cparsegen itself.
 The supported target selections are:
 
 ```text
-cparsegen GRAMMAR OUTPUT OUTPUT.dot
-cparsegen --library GRAMMAR OUTPUT OUTPUT.dot
-cparsegen --target c GRAMMAR OUTPUT OUTPUT.dot
+cparsegen [--dot FILE] GRAMMAR [OUTPUT]
+cparsegen --library [--dot FILE] GRAMMAR [OUTPUT]
+cparsegen --target c [--dot FILE] GRAMMAR [OUTPUT]
 ```
 
-Each form also accepts repeated `--include-path DIR:DIR...` options before
-the positional paths, in any order relative to the target selection:
+Each form also accepts repeated `--include-path DIR:DIR...` options. Options
+may appear before, between, or after positional paths, in any order:
 
 ```sh
 ./bin/cparsegen --include-path grammars:vendor/grammars \
   --include-path /opt/project/grammars --target c \
-  grammar/main.cpg build/parser.c build/grammar.dot
+  grammar/main.cpg build/parser.c --dot build/grammar.dot
 ```
 
 The list separator is a literal POSIX colon (`:`), not a comma. Search
@@ -181,27 +180,65 @@ These paths locate included grammars, not the main `GRAMMAR` argument.
 
 | Selection | Parser source written | Embedded entry point |
 | --- | --- | --- |
-| No option | Cwhip, conventionally `parser.cw` | `start` block with file CLI |
-| `--library` | Cwhip, conventionally `parser.cw` | None; include it from an application |
-| `--target c` | Standalone C99, conventionally `parser.c` | `main`, excluded when compiling with `CPARSEGEN_NO_MAIN` |
+| No option | Cwhip, default grammar basename + `.cw` | `start` block with file CLI |
+| `--library` | Cwhip, default grammar basename + `.cw` | None; include it from an application |
+| `--target c` | Standalone C99, default grammar basename + `.c` | `main`, excluded when compiling with `CPARSEGEN_NO_MAIN` |
 
-All three positional paths are mandatory. Names/extensions are caller-chosen;
-there is no automatic basename, extension detection, output directory,
-default output file, stdin mode, or stdout-source mode. A path `-` is not a
-documented stream selector. Create parent directories before generation.
-Use distinct grammar/source/graph paths: the CLI does not validate path
-collisions or protect existing output files from replacement.
+`GRAMMAR` is mandatory; the second positional path is an optional parser-output
+override, used exactly as supplied regardless of target or extension. Without
+it, derive the parser path from the **supplied grammar path**, not the resolved
+symlink target: keep its directory and remove the filename's last dot and
+everything after it, then append `.cw` (default and `--library`) or `.c`
+(`--target c`). If there is no dot, or the only dot is the filename's leading
+dot, append the suffix instead. A trailing dot is an empty extension and is
+replaced. Dots in directory names do not count.
 
-Put options before the three paths. `--` ends option processing, allowing a
-grammar filename beginning with `-`. There is no
+```sh
+cparsegen grammar.cpg                         # grammar.cw, no DOT
+cparsegen --target c grammar.cpg              # grammar.c, no DOT
+cparsegen --dot grammar.dot grammar.cpg       # grammar.cw and grammar.dot
+cparsegen --library grammar.cpg               # grammar.cw without start
+cparsegen "dir.v1/my grammar.part.cpg"         # dir.v1/my grammar.part.cw
+cparsegen dir.v1/grammar                      # dir.v1/grammar.cw
+cparsegen .grammar                           # .grammar.cw
+cparsegen grammar.cpg custom.source --dot graph.txt
+```
+
+DOT is generated **only** when `--dot FILE` is present; it has no implicit
+default name, and the old third positional DOT path is an error. Repeating
+`--dot` is an error even with the same filename. Missing/empty file arguments,
+unknown options, repeated target/library selections, incompatible
+`--library --target c`, and excess positional arguments are usage errors.
+An option requiring a value consumes the following argument; `--dot` and
+`--include-path` reject values beginning with `--` (use `./--name` for such
+paths). Empty include-path components remain supported.
+
+`--` ends option processing, allowing grammar/output filenames beginning with
+`-`; after it, every argument is positional. For example,
+`cparsegen --dot graph.dot -- -grammar.cpg -parser.cw` is valid.
+There is no
 generator `--help`, `--version`, `--target cwhip`, C++/Python target, combined
 `--library --target c`, entry-rule option, or resource-limit option.
+There is no stdin or stdout-source mode; `-` is a filename, not a stream
+selector. Create output parent directories before generation. Quoted paths
+may contain spaces; explicit relative paths are relative to the working
+directory.
+
+Before opening outputs, the CLI checks that the parser and optional DOT path
+are distinct from each other and from **every loaded grammar**, including
+includes. Checks resolve relative paths, `.`/`..`, symlinked parents/existing
+files, and existing hard links. This also prevents an implicit default such
+as `grammar.cw` from overwriting a same-named grammar. Unresolvable output
+parents and dangling output symlinks are rejected rather than assumed safe.
+Collisions/path-resolution failures return `1` with a diagnostic and leave
+outputs untouched. These are preflight checks, not protection against
+concurrent filesystem changes. Distinct existing output files may be replaced.
 
 Successful generation returns `0` without a success message. Explicit usage
 errors return `2` and print this line on stderr:
 
 ```text
-usage: cparsegen [--library | --target c] [--include-path DIR:DIR...] [--] GRAMMAR OUTPUT OUTPUT.dot
+usage: cparsegen [--library | --target c] [--include-path DIR:DIR...] [--dot FILE] [--] GRAMMAR [OUTPUT]
 ```
 
 Grammar/target validation errors return `1` on stderr. Source-located errors
@@ -209,8 +246,8 @@ use `PATH:LINE:COLUMN: bytes START-END: MESSAGE`; whole-model errors without a
 source site use `PATH: MESSAGE`. Included-file diagnostics identify the
 resolved absolute file and retain up to eight `included from PATH:LINE:COLUMN`
 sites, nearest parent first.
-The generator reads and validates the grammar and constructs both output
-strings **before opening either output**. Invalid grammars do not create or
+The generator reads and validates the grammar and constructs the requested output
+strings **before opening any output**. Invalid grammars do not create or
 truncate outputs. Once validation succeeds, outputs are opened in write mode;
 writing them is not transactional. An incomplete write reports
 `PATH: incomplete write` and returns `1`. Grammar file open/read errors return
@@ -728,8 +765,9 @@ Generated-source compilation remains a necessary integration step.
 
 ## Generated files and layout
 
-Each successful invocation writes exactly the **two files named by the
-caller**. It does not generate a separate header, binary, library archive,
+Each successful invocation writes **one parser source file**, using the
+derived default path or the caller's explicit override, and **one DOT file
+only if `--dot FILE` is requested**. It does not generate a separate header, binary, library archive,
 package, build script, AST JSON file, evaluator, or visitor implementation
 containing application semantics.
 
@@ -903,7 +941,7 @@ Generate `--library` source alongside an application that includes it:
 ```sh
 mkdir -p build/reference-cwhip
 ./bin/cparsegen --library examples/words.cpg \
-  build/reference-cwhip/parser.cw build/reference-cwhip/grammar.dot
+  build/reference-cwhip/parser.cw --dot build/reference-cwhip/grammar.dot
 cp examples/visitor/words.cw build/reference-cwhip/words.cw
 cwhip build/reference-cwhip/words.cw -o build/reference-cwhip/words
 build/reference-cwhip/words 'alpha, beta, gamma'
@@ -973,7 +1011,7 @@ First generate the words parser:
 ```sh
 mkdir -p build/reference-c
 ./bin/cparsegen --target c examples/words.cpg \
-  build/reference-c/parser.c build/reference-c/grammar.dot
+  build/reference-c/parser.c --dot build/reference-c/grammar.dot
 ```
 
 The following is a complete handwritten consumer of the generated words
@@ -1234,7 +1272,7 @@ inferring features from the architecture proposal:
 
 | Contract | Source and regression coverage |
 | --- | --- |
-| Generator arguments, outputs, validation ordering | [main.cw](../src/main.cw), [generator tests](../tests/test_generator.py), [C backend tests](../tests/test_c_backend.py) |
+| Generator arguments, outputs, validation ordering and path collisions | [main.cw](../src/main.cw), [path identity](../src/paths.c), [CLI tests](../tests/test_cli.py), [generator tests](../tests/test_generator.py), [C backend tests](../tests/test_c_backend.py) |
 | Grammar syntax, directives, validation | [grammar.cw](../src/grammar.cw), [grammar conformance tests](../tests/test_grammar_conformance.py) |
 | Include expansion, search paths, source diagnostics | [grammar.cw](../src/grammar.cw), [include tests](../tests/test_includes.py) |
 | Left-recursive recognition, AST/order preservation, rejection boundary and budgets | [left-recursion tests](../tests/test_left_recursion.py), [grammar.cw](../src/grammar.cw), both runtimes |
@@ -1248,7 +1286,8 @@ After building the generator, the narrowly scoped core contract suite is:
 
 ```sh
 PYTHONPATH=tests python3 -m unittest \
-  test_generator test_grammar_conformance test_left_recursion test_c_backend test_visitors
+  test_cli test_includes test_generator test_grammar_conformance \
+  test_left_recursion test_c_backend test_visitors
 ```
 
 It generates/compiles real Cwhip and C parsers, checks successful and failed

@@ -111,8 +111,17 @@ if(NOT Cwhip_APPLICATION_OUTPUT_DIRECTORIES)
         "Install an SDK that provides Cwhip_APPLICATION_OUTPUT_DIRECTORIES.")
 endif()
 
+add_library(cparsegen_paths OBJECT src/paths.c)
+target_include_directories(cparsegen_paths PRIVATE "${Cwhip_INCLUDE_DIR}")
+set_target_properties(cparsegen_paths PROPERTIES
+    C_STANDARD 99 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(cparsegen_paths PRIVATE -Wall -Wextra -Werror -pedantic)
+endif()
 cwhip_add_program(cparsegen
     SOURCE "${PROJECT_SOURCE_DIR}/src/main.cw"
+    OBJECTS $<TARGET_OBJECTS:cparsegen_paths>
+    DEPENDS cparsegen_paths
     OUTPUT_DIRECTORY "${CWHIP_BIN_DIR}")
 get_target_property(cparsegen_executable cparsegen CWHIP_EXECUTABLE)
 install(PROGRAMS "${cparsegen_executable}" DESTINATION bin)
@@ -161,7 +170,7 @@ function(cparsegen_add_example target output_name)
             "${example_work}/${target}.cw"
         COMMAND "${cparsegen_executable}" --library
             "${PROJECT_SOURCE_DIR}/examples/${target}/${target}.cpg"
-            "${example_work}/parser.cw" "${example_work}/grammar.dot"
+            "${example_work}/parser.cw" --dot "${example_work}/grammar.dot"
         COMMAND "${CMAKE_COMMAND}" -E env
             --unset=CWHIP_MODULE_DIR --unset=CWHIP_PACKAGE_PATH
             --unset=CWHIP_MODULE_REGISTRY --unset=DESTDIR --unset=XDG_RUNTIME_DIR
@@ -196,7 +205,7 @@ function(cparsegen_add_c_example example)
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${example_work}"
         COMMAND "${cparsegen_executable}" --target c
             "${PROJECT_SOURCE_DIR}/examples/${example}/${example}.cpg"
-            "${example_work}/parser.c" "${example_work}/grammar.dot"
+            "${example_work}/parser.c" --dot "${example_work}/grammar.dot"
         DEPENDS cparsegen "${cparsegen_executable}"
             "${PROJECT_SOURCE_DIR}/examples/${example}/${example}.cpg"
         BYPRODUCTS "${example_work}/grammar.dot"
@@ -218,7 +227,7 @@ add_custom_command(
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${visitor_work}"
     COMMAND "${cparsegen_executable}" --target c
         "${PROJECT_SOURCE_DIR}/examples/words.cpg"
-        "${visitor_work}/parser.c" "${visitor_work}/grammar.dot"
+        "${visitor_work}/parser.c" --dot "${visitor_work}/grammar.dot"
     DEPENDS cparsegen "${cparsegen_executable}"
         "${PROJECT_SOURCE_DIR}/examples/words.cpg"
     BYPRODUCTS "${visitor_work}/grammar.dot"
@@ -239,7 +248,7 @@ add_custom_command(
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${compiler_work}"
     COMMAND "${cparsegen_executable}" --target c
         "${PROJECT_SOURCE_DIR}/examples/compiler/compiler.cpg"
-        "${compiler_work}/parser.c" "${compiler_work}/grammar.dot"
+        "${compiler_work}/parser.c" --dot "${compiler_work}/grammar.dot"
     DEPENDS cparsegen "${cparsegen_executable}"
         "${PROJECT_SOURCE_DIR}/examples/compiler/compiler.cpg"
     BYPRODUCTS "${compiler_work}/grammar.dot"
@@ -260,7 +269,7 @@ add_custom_command(
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${statement_work}"
     COMMAND "${cparsegen_executable}" --target c
         "${PROJECT_SOURCE_DIR}/examples/compiler/statements.cpg"
-        "${statement_work}/parser.c" "${statement_work}/grammar.dot"
+        "${statement_work}/parser.c" --dot "${statement_work}/grammar.dot"
     DEPENDS cparsegen "${cparsegen_executable}"
         "${PROJECT_SOURCE_DIR}/examples/compiler/statements.cpg"
     BYPRODUCTS "${statement_work}/grammar.dot"

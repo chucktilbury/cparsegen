@@ -235,7 +235,7 @@ class CBackendTests(GeneratorTestCase):
         self.assertEqual(self.graph.read_bytes(), graph)
         for options in [("--target", "cpp"), ("--library", "--target", "c")]:
             result = subprocess.run(
-                [str(self.generator), *options, str(grammar), str(self.generated), str(self.graph)],
+                [str(self.generator), *options, str(grammar), str(self.generated), "--dot", str(self.graph)],
                 capture_output=True, text=True, timeout=30,
             )
             self.assertEqual(result.returncode, 2)

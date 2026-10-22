@@ -14,7 +14,7 @@ class CompilerTests(GeneratorTestCase):
         parser = self.directory / "parser.c"
         result = subprocess.run(
             [str(self.generator), "--target", "c",
-             str(ROOT / "examples/compiler/compiler.cpg"), str(parser), str(self.graph)],
+             str(ROOT / "examples/compiler/compiler.cpg"), str(parser), "--dot", str(self.graph)],
             capture_output=True, text=True, timeout=60,
         )
         self.assertEqual(result.returncode, 0, result.stderr)

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Make the parser-output positional path optional: derive `.cw` (default or
+  `--library`) or `.c` (`--target c`) beside the supplied grammar by replacing
+  its filename's last extension. Generate DOT only with named `--dot FILE`;
+  reject repeated `--dot` and the old third positional path. Allow options
+  around positional paths, retain `--` and ordered include search paths,
+  and reject input/output aliases (including includes, symlinks and hard links)
+  and parser/DOT collisions before opening outputs. Migrate CMake examples,
+  tests and documentation; add generation/compilation and path-safety CLI tests.
+
 - Add a shared typed analysis phase (`src/analysis.cw`). `GrammarAnalyzer`
   runs once after include expansion and parsing and attaches `Analysis`
   (resolved references, lexer/parser nullability, left-corner edges and
