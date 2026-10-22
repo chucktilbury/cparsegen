@@ -625,10 +625,11 @@ static CpgVisit emit_block(const Node *node, void *user) {
 static CpgVisit emit_control(const Node *node, void *user) {
     Compiler *compiler = user;
     emit_indent(compiler);
-    fputs(!strcmp(cpg_node_kind(node), "loop") ? "while (" : "if (", stdout);
+    /* Explicit truth testing avoids Clang's parenthesized-equality warning. */
+    fputs(!strcmp(cpg_node_kind(node), "loop") ? "while (0 != (" : "if (0 != (", stdout);
     CpgVisit result = cpg_dispatch(cpg_child_at(node, 2), compiler->visitor, user);
     if (result != CPG_CONTINUE) return result;
-    fputs(")\n", stdout);
+    fputs("))\n", stdout);
     result = cpg_dispatch(cpg_child_at(node, 4), compiler->visitor, user);
     if (result != CPG_CONTINUE) return result;
     if (cpg_child_count(node) > 5) {

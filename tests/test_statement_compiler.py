@@ -481,6 +481,12 @@ class StatementCompilerTests(GeneratorTestCase):
                     f"print 1 {operator} 2; print 2 {operator} 2; "
                     f"print 3 {operator} 2;", expected,
                 )
+                self.assert_program(
+                    f"if ((1 {operator} 2)) {{ print 1; }} else {{ print 0; }} "
+                    f"if ((2 {operator} 2)) {{ print 1; }} else {{ print 0; }} "
+                    f"if ((3 {operator} 2)) {{ print 1; }} else {{ print 0; }}",
+                    expected,
+                )
         self.assert_program(
             "print 1 + 2 * 3 < 8 == true; print false == 2 < 1; "
             "print (2 < 3) == (4 >= 4); print -2 < -1; "

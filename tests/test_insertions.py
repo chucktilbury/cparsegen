@@ -117,6 +117,28 @@ class InsertionTests(GeneratorTestCase):
                             'int main(void) { return 0; }\n'
                         )
                         executable = self.compiled(app, backend)
+                        result = subprocess.run(
+                            [str(executable)], capture_output=True, text=True, timeout=30,
+                        )
+                        self.assertEqual((result.returncode, result.stdout, result.stderr),
+                                         (0, "", ""))
+                    elif library:
+                        app = self.directory / "app.cw"
+                        app.write_text(
+                            'include "parser.cw"\nstart {\n'
+                            'InputScanner scanner("alpha")\n'
+                            'if (!scanner.scan()) { Sys.Process().exit(10) }\n'
+                            'GeneratedParser parser(scanner.tokens)\n'
+                            'AstNode root = parser.parseAll()\n'
+                            'if (root == null || !root.render().equals("entry(WORD(alpha))")) '
+                            '{ Sys.Process().exit(11) }\n}\n'
+                        )
+                        executable = self.compiled(app, backend)
+                        result = subprocess.run(
+                            [str(executable)], capture_output=True, text=True, timeout=30,
+                        )
+                        self.assertEqual((result.returncode, result.stdout, result.stderr),
+                                         (0, "", ""))
                     elif not library:
                         executable = self.compiled(self.generated, backend)
                         parsed = self.parse(executable, "alpha")

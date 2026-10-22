@@ -41,6 +41,16 @@ Convenience commands operate on the project repository:
 | `push [args...]` | Run `git push` |
 | `all [commit args...]` | Explicitly stage all changes, commit, then push |
 | `dbg [args...]` | Run `cdbg` with the supplied source or executable arguments |
+| `build [TARGET...]` | Build the current build directory with CMake, in parallel |
+| `rebuild [TARGET...]` | CMake clean-first build of the current build directory |
+| `clean` | Remove this checkout's default `bin/`, `build/`, `lib/`, `doc/out/`, and `share/` trees; unlike CMake clean, this also removes configuration |
 
 These commands do not run automatically. In particular, entering the shell
 does not stage, commit, or push changes.
+`build` and `rebuild` come from `scripts/` on PATH and use the current
+directory (initially `build/` in the project shell), unless `_PROJECT_BUILD_DIR`
+is explicitly set.
+Outside that directory, prefer `cmake --build /path/to/build`. `clean` resolves
+the checkout from its own script path, not the current directory; it does not
+remove custom output directories elsewhere. See [Building](BUILDING.md#clean)
+for the less destructive CMake clean target.

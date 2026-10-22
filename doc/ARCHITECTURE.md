@@ -48,8 +48,9 @@ source spans as before. The typed result is `Analysis`:
 (NFAs, the numbered expression table, literal table, `required` bounds). No
 grammar rewrite occurs: alternative order, associativity, precedence and AST
 shape are untouched. Target-specific constraints (the C directive allowlist)
-remain backend validation after shared analysis. The rest of this document
-(C++/Python emitters, a general `Analysis` for other backends) is proposal-only.
+remain backend validation after shared analysis. Sections below explicitly
+distinguish implemented contracts from future proposals; C++/Python emitters
+and generated-input source stacks/spans are not implemented.
 
 The proposed full pipeline, for reference:
 
@@ -163,24 +164,24 @@ rendering:
 
 | Model component | Contents |
 | --- | --- |
-| `Grammar` | Source-ordered lexer rules, parser rules, named directives, and source identity |
+| `GrammarModel` | Source-ordered lexer rules, parser rules, named directives, insertions, and shared analysis |
 | `SourceSpan` | Source identity, half-open byte range, and one-based start/end line and column |
-| `RegexExpr` | Structured regex syntax and references to smaller lexer rules; exact node kinds follow the confirmed regex notation |
+| `LexerExpr` | Structured lexer syntax and named references compiled to bounded Thompson NFAs |
 | `RuleExpr` | Tagged token reference, rule reference, literal terminal, sequence, alternation, optional, and repetition nodes |
 | `CodeInsertion` | Target name, named boundary, opaque source text, and source span; present only when supplied by a directive |
 | `Analysis` | Implemented as typed `Analysis` (see Pipeline): resolved references, nullability, left-corner graph, compiled lexer NFAs and numbered parser expressions. Proposal-only: rewrite records for alternatives, since no grammar rewriting exists |
 
-Every syntax/model node retains its source span. Regex text and parser syntax
-are parsed into nodes rather than passed through as opaque strings. The
+Grammar declarations, expression nodes and directives retain their source
+spans; emitted runtime tables do not expose those grammar spans. Regex text
+and parser syntax are parsed into nodes rather than passed through as opaque strings. The
 original spelling may be retained for diagnostics, but the emitters consume
 the structured form. The model preserves declaration, alternative, and child
 order; maps are lookup aids only and never define output order.
 
 Parsing may create incomplete nodes, but validation must resolve all names,
 check all supported constructs, and attach analysis before any backend runs.
-The normalized representation records how original ordered alternatives
-were rewritten, so code generation cannot accidentally change associativity
-or precedence. Target renderers may choose different implementation
+The normalized representation numbers expressions and resolves references;
+it does not rewrite ordered alternatives. Target renderers may choose different implementation
 strategies, but cannot change grammar meaning or add parser actions.
 
 ## Cwhip implementation constraints
@@ -289,17 +290,19 @@ groups/repetitions flatten their children in source order. See
 [Examples](../examples/README.md) for runnable commands.
 
 The SmallC CLI prints JSON ASTs and byte-based file/line/column diagnostics.
-It does not implement binding, types, code generation, or execution.
+Its default mode is syntax-only; the handwritten Cwhip app's opt-in `--check`
+adds source-order binding/type/control-context checks, not code generation or execution.
 Its grammar preserves conventional nearest-`if` association through
 matched/open statement rules rather than changing generic choice semantics.
 
-The current reader records declaration/expression line numbers, not full
-filename/line/column spans. Generated tokens record their starting byte
-offset, but AST spans and source stacks are not implemented. The fuller
-`SourceSpan`, source-stack, and include contracts above remain design targets,
-not completed features.
+The grammar reader records filename, byte ranges, one-based line/column spans,
+and include ancestry for declarations/expressions/directives. Grammar includes
+expand depth-first before shared analysis. These are implemented source
+provenance, not generated-input AST spans: generated Cwhip tokens carry a
+starting byte offset, C tokens carry offset/length, and neither backend
+computes rule-node spans or supports stacked generated input sources.
 
-## Provisional declaration format
+## Implemented declaration format
 
 Lexer declarations, parser rules, and directives may be interleaved at the
 top level; there are no mandatory `DIRECTIVES`, `LEXER`, or `PARSER` sections.
@@ -309,20 +312,22 @@ in a later pass. A parser rule may refer to a lexer rule or parser rule that
 appears later in the source.
 
 Lexer rules use uppercase names assigned to regex expressions. Larger lexer
-rules may be built from smaller lexer rules. The first lexer rule encountered
-defines the whole expression. These ordering and composition rules must be
-preserved by collection and expansion; the exact regex operators and
-remaining composition semantics are not fixed here.
+rules may be built from smaller lexer rules. Every named rule remains a
+scanner candidate; declaration order breaks equal-length ties. The first
+lexer rule is not a start expression. The implemented operators, reference
+composition, escaping and bounds are defined in the
+[lexer reference](INPUT-OUTPUT.md#lexer-declarations).
 
 Parser rules use lowercase names, a colon, and a rule definition terminated
 by `;`. Whitespace and comments are permitted within a parser-rule
 definition. The first parser rule encountered is the start rule. Alternatives,
-grouping, repetition, and quoted terminals are part of the intended
-ANTLR-like form, but this proposal does not settle every detail of their
-spelling or precedence.
+grouping, repetition, empty alternatives and quoted terminals are implemented;
+see the [parser syntax](INPUT-OUTPUT.md#parser-rules-and-ebnf).
 
-Named directives are collected separately from grammar rules. Their content
-is opaque to the grammar reader and is not parsed as lexer or parser syntax.
+Named directives are collected separately from grammar rules. Ordinary
+payloads are opaque to the declaration collector, then recognized lexical
+directives are validated by shared analysis; includes and insertions have
+dedicated collectors. Payloads are not parsed as lexer or parser syntax.
 The implemented insertion syntax and target selection are specified in
 [Code insertion](INPUT-OUTPUT.md#code-insertion); future directive names
 remain open.
@@ -332,42 +337,42 @@ whitespace and comments in text scanned by a generated parser. The latter's
 handling must be stated by the grammar or another confirmed rule; it must not
 be inferred from formatting accepted by the grammar reader.
 
-Inputs/includes must have explicit source semantics before include behavior
-is implemented. Those semantics need to define source order and declaration
-visibility, provenance in diagnostics, duplicate declarations, relative
-path resolution, and cycle handling. The source stack must not imply an
-undocumented include mechanism.
+Grammar includes have explicit source-order, visibility, provenance,
+duplicate, path-resolution and cycle semantics; see
+[grammar includes](INPUT-OUTPUT.md#grammar-includes). This does not add an
+include mechanism to text read by generated scanners.
 
 ## Scanner and source locations
 
-The scanner selects the longest matching lexer token. The equal-length tie
-policy is not specified yet. Parser-expression matching is distinct: a
-parser rule expression chooses the shortest possible match, rather than
-applying the scanner's longest-token policy. The precise interaction of
-alternatives, repetition, recursion, and equal-length parser matches remains
-to be validated and specified; implementations must not substitute greedy
-or maximal-munch parser behavior.
+The implemented scanner selects the longest matching token, with named
+lexer rules winning equal-length ties in declaration order, then literals
+in collection order. Parser matching instead selects the shortest viable
+token prefix, or a complete candidate when requested, retaining longer
+matches needed by callers and source order on equal extents. See the
+[scanner/parser contract](INPUT-OUTPUT.md#scanner-and-parser-behavior).
 
-Each token carries its kind, lexeme, and start/end source span. A span records
+**Proposal: generated-input source spans and source stacks.** A future token
+could carry its kind, lexeme, and start/end source span. Such a span records
 source identity, byte offsets, and one-based line and column positions. The
 source identity retains filename and provenance, including whether input came
 from a file, an include, or another pushed source.
 
-The scanner owns a stack of input sources. EOF in a nested source pops that
+In that proposal the scanner owns a stack of input sources. EOF in a nested source pops that
 source and resumes its parent; EOF at the root is a stable terminal result,
 not a fabricated token. Empty nested inputs follow the same pop-and-resume
-rule. Includes and source-push syntax are not specified yet; the scanner
+rule. Generated-input includes and source-push syntax are not specified; that scanner
 contract should not depend on the eventual spelling.
 
 ## AST and visitor contract
 
-Each parser rule produces a rule node with its rule name, a source span, and
+**Proposed spans, not current API:** each parser rule would produce a node
+with its rule name, a source span, and
 children in grammar/source order. Matched terminals are explicit leaf nodes
 with token kind, lexeme, and span; grouping syntax does not add artificial
 nodes. Repeated and optional constructs preserve the matched child order.
-The root span runs from the first consumed token through the last consumed
-token. Handling unconsumed trailing input is parser API behavior and is not
-specified here.
+A proposed root span would run from the first consumed token through the last
+consumed token. Current trailing-input behavior is already defined by the
+prefix and complete-input APIs above.
 
 The implemented read-only visitor layer exposes per-rule, named-token, and
 literal hooks on both targets. Single-node dispatch invokes one selected
@@ -416,12 +421,13 @@ are the supported extension point for user behavior.
 
 ## Left recursion and diagnostics
 
-Validation builds the rule-reference graph, checks undefined references and
-unreachable rules, and detects nullable repetitions and left-recursive cycles
+Validation builds the rule-reference/left-corner graph, resolves undefined
+references, computes reachability (without rejecting unreachable rules),
+and detects nullable repetitions and zero-consumption cycles
 before emission. Diagnostics point to the grammar source span and include
 the relevant rule path.
 
-Left recursion must be detected and transformed where supported, with the
+Left recursion must be detected and handled where supported, with the
 generated parse preserving the grammar's shortest-match behavior, alternative
 and child order, and AST associativity. A conventional greedy suffix loop
 must not be assumed correct merely because it removes recursion. For
@@ -442,24 +448,26 @@ not silently omit invalid grammar fragments.
 
 ## DOT view
 
-DOT is another emitter over the validated model. Its primary graph shows
-parser-rule dependencies with one node per rule and edges labeled with the
-referencing alternative/order. Direct and indirect left-recursive edges are
-visually distinguished. An optional expanded view may show expression
-operators, token references, and literal leaves; it must still derive from the
-same model and be deterministic for the same grammar.
+DOT is an optional emitter over shared analysis, selected only with `--dot`.
+It emits parser-rule boxes, named-token ellipses (including skipped tokens),
+literal diamonds, and dependency edges labeled with expression child paths.
+Repeated references remain repeated edges; recursive edges have no special
+styling. Both source targets and Cwhip library mode produce identical DOT.
+It does not show the lexer NFA or encode quantifiers as operator nodes.
+An expanded/operator view or special recursive-edge styling would be future
+work, not another implemented mode.
 
 ## Milestone and open decisions
 
-This document remains a design proposal with provisional fixtures. The
+This document combines implemented boundaries with labeled proposals. The
 executable now establishes declaration collection, a typed expression model,
 reference/nullability/zero-context-cycle validation, consuming left recursion,
 and Cwhip/C plus DOT emission for working small examples. Later work adds
-C++ and Python emitters, richer regexes and source tracking, and more
+C++ and Python emitters, richer regexes and generated-input source tracking, and more
 efficient parser analysis. The calculator and SmallC grammar are concrete
-fixtures. SmallC's next milestone is source-order semantic validation and,
-eventually, a separate bytecode backend; see its
-[boundary notes](../examples/smallc/README.md#single-pass-and-semantic-boundary).
-Larger grammars must refine directive boundaries, includes, regex composition,
-and backtracking/normalization semantics without silently changing the
-existing prefix or whole-input APIs.
+fixtures. SmallC already has an opt-in source-order semantic checker;
+bytecode/VM work remains a proposal, not a cparsegen backend or OOP expansion.
+See its [semantic boundary](../examples/smallc/README.md#semantic-checking-and-explicit-limits).
+Future work must preserve the implemented include, insertion, regex-composition
+and parser-selection contracts. The [feature/target evidence matrix](TEST-COVERAGE.md)
+records named tests and residual limitations without claiming exhaustive grammar coverage.

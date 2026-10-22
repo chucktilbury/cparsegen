@@ -8,6 +8,8 @@ import subprocess
 import tempfile
 import unittest
 
+from generator_support import c_compile_command
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -360,6 +362,36 @@ class InstalledSdkTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(json.loads(result.stdout)["name"], "translationUnit")
+            install = root / "install"
+            result = subprocess.run(
+                ["cmake", "--install", str(root / "build"), "--prefix", str(install)],
+                env=env, capture_output=True, text=True, timeout=60,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            installed = install / "bin/cparsegen"
+            self.assertEqual(installed.read_bytes(), (root / "bin/cparsegen").read_bytes())
+            parser = root / "installed-parser.c"
+            result = subprocess.run(
+                [str(installed), "--target", "c", str(ROOT / "tests/fixtures/shortest.cpg"),
+                 str(parser)], env=env, capture_output=True, text=True, timeout=60,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(parser.is_file())
+            self.assertFalse(parser.with_suffix(".dot").exists())
+            executable = root / "installed-parser"
+            result = subprocess.run(
+                c_compile_command(parser, executable), env=env,
+                capture_output=True, text=True, timeout=120,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            source = root / "input.txt"
+            source.write_text("123+456")
+            result = subprocess.run(
+                [str(executable), "--complete", str(source)], env=env,
+                capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual((result.returncode, result.stdout, result.stderr),
+                             (0, "sum(INTEGER(123), @literal0(+), INTEGER(456))\n", ""))
 
 
 if __name__ == "__main__":

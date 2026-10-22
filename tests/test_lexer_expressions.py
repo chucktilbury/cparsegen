@@ -239,16 +239,21 @@ class LexerExpressionValidationTests(GeneratorTestCase):
                     self.assertIn(diagnostic, result.stderr)
 
     def test_expansion_and_nesting_limits_fail_during_generation(self):
+        for backend in ("cwhip", "c"):
+            with self.subTest(backend=backend):
+                self.check_expansion_and_nesting_limits(backend)
+
+    def check_expansion_and_nesting_limits(self, backend):
         grammar = self.directory / "limit.cpg"
         grammar.write_text("entry : TOKEN ;\nTOKEN = " + "[a]" * 4095 + "\n")
-        result = self.generate(grammar)
+        result = self.generate(grammar, backend)
         self.assertEqual(result.returncode, 0, result.stderr)
         for expression, diagnostic in [
             ("[a]" * 4096, "expanded lexer state limit exceeded (4096)"),
             ("(" * 200 + "[a]" + ")" * 200, "lexer group nesting limit exceeded"),
         ]:
             grammar.write_text("entry : TOKEN ;\nTOKEN = " + expression + "\n")
-            result = self.generate(grammar)
+            result = self.generate(grammar, backend)
             self.assertEqual(result.returncode, 1, result.stderr)
             self.assertIn(f"{grammar}:2:", result.stderr)
             self.assertIn(diagnostic, result.stderr)
@@ -256,14 +261,24 @@ class LexerExpressionValidationTests(GeneratorTestCase):
             f"R{i} = R{i+1} R{i+1}" for i in range(13)
         ) + '\nR13 = "a"\n'
         grammar.write_text("entry : R0 ;\n" + declarations)
-        result = self.generate(grammar)
+        result = self.generate(grammar, backend)
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("expanded lexer state limit", result.stderr)
         declarations = "\n".join(f"R{i} = R{i+1}" for i in range(129))
         grammar.write_text("entry : R0 ;\n" + declarations + '\nR129 = "a"\n')
-        result = self.generate(grammar)
+        result = self.generate(grammar, backend)
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("nesting/reference limit exceeded (128)", result.stderr)
+
+    def test_maximum_state_table_compiles_and_runs_both_targets(self):
+        for backend in ("cwhip", "c"):
+            with self.subTest(backend=backend):
+                executable = self.compile_grammar(
+                    "entry : TOKEN ;\nTOKEN = " + "[a]" * 4095 + "\n", backend,
+                )
+                result = self.parse(executable, "a" * 4095)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(result.stdout, "entry(TOKEN(" + "a" * 4095 + "))\n")
 
     def test_raw_scanner_differential_including_offsets_and_skip(self):
         grammar = self.directory / "scanner.cpg"

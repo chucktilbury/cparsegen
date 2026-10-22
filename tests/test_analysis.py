@@ -3,7 +3,7 @@
 The analysis is internal, so these tests observe it through the CLI: both
 backends must report identical shared diagnostics, backend-only validation must
 run after shared analysis, and valid grammars must produce byte-identical output
-to a pre-analysis build when CPARSEGEN_BASELINE_EXECUTABLE is set.
+to a separately built baseline when CPARSEGEN_BASELINE_EXECUTABLE is set.
 """
 
 import os
@@ -21,18 +21,20 @@ MODES = {"cwhip": [], "library": ["--library"], "c": ["--target", "c"]}
 
 
 def run(executable, grammar, mode, directory, name="grammar.cpg", extra=()):
-    source = Path(directory) / name
+    source = Path(grammar) if isinstance(grammar, Path) else Path(directory) / name
     if isinstance(grammar, str):
         source.write_text(grammar)
     out = Path(directory) / ("out." + mode)
     dot = Path(directory) / ("out." + mode + ".dot")
-    # Historical pre-analysis binaries require the old positional DOT argument.
-    dot_args = [str(dot)] if str(executable) == BASELINE else ["--dot", str(dot)]
+    # Opt in explicitly when comparing with a binary predating the --dot CLI.
+    legacy = (str(executable) == BASELINE
+              and os.environ.get("CPARSEGEN_BASELINE_POSITIONAL_DOT") == "1")
+    dot_args = [str(dot)] if legacy else ["--dot", str(dot)]
     result = subprocess.run(
         [str(executable), *MODES[mode], *extra, str(source), str(out), *dot_args],
         capture_output=True, text=True, cwd=directory,
     )
-    outputs = tuple(p.read_text() if p.exists() else None for p in (out, dot))
+    outputs = tuple(p.read_bytes() if p.exists() else None for p in (out, dot))
     return result, outputs
 
 
@@ -80,6 +82,13 @@ class SharedAnalysisDiagnostics(unittest.TestCase):
         self.check("a : X ;\nX = \"x\"\n@skip Z;\n", "@skip requires a declared lexer token name")
         self.check("a : S ;\nS = \" \"\n@skip S;\n", "skipped lexer token S cannot be matched", related=True)
         self.check("a : X ;\na : X ;\nX = \"x\"\n", "duplicate parser rule a", related=True)
+
+    def test_name_case_and_empty_terminal_validation(self):
+        self.check('a : X ;\nwrong = "x"\nX = "y"\n',
+                   "lexer names must begin with an uppercase letter")
+        self.check('Wrong : X ;\nX = "x"\n',
+                   "parser-rule names must begin with a lowercase letter")
+        self.check('a : "" ;\nX = "x"\n', "empty quoted terminals")
 
     def test_declaration_requirements(self):
         for grammar, message in (("a : X ;\n", "must declare a lexer rule"),
@@ -135,7 +144,9 @@ class BaselineParity(unittest.TestCase):
                         extra = ("--include-path", str(grammar.parent))
                         base = run(BASELINE, grammar, mode, a, extra=extra)
                         new = run(EXECUTABLE, grammar, mode, b, extra=extra)
+                        self.assertEqual(base[0].returncode, 0, base[0].stderr)
                         self.assertEqual(base[0].returncode, new[0].returncode)
+                        self.assertTrue(all(output is not None for output in base[1]))
                         self.assertEqual(base[0].stderr.replace(a, "."), new[0].stderr.replace(b, "."))
                         self.assertEqual(base[1], new[1])
 
@@ -149,6 +160,8 @@ class BaselineParity(unittest.TestCase):
                     with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
                         base = run(BASELINE, grammar, mode, a)
                         new = run(EXECUTABLE, grammar, mode, b)
+                        expected = 0 if "@foo" in grammar and mode == "cwhip" else 1
+                        self.assertEqual(base[0].returncode, expected, base[0].stderr)
                         self.assertEqual(base[0].returncode, new[0].returncode)
                         self.assertEqual(base[0].stderr.replace(a, "."), new[0].stderr.replace(b, "."))
 

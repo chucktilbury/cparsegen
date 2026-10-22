@@ -610,6 +610,26 @@ uses injected helper declarations and a visitor with the ordinary parser.
 @include '/opt/project/grammar files/common.cpg';
 ```
 
+For a runnable two-target example from the repository root (after building
+cparsegen, with `cwhip` on PATH):
+
+```sh
+mkdir -p build/include-example/grammar build/include-example/shared
+printf '@include tokens.cpg;\nentry : WORD ;\n' > build/include-example/grammar/main.cpg
+printf 'WORD = [a-z]+\n' > build/include-example/shared/tokens.cpg
+printf 'alpha' > build/include-example/input.txt
+./bin/cparsegen --include-path build/include-example/shared build/include-example/grammar/main.cpg
+cwhip build/include-example/grammar/main.cw -o build/include-example/parse-cw
+build/include-example/parse-cw --complete build/include-example/input.txt
+./bin/cparsegen --target c --include-path build/include-example/shared build/include-example/grammar/main.cpg
+cc -std=c99 -Wall -Wextra -Werror -pedantic \
+  build/include-example/grammar/main.c -o build/include-example/parse-c
+build/include-example/parse-c --complete build/include-example/input.txt
+```
+
+Both print `entry(WORD(alpha))`. Parser filenames are derived beside the
+main grammar; neither invocation requests or writes DOT.
+
 `@include` requires exactly one nonempty filename followed by `;`. Single or
 double quotes permit spaces and semicolons in filenames. The matching quote
 cannot appear within that filename; backslashes are literal path bytes, not
@@ -819,6 +839,10 @@ These are **generated parser** options, not generator options:
 `INPUT` is a file path; neither runner accepts source text as its positional
 argument or documents stdin streaming. C reads in binary mode; Cwhip uses
 `Sys.File(path, "r").readAll()`. The two C flags cannot be combined.
+The SDK text API requires valid UTF-8: malformed byte sequences fail in the
+SDK before Cwhip scanning (an uncaught runtime exception in this generated
+runner), whereas C reads arbitrary bytes and diagnoses non-ASCII token input
+in its scanner. Valid UTF-8 non-ASCII token input is a lexical error in both.
 The Cwhip runner has no help or JSON option. As in the generator, argument
 recognition is positional; an unrecognized single argument is treated as a
 file path, not necessarily diagnosed as an option error.
@@ -1259,13 +1283,17 @@ general regex engine, semantic
 action execution, or C++/Python emitter. Walkers/serializers recurse over
 trees and do not provide a separate configurable traversal budget.
 
-The older [architecture document](ARCHITECTURE.md) includes proposed
-`SourceSpan`, normalization, source-stack, and future-backend interfaces.
+The [architecture document](ARCHITECTURE.md) separates implemented grammar
+source spans/include expansion and shared analysis/normalization from
+proposed generated-input spans/source stacks and future backends.
 Those proposal sections are not the implemented input/output contract.
 The direct-left-recursive [expression grammar](../examples/expression.cpg)
 is now runnable with either backend.
 
 ## Implementation and verification sources
+
+See the [feature/target evidence matrix](TEST-COVERAGE.md) for named tests,
+target/mode differences, reproducible validation, and remaining limitations.
 
 This reference was checked against these implementation surfaces rather than
 inferring features from the architecture proposal:
@@ -1275,7 +1303,8 @@ inferring features from the architecture proposal:
 | Generator arguments, outputs, validation ordering and path collisions | [main.cw](../src/main.cw), [path identity](../src/paths.c), [CLI tests](../tests/test_cli.py), [generator tests](../tests/test_generator.py), [C backend tests](../tests/test_c_backend.py) |
 | Grammar syntax, directives, validation | [grammar.cw](../src/grammar.cw), [grammar conformance tests](../tests/test_grammar_conformance.py) |
 | Include expansion, search paths, source diagnostics | [grammar.cw](../src/grammar.cw), [include tests](../tests/test_includes.py) |
-| Left-recursive recognition, AST/order preservation, rejection boundary and budgets | [left-recursion tests](../tests/test_left_recursion.py), [grammar.cw](../src/grammar.cw), both runtimes |
+| Shared analysis/normalization, diagnostics and artifact parity | [analysis.cw](../src/analysis.cw), [analysis tests](../tests/test_analysis.py), [source provenance tests](../tests/test_source_provenance.py) |
+| Left-recursive recognition, AST/order preservation, rejection boundary and budgets | [left-recursion tests](../tests/test_left_recursion.py), [analysis.cw](../src/analysis.cw), both runtimes |
 | Cwhip source/API, tree structure, DOT | [emitter.cw](../src/emitter.cw), [generator tests](../tests/test_generator.py) |
 | C source, runtime/API, JSON, budgets | [c_emitter.cw](../src/c_emitter.cw), [c_runtime.cw](../src/c_runtime.cw), [C backend tests](../tests/test_c_backend.py) |
 | Visitor behavior and library failure handling | [visitor tests](../tests/test_visitors.py), [consumer fixtures](../tests/fixtures/visitor), [integration guide](VISITORS.md) |
@@ -1286,8 +1315,9 @@ After building the generator, the narrowly scoped core contract suite is:
 
 ```sh
 PYTHONPATH=tests python3 -m unittest \
-  test_cli test_includes test_generator test_grammar_conformance \
-  test_left_recursion test_c_backend test_visitors
+  test_cli test_includes test_insertions test_generator test_grammar_conformance \
+  test_lexer_expressions test_left_recursion test_analysis test_source_provenance \
+  test_c_backend test_visitors test_documentation
 ```
 
 It generates/compiles real Cwhip and C parsers, checks successful and failed

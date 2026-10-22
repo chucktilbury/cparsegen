@@ -2,7 +2,8 @@
 
 A Cwhip parser-generator prototype using a target-neutral grammar model and
 backend emitters. The current executable is intentionally a small, bounded
-slice; its supported syntax and unimplemented areas are listed in the
+slice; its supported syntax is defined in the
+[input/output reference](doc/INPUT-OUTPUT.md), with future directions in the
 [architecture proposal](doc/ARCHITECTURE.md).
 
 See the [input, output, and usage reference](doc/INPUT-OUTPUT.md) for the
@@ -178,6 +179,11 @@ See the [C target contract](doc/ARCHITECTURE.md#standalone-c-target-contract)
 for exact output, tie-breaking, diagnostics, and resource limits.
 
 ## Tests
+
+The [feature/target evidence matrix](doc/TEST-COVERAGE.md) maps implemented
+features to named executable tests, distinguishes CLI/library APIs and
+target-specific limitations, and records the audit commands and results.
+It describes sampled coverage, not proof over every possible grammar.
 
 From the repository root, configure and run the full Python unittest suite:
 
