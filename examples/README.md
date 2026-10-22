@@ -17,6 +17,42 @@ early stop, and cleanup. Build the standalone example with
 `cmake --build build --target visitor-c`, then run
 `./bin/visitor-c 'alpha, beta'`.
 
+## Code insertion
+
+[insertion/words.cpg](insertion/words.cpg) puts trusted target-language
+declarations/helpers beside generated code using
+`@insert TARGET BOUNDARY { BODY };`. It supplies a C public prototype at
+`ast_post`, a private visitor callback at `visitor_post`, and a public
+parse/count helper at `parser_post`; Cwhip supplies a visitor subclass and
+helper class at `visitor_post`. Both use normal AST/visitor/parser APIs;
+there are no inline rule actions or generator-time execution.
+
+Generate library parsers, then compile the tiny consumers:
+
+```sh
+cmake --build build
+mkdir -p build/insertion
+./bin/cparsegen --target c examples/insertion/words.cpg \
+  build/insertion/parser.c build/insertion/grammar.dot
+cp examples/insertion/words.c build/insertion/words.c
+cc -std=c99 -Wall -Wextra -Werror -pedantic \
+  build/insertion/words.c -o build/insertion/words-c
+build/insertion/words-c
+
+./bin/cparsegen --library examples/insertion/words.cpg \
+  build/insertion/parser.cw build/insertion/grammar.dot
+cp examples/insertion/words.cw build/insertion/words.cw
+cwhip build/insertion/words.cw -o build/insertion/words-cw
+build/insertion/words-cw
+```
+
+Each prints `words=3`. The C consumer defines `CPARSEGEN_NO_MAIN`; Cwhip uses
+`--library` so the consumer owns `start`. The same grammar also works with
+both ordinary generated CLIs: helper declarations remain available but
+are not called automatically. Blocks for the other target are not emitted.
+See the [exact seams, preservation, restrictions and trust contract](../doc/INPUT-OUTPUT.md#code-insertion)
+before accepting grammars containing code.
+
 ## Expression-to-C compiler
 
 The [compiler example](compiler/README.md) takes the workflow end to end:

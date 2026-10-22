@@ -1,0 +1,56 @@
+WORD = [a-z]+
+SPACE = [ \t\r\n]+
+@skip SPACE;
+entry : WORD+ ;
+
+@insert c imports {
+#include <limits.h>
+};
+@insert c ast_post {
+/* Public declaration; the definition uses the visitor API below. */
+int inserted_word_count(const unsigned char *input, size_t length);
+};
+@insert c visitor_post {
+static CpgVisit inserted_word(const Node *node, void *user) {
+    int *count = user;
+    (void)node;
+    if (*count == INT_MAX) return CPG_ERROR;
+    ++*count;
+    return CPG_CONTINUE;
+}
+};
+@insert c parser_post {
+int inserted_word_count(const unsigned char *input, size_t length) {
+    Context ctx;
+    CpgVisitor visitor = {0};
+    int count = 0;
+    cpg_init(&ctx, input, length, "words");
+    const Node *root = cpg_parse(&ctx, 1);
+    visitor.enter_token_WORD = inserted_word;
+    int valid = root && cpg_walk(root, &visitor, &count) == CPG_CONTINUE;
+    cpg_destroy(&ctx);
+    return valid ? count : -1;
+}
+};
+
+@insert cwhip visitor_post {
+class InsertedWordCounter : GeneratedVisitor {
+    int count
+    InsertedWordCounter() { super GeneratedVisitor()
+count = 0 }
+    int enter_token_WORD(AstNode node) { count += 1
+return VISIT_CONTINUE }
+}
+class InsertedWords {
+    int count(String input) {
+        InputScanner scanner(input)
+        if (!scanner.scan()) { return -1 }
+        GeneratedParser parser(scanner.tokens)
+        AstNode root = parser.parseAll()
+        if (root == null) { return -1 }
+        InsertedWordCounter visitor()
+        if (visitor.walk(root) != visitor.VISIT_CONTINUE) { return -1 }
+        return visitor.count
+    }
+}
+};

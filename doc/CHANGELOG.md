@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Implement `@insert c|cwhip BOUNDARY { BODY };` at twelve file-scope seams
+  in both CLI/library workflows. Preserve opaque bodies and include encounter
+  order in a source-located validated model; filter by target without changing
+  parser/AST/visitor APIs. Collect nested braces, strings and C-style comments
+  with explicit size/depth and translation-phase restrictions. Diagnose malformed
+  blocks and unknown targets/seams before opening outputs. Add strict C99 and
+  Cwhip runnable visitor/helper examples and preservation/placement regressions.
+
 - Implement composable lexer expressions in both backends: grouping,
   alternation, concatenation, `?`/`*`/`+`, ASCII classes/ranges/negation,
   quoted literals and forward named-rule references. Define precedence and

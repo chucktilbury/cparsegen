@@ -1,9 +1,8 @@
 # Parser-generator architecture and provisional grammar format
 
-This document proposes the first implementation boundary for cparsegen. The
-syntax and insertion-directive spelling are provisional until they are
-checked against a real user grammar. `examples/expression.cpg` is a fixture for
-discussion, not a compatibility promise.
+This document records the implementation boundaries and longer-term design
+for cparsegen. Implemented syntax, including insertion directives, is defined
+in the input/output reference; proposal-only features remain provisional.
 
 For current implemented behavior and practical usage, see the
 [input/output reference](INPUT-OUTPUT.md). Proposal-only interfaces below
@@ -62,6 +61,7 @@ declaration order; quotes consume embedded comment markers as ordinary text.
 Keyword remapping applies only when the designated identifier token wins;
 reserved spellings override literal remapping.
 
+Grammar `@include` and target-code `@insert` are also implemented.
 For C, directives outside this list and `@note` are rejected with source-line
 diagnostics before either output is opened, rather than silently ignoring an
 unsupported lexical extension. `@note` remains explicitly inert. Malformed
@@ -179,7 +179,9 @@ marks a declared lexer token as discarded by the generated scanner.
 `@quoted TOKEN single|double;` declares character/string tokens with a bounded
 ASCII escape vocabulary. `@line_comment MARKER;` and
 `@block_comment OPEN CLOSE;` skip comments and diagnose unterminated blocks.
-Other directive payloads remain opaque and have no generation effect. Lexer
+`@include` expands grammar files and `@insert TARGET BOUNDARY { BODY };`
+collects target code as described below. Other directive payloads remain
+opaque and have no generation effect. Lexer
 patterns are single-line expressions supporting ASCII classes/ranges/negation,
 quoted literals, named lexer references, groups, alternation, concatenation,
 and `?`/`*`/`+`. Forward lexer references resolve before emission; reference
@@ -278,9 +280,9 @@ spelling or precedence.
 
 Named directives are collected separately from grammar rules. Their content
 is opaque to the grammar reader and is not parsed as lexer or parser syntax.
-The directive names, source spelling, and how a directive selects a target
-remain open; no particular block delimiter or insertion syntax is implied by
-this document.
+The implemented insertion syntax and target selection are specified in
+[Code insertion](INPUT-OUTPUT.md#code-insertion); future directive names
+remain open.
 
 Whitespace and comments inside grammar declarations are separate from
 whitespace and comments in text scanned by a generated parser. The latter's
@@ -343,12 +345,26 @@ terminals (rule offsets/lengths are zero). Neither visitor synthesizes spans.
 
 ## Directives and target code
 
-Directives are named, and their content is opaque to grammar parsing. They
-may eventually select output options or target-language insertion
-boundaries, but the names, boundaries, payload rules, and syntax are not
-specified here. If code-insertion directives are supported, their contents
-must remain opaque until passed to the selected backend; parser rules cannot
-contain those payloads or arbitrary actions.
+`@insert TARGET BOUNDARY { BODY };` collects opaque code for `c` or `cwhip`.
+The bounded iterative collector balances braces while protecting quoted
+literals and C-style comments; it does not interpret target semantics.
+`CodeInsertion` records target, boundary, byte-preserved body, source path
+and one-based line, plus the unique source-line ID used for include-aware
+diagnostics. Records retain depth-first encounter order in `GrammarModel`.
+Shared validation rejects unknown targets/boundaries before emission, even
+for blocks not selected by this invocation. Emitters filter those records by
+target and boundary without reparsing them. No insertion is run by the
+generator or affects the grammar's rule/literal/visitor indexing or DOT.
+
+Implemented seams are `file_pre`, `imports`, `declarations`, `ast_pre`,
+`ast_post`, `scanner_pre`, `scanner_post`, `parser_pre`, `parser_post`,
+`visitor_pre`, `visitor_post`, and `file_post`. All are file-scope
+declaration seams, including in library mode, not member bodies or execution
+hooks. The two runtimes have different physical component ordering; the
+[input/output contract](INPUT-OUTPUT.md#code-insertion) specifies exact
+placement, lexical restrictions, limits and security responsibilities.
+There is no separate generated header/public/private partition; authors use
+normal target linkage and visibility in their complete declarations.
 
 Parser rules accept grammar expressions only. They cannot contain arbitrary
 code, semantic actions, or embedded target-language fragments. AST visitors

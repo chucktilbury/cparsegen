@@ -88,13 +88,31 @@ class GrammarEmitter {
         return format("@literal{}", index)
     }
 
+    void emitInsertions(String output, String target, String boundary) {
+        int i = 0
+        while (i < grammar.insertions.length) {
+            CodeInsertion block = grammar.insertions[i] as CodeInsertion
+            if (block.target.equals(target) && block.boundary.equals(boundary)) {
+                output.append("\n")
+                output.append(block.content)
+                output.append("\n")
+            }
+            i += 1
+        }
+    }
+
     void emitScanner(String output) {
         output.append("import system as Sys\n\n")
+        emitInsertions(output, "cwhip", "imports")
+        emitInsertions(output, "cwhip", "declarations")
         output.append("class LexToken {\n    String kind\n    String text\n    int offset\n    LexToken(String k, String t, int at) { kind = k\ntext = t\noffset = at }\n}\n\n")
+        emitInsertions(output, "cwhip", "ast_pre")
         output.append("class AstNode {\n    String name\n    String text\n    list children\n")
         output.append("    AstNode(String n, String t) { name = n\ntext = t\nchildren = [] }\n")
         output.append("    String kind() { return name }\n    String lexeme() { return text }\n    int childCount() { return children.length }\n    AstNode childAt(int index) { return children[index] as AstNode }\n")
         output.append("    String render() {\n        String result = \"\"\n        result.append(name)\n        result.append(\"(\")\n        if (children.length == 0) { result.append(text) }\n        int i = 0\n        while (i < children.length) {\n            if (i > 0) { result.append(\", \") }\n            result.append((children[i] as AstNode).render())\n            i += 1\n        }\n        result.append(\")\")\n        return result\n    }\n}\n\n")
+        emitInsertions(output, "cwhip", "ast_post")
+        emitInsertions(output, "cwhip", "scanner_pre")
         output.append("class ScanRange {\n    int first\n    int last\n    ScanRange(int a, int b) { first = a\nlast = b }\n}\n\n")
         output.append("class ScanState {\n    int kind\n    list ranges\n    int next\n    int alternate\n    ScanState(int k, list r, int n, int a) { kind = k\nranges = r\nnext = n\nalternate = a }\n")
         output.append("    bool accepts(int byte) {\n        int i = 0\n        while (i < ranges.length) {\n            ScanRange range = ranges[i] as ScanRange\n            if (byte >= range.first && byte <= range.last) { return true }\n            i += 1\n        }\n        return false\n    }\n}\n\n")
@@ -213,7 +231,10 @@ class GrammarEmitter {
             output.append(format("    AstNode parse_{}() {{ return select({}, false) }}\n", rule.name, quoted(rule.name)))
             i += 1
         }
-        output.append("}\n\nclass GeneratedVisitor {\n")
+        output.append("}\n\n")
+        emitInsertions(output, "cwhip", "parser_post")
+        emitInsertions(output, "cwhip", "visitor_pre")
+        output.append("class GeneratedVisitor {\n")
         output.append("    enum { VISIT_CONTINUE = 0, VISIT_SKIP = 1, VISIT_STOP = 2, VISIT_ERROR = -1 }\n")
         output.append("    int onNode(AstNode node) { return VISIT_CONTINUE }\n    int enter(AstNode node) { return VISIT_CONTINUE }\n    int leave(AstNode node) { return VISIT_CONTINUE }\n")
         output.append("    int checkedResult(int result, int phase) {\n        if (result != VISIT_CONTINUE && result != VISIT_SKIP && result != VISIT_STOP && result != VISIT_ERROR) { return VISIT_ERROR }\n        if (phase == 2 && result == VISIT_SKIP) { return VISIT_ERROR }\n        return result\n    }\n")
@@ -259,13 +280,21 @@ dispatcher = "dispatch" }
 
     String emitProgram(bool library) {
         String output = ""
+        emitInsertions(output, "cwhip", "file_pre")
         emitScanner(output)
+        emitInsertions(output, "cwhip", "scanner_post")
+        emitInsertions(output, "cwhip", "parser_pre")
         emitParser(output)
-        if (library) { return output }
+        emitInsertions(output, "cwhip", "visitor_post")
+        if (library) {
+            emitInsertions(output, "cwhip", "file_post")
+            return output
+        }
         output.append("\nstart {\n    Sys.Process process()\n    bool complete = process.argc() == 3 && process.arg(1).equals(\"--complete\")\n    if (process.argc() != 2 && !complete) { print(\"usage: generated-parser [--complete] INPUT\\n\")\nprocess.exit(2) }\n    int argument = 1\n    if (complete) { argument = 2 }\n    String input = Sys.File(process.arg(argument), \"r\").readAll()\n    InputScanner scanner(input)\n    if (!scanner.scan()) { print(format(\"{}\\n\", scanner.problem))\nprocess.exit(1) }\n    GeneratedParser parser(scanner.tokens)\n    AstNode root = null\n")
         ParserRule startRule = grammar.parserRules[0] as ParserRule
         output.append(format("    if (complete) {{ root = parser.parseAll() }} else {{ root = parser.parse_{}() }}\n", startRule.name))
         output.append("    if (root == null) { print(format(\"{}\\n\", parser.problem))\nprocess.exit(1) }\n    print(format(\"{}\\n\", root.render()))\n}\n")
+        emitInsertions(output, "cwhip", "file_post")
         return output
     }
 

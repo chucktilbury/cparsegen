@@ -40,7 +40,8 @@ class CGrammarEmitter {
 
     String emitProgram() {
         String output = ""
-        CParserRuntime().emitTypes(output)
+        shared.emitInsertions(output, "c", "file_pre")
+        CParserRuntime().emitTypes(output, shared)
         int s = 0
         while (s < grammar.lexerStates.length) {
             LexerState state = grammar.lexerStates[s] as LexerState
@@ -135,8 +136,11 @@ class CGrammarEmitter {
             i += 1
         }
         output.append("{NULL, 0}};\n")
+        shared.emitInsertions(output, "c", "visitor_pre")
         emitVisitor(output)
-        CParserRuntime().emitProgram(output)
+        shared.emitInsertions(output, "c", "visitor_post")
+        CParserRuntime().emitProgram(output, shared)
+        shared.emitInsertions(output, "c", "file_post")
         return output
     }
 

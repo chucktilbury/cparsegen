@@ -174,7 +174,7 @@ class CBackendTests(GeneratorTestCase):
     def test_unsupported_directives_fail_before_outputs(self):
         cases = [
             ("@lex_mode STRING;", "lex_mode"),
-            ("@insert other.cpg;", "insert"),
+            ("@output other.cpg;", "output"),
         ]
         for directive, name in cases:
             with self.subTest(directive=directive):
