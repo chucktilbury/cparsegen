@@ -395,7 +395,9 @@ Purely consuming cycles with no terminating alternative are allowed but
 cannot match; they terminate with a parse error within the usual budgets.
 
 The implementation uses **span-bounded expansion**, not greedy suffix
-folding or grammar substitution. After nullability analysis, each
+folding or grammar substitution. The nullability, left-corner and `required`
+bound facts are computed once by the shared analysis phase
+(`Analysis.expressions[i].required`) and read by both backends. After nullability analysis, each
 nonnullable expression supplies a conservative lower bound of one token.
 While matching a sequence, the matcher reserves the sum of those bounds
 for its remaining children and temporarily reduces the current child's

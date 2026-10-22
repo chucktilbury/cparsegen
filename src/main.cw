@@ -1,6 +1,7 @@
 import system as Sys
 
 include "grammar.cw"
+include "analysis.cw"
 include "emitter.cw"
 include "c_emitter.cw"
 

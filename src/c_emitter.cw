@@ -3,6 +3,7 @@ include "c_runtime.cw"
 // Uses the same collected expression/literal indices as the Cwhip emitter.
 class CGrammarEmitter {
     GrammarModel grammar
+    Analysis analysis
     GrammarEmitter shared
     SourceSpan diagnosticSpan
     SourceSpan relatedSpan
@@ -10,6 +11,7 @@ class CGrammarEmitter {
 
     CGrammarEmitter(GrammarModel model, GrammarEmitter emitter) {
         grammar = model
+        analysis = model.analysis
         shared = emitter
         diagnosticSpan = null
         relatedSpan = null
@@ -53,8 +55,8 @@ class CGrammarEmitter {
         shared.emitInsertions(output, "c", "file_pre")
         CParserRuntime().emitTypes(output, shared)
         int s = 0
-        while (s < grammar.lexerStates.length) {
-            LexerState state = grammar.lexerStates[s] as LexerState
+        while (s < analysis.lexerStates.length) {
+            LexerState state = analysis.lexerStates[s] as LexerState
             output.append(format("static const Range scan_ranges{}[] = {{", s))
             int n = 0
             while (n < state.ranges.length) {
@@ -67,8 +69,8 @@ class CGrammarEmitter {
         }
         output.append("static const ScanState scan_states[] = {\n")
         s = 0
-        while (s < grammar.lexerStates.length) {
-            LexerState state = grammar.lexerStates[s] as LexerState
+        while (s < analysis.lexerStates.length) {
+            LexerState state = analysis.lexerStates[s] as LexerState
             output.append(format("{{{}, scan_ranges{}, {}, {}, {}}},\n", state.kind, s, state.ranges.length, state.next, state.alternate))
             s += 1
         }
@@ -76,32 +78,32 @@ class CGrammarEmitter {
         output.append("#define SCAN_STATE_COUNT (sizeof(scan_states) / sizeof(scan_states[0]))\n")
         output.append("static const ScanRule scan_rules[] = {\n")
         int r = 0
-        while (r < grammar.lexerRules.length) {
-            LexerRule rule = grammar.lexerRules[r] as LexerRule
+        while (r < analysis.lexers.length) {
+            LexerPlan rule = analysis.lexers[r] as LexerPlan
             int skip = 0
             if (rule.skip) { skip = 1 }
             output.append(format("{{{}, {}, {}, {}}},\n", quoted(rule.name), rule.entry, skip, rule.quote))
             r += 1
         }
         output.append("{NULL, -1, 0, 0}};\n")
-        output.append(format("static const char *const keyword_token = {};\n", quoted(grammar.keywordToken)))
+        output.append(format("static const char *const keyword_token = {};\n", quoted(analysis.lexical.keywordToken)))
         output.append("static const char *const reserved[] = {")
         int word = 0
-        while (word < grammar.reserved.length) {
-            output.append(format("{},", quoted(grammar.reserved[word] as String)))
+        while (word < analysis.lexical.reserved.length) {
+            output.append(format("{},", quoted(analysis.lexical.reserved[word] as String)))
             word += 1
         }
         output.append("NULL};\nstatic const Comment line_comments[] = {\n")
         int comment = 0
-        while (comment < grammar.lineComments.length) {
-            String marker = grammar.lineComments[comment] as String
+        while (comment < analysis.lexical.lineComments.length) {
+            String marker = analysis.lexical.lineComments[comment] as String
             output.append(format("{{{}, {}, NULL, 0}},\n", quoted(marker), marker.length))
             comment += 1
         }
         output.append("{NULL, 0, NULL, 0}};\nstatic const Comment block_comments[] = {\n")
         comment = 0
-        while (comment < grammar.blockComments.length) {
-            list markers = grammar.blockComments[comment] as list
+        while (comment < analysis.lexical.blockComments.length) {
+            list markers = analysis.lexical.blockComments[comment] as list
             String opening = markers[0] as String
             String closing = markers[1] as String
             output.append(format("{{{}, {}, {}, {}}},\n", quoted(opening), opening.length, quoted(closing), closing.length))
@@ -110,19 +112,19 @@ class CGrammarEmitter {
         output.append("{NULL, 0, NULL, 0}};\n")
         output.append("static const Literal literals[] = {\n")
         int i = 0
-        while (i < shared.literals.length) {
-            String value = shared.literals[i] as String
+        while (i < analysis.literals.length) {
+            String value = analysis.literals[i] as String
             output.append(format("{{{}, {}, {}}},\n", quoted(value), value.length, quoted(shared.literalKind(i))))
             i += 1
         }
         output.append("{NULL, 0, NULL}};\n")
         i = 0
-        while (i < shared.expressions.length) {
-            RuleExpr expression = shared.expressions[i] as RuleExpr
+        while (i < analysis.expressions.length) {
+            ParserExprRecord expression = analysis.expressions[i] as ParserExprRecord
             output.append(format("static const size_t children{}[] = {{", i))
             int c = 0
             while (c < expression.children.length) {
-                output.append(format("{},", (expression.children[c] as RuleExpr).index))
+                output.append(format("{},", expression.children[c] as int))
                 c += 1
             }
             output.append("0};\n")
@@ -130,19 +132,19 @@ class CGrammarEmitter {
         }
         output.append("static const Expr expressions[] = {\n")
         i = 0
-        while (i < shared.expressions.length) {
-            RuleExpr expression = shared.expressions[i] as RuleExpr
+        while (i < analysis.expressions.length) {
+            ParserExprRecord expression = analysis.expressions[i] as ParserExprRecord
             String value = expression.value
-            if (expression.kind == 1) { value = shared.literalKind(shared.literalIndex(value)) }
+            if (expression.kind == 1) { value = shared.literalKind(expression.literal) }
             output.append(format("{{{}, {}, children{}, {}, {}, {}, {}}},\n",
                 expression.kind, quoted(value), i, expression.children.length, expression.minimum, expression.maximum, expression.required))
             i += 1
         }
         output.append("};\nstatic const Rule rules[] = {\n")
         i = 0
-        while (i < grammar.parserRules.length) {
-            ParserRule rule = grammar.parserRules[i] as ParserRule
-            output.append(format("{{{}, {}}},\n", quoted(rule.name), rule.expression.index))
+        while (i < analysis.parserRules.length) {
+            ParserRuleFacts rule = analysis.parserRules[i] as ParserRuleFacts
+            output.append(format("{{{}, {}}},\n", quoted(rule.name), rule.root))
             i += 1
         }
         output.append("{NULL, 0}};\n")

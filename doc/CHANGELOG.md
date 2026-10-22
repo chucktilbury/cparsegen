@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Add a shared typed analysis phase (`src/analysis.cw`). `GrammarAnalyzer`
+  runs once after include expansion and parsing and attaches `Analysis`
+  (resolved references, lexer/parser nullability, left-corner edges and
+  reachability, compiled lexer NFA plans, numbered parser expression table,
+  provenance-preserving diagnostics) to the grammar model; Cwhip, C and DOT
+  emitters consume it instead of recomputing. No language, diagnostic or
+  generated-output change; the C directive allowlist stays backend validation.
+  Add `tests/test_analysis.py` with optional baseline artifact parity.
+
 - Implement `@insert c|cwhip BOUNDARY { BODY };` at twelve file-scope seams
   in both CLI/library workflows. Preserve opaque bodies and include encounter
   order in a source-located validated model; filter by target without changing

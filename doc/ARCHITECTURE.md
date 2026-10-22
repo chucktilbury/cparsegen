@@ -10,6 +10,49 @@ should not be treated as generated APIs.
 
 ## Pipeline
 
+Implemented (`src/grammar.cw` → `src/analysis.cw` → `src/emitter.cw` /
+`src/c_emitter.cw`):
+
+```text
+grammar source stack (include expansion, source order, provenance)
+  -> declaration collector / parser            GrammarModel (declarations only)
+  -> GrammarAnalyzer                           GrammarModel.analysis : Analysis
+  -> backend-only validation                   C directive allowlist
+  -> Cwhip / C / DOT emitters                  read Analysis, never recompute
+```
+
+`GrammarAnalyzer` runs exactly once, inside `GrammarSources.read`, after
+includes are expanded and the whole grammar is parsed. It computes, in order:
+insertion target/boundary validation; `@quoted`/`@keywords`/`@reserved`/comment
+directives; lexer name checks; lexer reference resolution, nullability, cycle
+and nullable-repetition checks, and Thompson NFA compilation (state and depth
+bounds); `@skip`; parser name checks; a children-first numbered parser
+expression table with literal interning and reference resolution; parser
+nullability (fixpoint); left-corner edges, reachability and zero-consumption
+cycle validation; and the `required` token lower bounds used by consuming left
+recursion. Diagnostics are produced in the same order and with the same text and
+source spans as before. The typed result is `Analysis`:
+
+| Structure | Contents | Kind |
+| --- | --- | --- |
+| `LexerPlan` | Name, quote style, skip flag, nullability, NFA entry/accept/state range, resolved references | emitted normalization (NFA plan) |
+| `Analysis.lexerStates` | Shared Thompson NFA state table | emitted normalization |
+| `ParserExprRecord` | Numbered expression (kind, children indices, bounds, literal/rule/token target, nullable, `required` bound) | emitted normalization |
+| `ParserRuleFacts` | Root expression, nullability, left-corner edges, reachability row, left-recursive flag | analysis-only except root |
+| `LexicalConfig` | Keyword token, reserved words, line/block comments | emitted |
+| `ResolvedReference` | Domain (lexer→lexer, parser→token, parser→rule), owner, target, source spans | analysis-only |
+| `LeftCornerEdge` | Rule→rule edge with zero-consumption context flag | analysis-only |
+| `AnalysisDiagnostic` | Phase plus the located `GrammarDiagnostic` | analysis-only |
+
+"Normalization" in the implementation means compiled plans the emitters render
+(NFAs, the numbered expression table, literal table, `required` bounds). No
+grammar rewrite occurs: alternative order, associativity, precedence and AST
+shape are untouched. Target-specific constraints (the C directive allowlist)
+remain backend validation after shared analysis. The rest of this document
+(C++/Python emitters, a general `Analysis` for other backends) is proposal-only.
+
+The proposed full pipeline, for reference:
+
 ```text
 grammar source stack
   -> declaration collector
@@ -125,7 +168,7 @@ rendering:
 | `RegexExpr` | Structured regex syntax and references to smaller lexer rules; exact node kinds follow the confirmed regex notation |
 | `RuleExpr` | Tagged token reference, rule reference, literal terminal, sequence, alternation, optional, and repetition nodes |
 | `CodeInsertion` | Target name, named boundary, opaque source text, and source span; present only when supplied by a directive |
-| `Analysis` | Resolved references, nullability, left-corner graph, and validated normalization records |
+| `Analysis` | Implemented as typed `Analysis` (see Pipeline): resolved references, nullability, left-corner graph, compiled lexer NFAs and numbered parser expressions. Proposal-only: rewrite records for alternatives, since no grammar rewriting exists |
 
 Every syntax/model node retains its source span. Regex text and parser syntax
 are parsed into nodes rather than passed through as opaque strings. The
