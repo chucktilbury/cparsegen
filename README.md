@@ -110,7 +110,14 @@ neither the SDK nor a runtime template is needed to compile or run it.
 The generator itself still requires the Cwhip SDK. Default generation and
 `--library` remain Cwhip-only and unchanged.
 
-The C slice supports the shared character-class regex/EBNF subset, including
+Both backends support [composable lexer expressions](doc/INPUT-OUTPUT.md#lexer-declarations):
+grouping, alternation, concatenation, `?`/`*`/`+`, quoted literals, ASCII
+classes/ranges/negation, and forward references to named lexer rules. A shared
+AST compiles to a bounded Thompson NFA, avoiding backtracking explosions and
+rejecting nullable token patterns and reference cycles before generation.
+See [the runnable example](examples/README.md#composable-lexer-expressions).
+
+The C slice supports the shared lexer-expression/EBNF subset, including
 `@skip`, forward references, consuming left recursion, empty rules, keyword/reserved
 discrimination, ASCII quoted character/string tokens, and line/block comments.
 `--json` requires complete input and prints the same syntax-node schema as

@@ -1,0 +1,12 @@
+# Larger tokens are declared first so they win equal-length helper-rule ties.
+assignment : "let" IDENT "=" NUMBER ";" ;
+NUMBER = ("+" | "-")? DIGIT+ ("." DIGIT+)? EXP?
+IDENT = LETTER (LETTER | DIGIT)*
+EXP = [eE] ("+" | "-")? DIGIT+
+DIGIT = [0-9]
+LETTER = [A-Za-z_]
+SPACE = [ \t\r\n]+
+@skip SPACE;
+@keywords IDENT;
+@line_comment //;
+@block_comment /* */;

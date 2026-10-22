@@ -38,7 +38,7 @@ define separate grammar semantics.
 ## Standalone C target contract
 
 `cparsegen --target c GRAMMAR OUTPUT.c OUTPUT.dot` consumes the same validated
-`GrammarModel`, `RegexPart`/`ByteRange`, and `RuleExpr` objects as the default
+`GrammarModel`, `LexerExpr`/`ByteRange`/`LexerState`, and `RuleExpr` objects as the default
 Cwhip backend. It uses the shared emitter's postorder expression indices and
 literal collection order; it does not translate generated Cwhip, re-read
 grammar text, invoke another compiler, or load templates at runtime.
@@ -51,7 +51,7 @@ This slice targets `examples/calculator/calculator.cpg` and
 checkers. The SmallC Cwhip app adds an opt-in AST semantic pass; neither
 generated parser backend performs those checks. It supports all currently validated parser
 expressions (references, literals, sequences, choices, groups, `?`/`*`/`+`,
-empty alternatives, consuming left recursion), character-class regex sequences,
+empty alternatives, consuming left recursion), composable lexer expressions,
 and `@skip`. Declaration interleaving and forward references are resolved
 by the shared reader. Shared invalid-grammar diagnostics still apply.
 `@keywords`, `@reserved`, `@quoted`, `@line_comment`, and `@block_comment`
@@ -92,10 +92,10 @@ Its CLI is `parser [--complete | --json] INPUT`, where `INPUT` is a binary-read 
 | Usage / I/O | Usage errors exit `2` on stderr; file and output-write errors exit `1` on stderr |
 
 Like the Cwhip prototype, the C runtime enumerates alternatives rather than
-using PEG first-success semantics. It limits matching to 100,000 scanner
-calls per token, 100,000 parser calls per parse, depth 256 for nested rule
+using PEG first-success semantics. It limits matching to 100,000 scanner NFA
+state visits per token, 100,000 parser calls per parse, depth 256 for nested rule
 matches, and 4,096 results per intermediate set. C additionally bounds
-scanner-part recursion to 256, input to 1 MiB, and cumulative arena data to
+input to 1 MiB and cumulative arena data to
 64 MiB. All limits produce explicit errors (exit `1`, stdout in rendered mode,
 stderr with a source location in JSON mode); they do not
 silently truncate input/results. These C-specific budgets can reject inputs
@@ -180,11 +180,23 @@ marks a declared lexer token as discarded by the generated scanner.
 ASCII escape vocabulary. `@line_comment MARKER;` and
 `@block_comment OPEN CLOSE;` skip comments and diagnose unterminated blocks.
 Other directive payloads remain opaque and have no generation effect. Lexer
-patterns are single-line sequences of ASCII character classes, each optionally
-followed by `?`, `*`, or `+`. Classes support ranges and `\t`, `\r`, `\n`,
-`\\`, `\]`, and `\-` escapes. Negated classes, regex groups/alternation,
-lexer-rule composition, and escapes in quoted terminals remain unsupported.
-Lexer rules that can match empty input are rejected.
+patterns are single-line expressions supporting ASCII classes/ranges/negation,
+quoted literals, named lexer references, groups, alternation, concatenation,
+and `?`/`*`/`+`. Forward lexer references resolve before emission; reference
+cycles, unknown/quoted-token references, empty-matching rules, nullable
+quantified operands, and excessive nesting/expansion are rejected with source
+lines. Quoted grammar literals decode a small escape vocabulary. See the
+[precise syntax and escaping contract](INPUT-OUTPUT.md#lexer-declarations).
+
+The shared model compiles each validated expression into Thompson NFA states
+(`LexerState`: byte transition, epsilon split, accept). Both emitters serialize
+those states rather than independently expanding regex semantics. Each
+inlined helper occurrence consumes the same bytes as its expression; helper
+token kind, skip, and keyword metadata do not propagate. Helpers remain
+independent scanner candidates. Epsilon closure and byte advancement are
+iterative, deduplicated state-set operations, with no scanner recursion or
+backtracking explosion. Generation caps the expanded automata at 4,096 states
+and expression/reference paths at 128 edges.
 
 Parser expressions now support token and parser-rule references, quoted
 terminals, sequences, ordered alternatives, groups, `?`/`*`/`+`, and explicit
@@ -208,7 +220,7 @@ candidate that consumes every non-skipped token. The standalone runner keeps
 prefix mode by default, with `--complete` to request whole-input parsing.
 The calculator and SmallC frontend always use the complete-input API.
 
-The generated scanner uses longest byte match across character-class patterns
+The generated scanner uses longest byte match across lexer expressions
 and quoted terminals. Ties favor lexer declaration order, then literal
 appearance order. Without `@keywords`, a literal that also matches a named
 token therefore loses an equal-length tie. With that directive, a winning
@@ -220,7 +232,8 @@ token consumes comment-like text without interpreting it. See
 
 Backtracking is bounded and intended for small examples: the parser allows
 256 nested parser-rule calls, 100,000 matcher calls per parse, and 4,096 results per
-intermediate set. The scanner allows 100,000 pattern calls per token.
+intermediate set. The scanner allows 100,000 NFA state visits per token
+boundary across all competing rules.
 Exhaustion is an explicit failure, never a partial success.
 
 `cparsegen --library GRAMMAR OUTPUT.cw OUTPUT.dot` emits the same generated

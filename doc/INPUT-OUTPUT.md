@@ -228,33 +228,76 @@ in a generated parser's input.
 
 ```text
 INTEGER = [0-9]+
-IDENT = [A-Za-z_][A-Za-z0-9_]*
+IDENT = LETTER (LETTER | DIGIT)*
+NUMBER = ("+" | "-")? DIGIT+ ("." DIGIT+)? ([eE] ("+" | "-")? DIGIT+)?
+LETTER = [A-Za-z_]
+DIGIT = [0-9]
 PAIR = [0-9]+[0-9]
 SPACE = [ \t\r\n]+
 ```
 
-A lexer declaration is a **single-line sequence of character classes**,
-each optionally followed by one quantifier:
+A lexer declaration is a **single-line regular expression**, optionally ending
+with `;`. All expression tokens, including group closers and the optional
+semicolon, must be on the declaration name's line; do not put another
+declaration on that line. Existing class-only declarations work unchanged.
+Whitespace and grammar comments between atoms are trivia, not input bytes.
+Write `" "` or `[ ]` to match a space.
 
-| Form | Number of matching bytes |
+| Form | Meaning |
 | --- | --- |
-| `[abc]` | Exactly one |
-| `[abc]?` | Zero or one |
-| `[abc]*` | Zero or more |
-| `[abc]+` | One or more |
+| `[abc]`, `[a-z]` | One byte from a class or inclusive ascending range |
+| `[^a-z]` | One non-NUL ASCII byte outside the class |
+| `"text"` or `'text'` | Literal byte sequence (not a regex inside quotes) |
+| `DIGIT` | Inline reference to a named `=` lexer expression, including a forward reference |
+| `(a \| b)` | Group |
+| `a?`, `a*`, `a+` | Zero-or-one, zero-or-more, one-or-more occurrences of an atom/group |
+| `a b` | Concatenation, with or without intervening whitespace |
+| `a \| b` | Alternation; every branch participates in longest-byte matching |
 
-Do not append `;` to a lexer declaration or put another declaration on its
-line. Its classes and quantifiers must be on the declaration name's line.
-Spaces between class parts are grammar trivia, not literal input spaces.
-A class may contain individual bytes and ascending inclusive ranges such as
-`a-z`. Supported class escapes are `\t`, `\r`, `\n`, `\\`, `\]`, and `\-`.
-Classes must be nonempty, non-negated, non-NUL ASCII; a range's ending
-endpoint cannot be escaped. Descending ranges are rejected.
+Precedence, highest first: atoms/groups, one postfix quantifier,
+concatenation, alternation. Thus `"a" | "b" "c"+` means
+`"a" | ("b" ("c"+))`. A quantifier after a quoted sequence repeats the whole
+sequence: `"ab"+` matches `ab`, `abab`, etc. Bare names are references, not
+literal spellings. All named rules remain scanner candidates, including
+referenced helpers; put larger tokens before helpers to win equal-length
+ties. References inline only the helper's pattern, not its token kind,
+`@skip` behavior, or keyword remapping. Skipped helpers may be composed.
+`@quoted` tokens and parser rules cannot be composed into lexer expressions.
 
-There is no general regular-expression engine: no `.`, negated classes,
-groups, alternation, counted repetition, anchors, Unicode character classes,
-or references/composition of lexer rules. Each lexer rule must consume at
-least one byte overall, even if some of its parts are optional.
+Classes and lexer literals match bytes **1 through 127**, not Unicode code
+points. Negation complements exactly that domain, so `[^a]` cannot consume
+NUL or UTF-8 bytes. Classes must be nonempty and match at least one byte.
+Class escapes are `\t`, `\r`, `\n`, `\\`, `\]`, `\[`, `\-`, and `\^`;
+escaped range endpoints are allowed, e.g. `[\t-\r]`. An unescaped leading
+`^` negates; elsewhere it is literal. After an endpoint, a `-` is a range
+operator when another endpoint follows, otherwise it is a literal byte.
+Use `\-` for an unambiguous literal hyphen. Descending ranges are errors.
+Other regex metacharacters are ordinary bytes inside classes.
+
+Quoted grammar literals decode only `\\`, `\"`, `\'`, `\n`, `\r`, and `\t`.
+Unknown escapes, including `\0`, `\xNN`, and regex shorthands such as `\d`,
+are errors. Raw LF is not allowed in a literal. Literal metacharacters must
+be quoted or classed: `"|"`, `"*"`, `"("`, `[+]`, `[\]]`, etc. Outside
+classes/quotes, backslash escapes are not supported. Comment markers inside
+quotes/classes are literal, e.g. `"//"` or `[#]`.
+
+There are no wildcard `.`, anchors, counted repetitions, lazy/possessive
+quantifiers, lookaround, backreferences, captures, or Unicode classes. Empty
+groups, alternatives, and literals are errors. Every named rule must be
+nonnullable, including skipped/unused helpers. Nullable operands under any
+quantifier (even `?`) and all direct/indirect reference cycles are rejected
+with a source line before outputs are opened. Runtime matching uses a shared
+Thompson NFA with deduplicated states, not recursive backtracking. Overlapping
+alternatives are safe and need not be disjoint.
+
+Generation limits are 128 group levels, 128 expanded expression/reference
+edges on a path, and 4,096 total expanded NFA states across ordinary rules
+(including accept/split states and each inlined reference occurrence). These
+are diagnosed at generation time. Both scanners allow 100,000 visited NFA
+states per input token boundary across all competing rules, with an explicit
+resource-limit error, never a partial successful match. See
+[lexer-expressions.cpg](../examples/lexer-expressions.cpg) for a runnable
+composition example and [its commands](../examples/README.md#composable-lexer-expressions).
 
 ### Parser rules and EBNF
 
@@ -276,10 +319,11 @@ empty : ;
 | `rule : ;` or an empty alternative | Empty sequence |
 
 One postfix quantifier may follow an atom or group. Empty quoted terminals
-are rejected: write an empty sequence instead. Grammar quoted terminals do
-not support backslash escapes or LF inside the quotes; use the opposite
-quote delimiter to include a quote, for example `'"'`. This is distinct from
-the source-input escape handling enabled by `@quoted`.
+are rejected: write an empty sequence instead. Grammar quoted terminals use
+the same decoded escape vocabulary as lexer literals (`\\`, `\"`, `\'`,
+`\n`, `\r`, `\t`); raw LF and unknown escapes are errors. This is distinct
+from source-input escape handling enabled by `@quoted`, which preserves the
+original source spelling.
 
 Forward rule references and recursion are supported, including consuming
 direct/indirect left recursion and cycles through nullable prefixes. A
@@ -363,7 +407,7 @@ declaration, not part of a parser-rule expression.
 | Directive | Implemented effect and constraints |
 | --- | --- |
 | `@skip SPACE;` | Mark exactly one declared lexer token as discarded. A skipped token cannot be referenced by a parser rule. Multiple skip directives are allowed. |
-| `@keywords IDENT;` | Designate one declared character-class lexer token for exact literal remapping. Only one such directive is allowed; the token cannot be quoted or skipped. Its name does not itself guarantee an identifier-shaped pattern. |
+| `@keywords IDENT;` | Designate one declared `=` lexer token for exact literal remapping. Only one such directive is allowed; the token cannot be quoted or skipped. Its name does not itself guarantee an identifier-shaped pattern. |
 | `@reserved struct typedef;` | Add one or more identifier spellings that become `@reserved` when the designated keyword token wins. Requires `@keywords`; repeated directives accumulate spellings. |
 | `@quoted CHAR single;` | Declare a new token for a single-quoted character spelling. Name must satisfy lexer naming/uniqueness checks; do not also declare it with `=`. |
 | `@quoted STRING double;` | Declare a new token for a double-quoted string spelling, including the empty string `""`. |
@@ -407,8 +451,9 @@ token boundary:
 4. It records a token unless its winning rule is skipped, then advances.
    With no match it fails at that byte.
 
-Character-class parts backtrack within a lexer rule before longest-match
-selection; `PAIR = [0-9]+[0-9]` can consume `123`. Ordinary `=` lexer rules
+All possible expression paths participate before longest-match selection;
+`PAIR = [0-9]+[0-9]` can consume `123`, and `("a" | "ab") "c"` can consume
+`abc` regardless of alternative order. Ordinary `=` lexer rules
 retain declaration order. The implementation appends `@quoted` tokens after
 all ordinary lexer rules during directive processing, retaining quoted
 directive order within that appended group. A malformed recognized quoted
@@ -449,12 +494,12 @@ backend emits files. It reports the first problem, not a list of errors.
 
 | Area | Rejected examples or conditions |
 | --- | --- |
-| Grammar scanning | Unterminated comments/classes/quoted literals/directives; escapes in grammar literals |
+| Grammar scanning | Unterminated comments/classes/quoted literals/directives; unknown escapes in grammar literals |
 | Declarations | Missing `=`/`:`, missing parser `;`, unsupported lexer/parser syntax, wrong name case |
 | Required declarations | No lexer rule or no parser rule |
 | Uniqueness/references | Duplicate lexer/parser names, unknown token/rule references, parser reference to skipped token |
-| Character classes | Empty/negated/non-ASCII/NUL classes, unsupported escapes, descending ranges, escaped ending range endpoints |
-| Nullability/recursion | Empty-matching lexer rules, empty quoted terminals, nullable quantified operands, recursion cycles with nullable context on both sides |
+| Character classes | Empty/non-ASCII/NUL classes, empty complements, unsupported escapes, descending ranges |
+| Nullability/recursion | Empty-matching lexer rules, empty quoted terminals, nullable quantified operands, any lexer reference cycle, parser cycles with nullable context on both sides |
 | Directives | Invalid arity/style/name/reference; duplicate `@keywords`; `@reserved` without `@keywords`; skipped keyword token |
 | C target | Any directive outside the supported allowlist, even one accepted opaquely by Cwhip |
 
@@ -928,7 +973,7 @@ Use the dedicated guides for application-specific language/checking limits:
 | --- | --- |
 | CMake cannot find Cwhip | Select the whole installed SDK prefix, not its `bin/` or CMake-package subdirectory; see [Building](BUILDING.md). |
 | Output path fails | Create parent directories, use writable distinct paths, and check runtime I/O diagnostics. |
-| `unsupported lexer regex syntax` | Keep the class-only pattern on one declaration line without `;`, groups, alternatives, or lexer references. |
+| `unsupported lexer expression syntax` | Keep the expression on one declaration line; use classes, quoted literals, named references, groups, alternation, and one postfix quantifier per atom. Quote literal metacharacters. |
 | `unsupported parser-expression syntax` | Check a missing `;`, mixed declarations, embedded directives/actions, or unsupported punctuation. |
 | Literal keyword never matches | A named token won an equal-length tie; use `@keywords` on the intended identifier token if keyword remapping is wanted. |
 | Spaces cause `lex error` | Grammar whitespace does not skip source whitespace; declare and skip an input token. |
@@ -940,15 +985,17 @@ Use the dedicated guides for application-specific language/checking limits:
 | Tree text is not a number or decoded string | Terminal values are source spellings; conversion belongs to a handwritten consumer. |
 | Syntax success but application rejects input | Application visitors/checkers implement their own semantics; parse success does not imply semantic validity. |
 
-The matching implementation is bounded and backtracking:
+The parser uses bounded backtracking; the scanner uses a bounded iterative NFA:
 
 | Budget | Cwhip | Standalone C |
 | --- | --- | --- |
-| Scanner pattern calls per token boundary | 100,000 | 100,000 |
+| Scanner NFA state visits per token boundary | 100,000 | 100,000 |
 | Parser expression matcher calls per selection/parse | 100,000 | 100,000 |
 | Nested parser-rule depth | 256 | 256 |
 | Results per intermediate result set | 4,096 | 4,096 |
-| Character-class scanner-part recursion | No separate explicit depth cap | 256 |
+| Lexer expanded NFA states (generation) | 4,096 | 4,096 |
+| Expanded lexer AST/reference depth (generation) | 128 | 128 |
+| Scanner matching recursion | None | None |
 | Source length | No separate explicit size cap | 1 MiB, inclusive |
 | Cumulative arena data | Managed by Cwhip runtime | 64 MiB; allocation bookkeeping/input buffer are separate |
 

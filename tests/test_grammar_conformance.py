@@ -60,11 +60,11 @@ class GrammarConformanceTests(GeneratorTestCase):
         cases = [
             (
                 "TOKEN = [a-z]+ entry : TOKEN ;\n",
-                1, "unsupported lexer regex syntax",
+                1, "unsupported lexer expression syntax (expected class, literal, reference, or group)",
             ),
             (
                 "TOKEN = [a-z]+ @skip TOKEN;\nentry : TOKEN ;\n",
-                1, "unsupported lexer regex syntax",
+                1, "unsupported lexer expression syntax (expected class, literal, reference, or group)",
             ),
             (
                 "entry : TOKEN\nTOKEN = [a-z]+\n",
@@ -75,16 +75,16 @@ class GrammarConformanceTests(GeneratorTestCase):
                 1, "unsupported parser-expression syntax",
             ),
             (
-                "entry : TOKEN ;\nTOKEN = ([a-z]+)\n",
-                2, "unsupported lexer regex syntax",
+                "entry : TOKEN ;\nTOKEN = ([a-z]+\n",
+                2, "expected ')' after lexer group",
             ),
             (
-                "entry : TOKEN ;\nTOKEN = [a-z]+|[0-9]+\n",
-                2, "unsupported lexer regex syntax",
+                "entry : TOKEN ;\nTOKEN = [a-z]+||[0-9]+\n",
+                2, "expected nonempty lexer expression",
             ),
             (
-                "entry : TOKEN ;\nLETTER = [a-z]\nTOKEN = LETTER+\n",
-                3, "unsupported lexer regex syntax",
+                "entry : TOKEN ;\nLETTER = [a-z]\nTOKEN = MISSING+\n",
+                3, "unknown lexer reference MISSING",
             ),
             ("entry TOKEN;\n", 1, "expected '=' or ':' after declaration name"),
             ("@note opaque payload\n", 1, "directive @note must end with ';'"),

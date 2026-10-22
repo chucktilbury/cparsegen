@@ -237,7 +237,7 @@ class GeneratorTests(GeneratorTestCase):
             ('entry : empty+ ;\nempty : ;\nINTEGER = [0-9]+\n', "nullable repetition"),
             ('entry : INTEGER ;\nINTEGER = [0-9]*\n', "can match empty input"),
             ('entry : INTEGER ;\nINTEGER = [z-a]+\n', "descending"),
-            ('entry : INTEGER ;\nINTEGER = [^0-9]+\n', "negated character classes"),
+            ('entry : INTEGER ;\nINTEGER = [^]+\n', "empty character class"),
             ('entry : INTEGER ;\nINTEGER = [0-9]+\n@skip MISSING;\n', "@skip"),
             ('entry : INTEGER ;\nINTEGER = [0-9]+\n@skip INTEGER;\n', "skipped lexer token"),
             ('entry : (INTEGER ;\nINTEGER = [0-9]+\n', "after parser group"),
@@ -273,7 +273,7 @@ class GeneratorTests(GeneratorTestCase):
             'entry : DIGITS ;\n'
             'DIGITS = [0-9]*[0-9]*[0-9]\n'
         )
-        result = self.parse(executable, "1" * 1000)
+        result = self.parse(executable, "1" * 25000)
         self.assertEqual(result.returncode, 1)
         self.assertIn("scanner resource limit exceeded", result.stdout)
 

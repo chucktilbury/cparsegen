@@ -41,47 +41,38 @@ class CGrammarEmitter {
     String emitProgram() {
         String output = ""
         CParserRuntime().emitTypes(output)
-        int r = 0
-        while (r < grammar.lexerRules.length) {
-            LexerRule rule = grammar.lexerRules[r] as LexerRule
-            if (rule.quote != 0) { r += 1
-continue }
-            int p = 0
-            while (p < rule.parts.length) {
-                RegexPart part = rule.parts[p] as RegexPart
-                output.append(format("static const Range ranges{}_{}[] = {{", r, p))
-                int n = 0
-                while (n < part.ranges.length) {
-                    ByteRange range = part.ranges[n] as ByteRange
-                    output.append(format("{{{}, {}}},", range.first, range.last))
-                    n += 1
-                }
-                output.append("};\n")
-                p += 1
+        int s = 0
+        while (s < grammar.lexerStates.length) {
+            LexerState state = grammar.lexerStates[s] as LexerState
+            output.append(format("static const Range scan_ranges{}[] = {{", s))
+            int n = 0
+            while (n < state.ranges.length) {
+                ByteRange range = state.ranges[n] as ByteRange
+                output.append(format("{{{}, {}}},", range.first, range.last))
+                n += 1
             }
-            output.append(format("static const Part parts{}[] = {{", r))
-            p = 0
-            while (p < rule.parts.length) {
-                RegexPart part = rule.parts[p] as RegexPart
-                output.append(format("{{ranges{}_{}, {}, {}, {}}},", r, p,
-                    part.ranges.length, part.minimum, part.maximum))
-                p += 1
-            }
-            output.append("};\n")
-            r += 1
+            output.append("{0, 0}};\n")
+            s += 1
         }
+        output.append("static const ScanState scan_states[] = {\n")
+        s = 0
+        while (s < grammar.lexerStates.length) {
+            LexerState state = grammar.lexerStates[s] as LexerState
+            output.append(format("{{{}, scan_ranges{}, {}, {}, {}}},\n", state.kind, s, state.ranges.length, state.next, state.alternate))
+            s += 1
+        }
+        output.append("{2, NULL, 0, -1, -1}};\n")
+        output.append("#define SCAN_STATE_COUNT (sizeof(scan_states) / sizeof(scan_states[0]))\n")
         output.append("static const ScanRule scan_rules[] = {\n")
-        r = 0
+        int r = 0
         while (r < grammar.lexerRules.length) {
             LexerRule rule = grammar.lexerRules[r] as LexerRule
             int skip = 0
             if (rule.skip) { skip = 1 }
-            String parts = "NULL"
-            if (rule.quote == 0) { parts = format("parts{}", r) }
-            output.append(format("{{{}, {}, {}, {}, {}}},\n", quoted(rule.name), parts, rule.parts.length, skip, rule.quote))
+            output.append(format("{{{}, {}, {}, {}}},\n", quoted(rule.name), rule.entry, skip, rule.quote))
             r += 1
         }
-        output.append("{NULL, NULL, 0, 0, 0}};\n")
+        output.append("{NULL, -1, 0, 0}};\n")
         output.append(format("static const char *const keyword_token = {};\n", quoted(grammar.keywordToken)))
         output.append("static const char *const reserved[] = {")
         int word = 0
