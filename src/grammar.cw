@@ -1,3 +1,53 @@
+class SourceLocation {
+    String path
+    String displayPath
+    int offset
+    int line
+    int column
+    int logicalLine
+    SourceLocation includedFrom
+
+    SourceLocation(String sourcePath, String shownPath, int byteOffset, int sourceLine,
+                   int sourceColumn, int grammarLine, SourceLocation parent) {
+        path = sourcePath
+        displayPath = shownPath
+        offset = byteOffset
+        line = sourceLine
+        column = sourceColumn
+        logicalLine = grammarLine
+        includedFrom = parent
+    }
+
+}
+
+class SourceSpan {
+    SourceLocation first
+    SourceLocation last
+
+    SourceSpan(SourceLocation startPoint, SourceLocation endPoint) {
+        first = startPoint
+        last = endPoint
+    }
+}
+
+class GrammarDiagnostic {
+    String message
+    SourceSpan span
+    SourceSpan related
+
+    GrammarDiagnostic(String text, SourceSpan location, SourceSpan relatedLocation) {
+        message = text
+        if (text.startsWith("line ")) {
+            int end = 5
+            while (end < text.length && int(text.byteAt(end)) >= 48 &&
+                   int(text.byteAt(end)) <= 57) { end += 1 }
+            if (end + 1 < text.length) { message = text.slice(end + 2, text.length) }
+        }
+        span = location
+        related = relatedLocation
+    }
+}
+
 class GrammarToken {
     int kind
     String text
@@ -5,6 +55,9 @@ class GrammarToken {
     int line
     String target
     String boundary
+    SourceSpan span
+    SourceSpan targetSpan
+    SourceSpan boundarySpan
 
     GrammarToken(int tokenKind, String tokenText, String tokenName, int tokenLine) {
         kind = tokenKind
@@ -13,20 +66,40 @@ class GrammarToken {
         line = tokenLine
         target = ""
         boundary = ""
+        span = null
+        targetSpan = null
+        boundarySpan = null
     }
 }
 
 class GrammarScanner {
     String source
+    String sourcePath
+    String displayPath
     int offset
     int line
+    int sourceLine
+    int column
+    bool previousCR
+    SourceLocation includedFrom
+    SourceSpan lastWordSpan
     String problem
+    SourceSpan problemSpan
 
-    GrammarScanner(String text) {
+    GrammarScanner(String text, String path, String shownPath, int firstLine,
+                   SourceLocation parent) {
         source = text
+        sourcePath = path
+        displayPath = shownPath
         offset = 0
-        line = 1
+        line = firstLine
+        sourceLine = 1
+        column = 1
+        previousCR = false
+        includedFrom = parent
+        lastWordSpan = null
         problem = ""
+        problemSpan = null
     }
 
     int current() {
@@ -40,8 +113,47 @@ class GrammarScanner {
     }
 
     void advance() {
-        if (current() == 10) { line += 1 }
+        int value = current()
+        if (value == 13) {
+            line += 1
+            sourceLine += 1
+            column = 1
+            previousCR = true
+        }
+        else {
+            if (value == 10) {
+                if (!previousCR) {
+                    line += 1
+                    sourceLine += 1
+                }
+                column = 1
+                previousCR = false
+            }
+            else {
+                column += 1
+                previousCR = false
+            }
+        }
         offset += 1
+    }
+
+    SourceLocation location() {
+        return SourceLocation(sourcePath, displayPath, offset, sourceLine, column,
+                              line, includedFrom)
+    }
+
+    SourceSpan span(int startOffset, int startLine, int startColumn) {
+        int startLogicalLine = line - (sourceLine - startLine)
+        SourceLocation first(sourcePath, displayPath, startOffset, startLine,
+                             startColumn, startLogicalLine, includedFrom)
+        return SourceSpan(first, location())
+    }
+
+    GrammarToken makeToken(int kind, String text, String name, int startOffset,
+                           int startSourceLine, int startColumn, int startLogicalLine) {
+        GrammarToken token(kind, text, name, startLogicalLine)
+        token.span = span(startOffset, startSourceLine, startColumn)
+        return token
     }
 
     bool letter(int value) {
@@ -59,16 +171,20 @@ class GrammarScanner {
             }
             else {
                 if (current() == 35 || (current() == 47 && following() == 47)) {
-                    while (current() >= 0 && current() != 10) { advance() }
+                    while (current() >= 0 && current() != 10 && current() != 13) { advance() }
                 }
                 else {
                     if (current() == 47 && following() == 42) {
                         int startLine = line
+                        int startSourceLine = sourceLine
+                        int startColumn = column
+                        int startOffset = offset
                         advance()
                         advance()
                         while (current() >= 0 && !(current() == 42 && following() == 47)) { advance() }
                         if (current() < 0) {
                             problem = format("line {}: unterminated block comment", startLine)
+                            problemSpan = span(startOffset, startSourceLine, startColumn)
                             return
                         }
                         advance()
@@ -85,16 +201,27 @@ class GrammarScanner {
     String insertionWord() {
         while (current() == 32 || current() == 9 || current() == 10 || current() == 13) { advance() }
         int startIndex = offset
+        int startSourceLine = sourceLine
+        int startColumn = column
+        int startLogicalLine = line
         if (letter(current())) {
             while (letter(current()) || digit(current())) { advance() }
         }
+        lastWordSpan = span(startIndex, startSourceLine, startColumn)
+        lastWordSpan.first.logicalLine = startLogicalLine
         return source.slice(startIndex, offset)
     }
 
     GrammarToken insertion(int startLine) {
+        int startOffset = offset - 1
+        int startSourceLine = sourceLine
+        int startColumn = column - 1
+        int startLogicalLine = startLine
         GrammarToken token(260, "", "insert", startLine)
         token.target = insertionWord()
+        token.targetSpan = lastWordSpan
         token.boundary = insertionWord()
+        token.boundarySpan = lastWordSpan
         while (current() == 32 || current() == 9 || current() == 10 || current() == 13) { advance() }
         if (token.target.equals("") || token.boundary.equals("") || current() != 123) {
             problem = format("line {}: @insert requires TARGET BOUNDARY {{ code }};", startLine)
@@ -106,23 +233,29 @@ class GrammarScanner {
         // State: code, quote byte, line comment ('/'), or block comment ('*').
         int state = 0
         int stateLine = line
+        int stateSourceLine = sourceLine
+        int stateColumn = column
+        int stateOffset = offset
         bool escaped = false
         while (current() >= 0) {
             int value = current()
             int size = offset - startIndex
             if (size > 1048576 || (size == 1048576 && !(value == 125 && state == 0 && depth == 1))) {
                 problem = format("line {}: @insert block exceeds 1048576 bytes", startLine)
+                problemSpan = span(offset, sourceLine, column)
                 return token
             }
             // C translation-phase rewriting would change delimiter recognition.
             if (value == 0 || (value == 92 && (following() == 10 || following() == 13)) ||
                 (value == 63 && following() == 63)) {
                 problem = format("line {}: @insert forbids NUL, backslash-newline and trigraph prefixes", line)
+                problemSpan = span(offset, sourceLine, column)
                 return token
             }
             if (state == 34 || state == 39) {
                 if (value == 10 || value == 13) {
                     problem = format("line {}: unterminated @insert quoted literal", stateLine)
+                    problemSpan = span(stateOffset, stateSourceLine, stateColumn)
                     return token
                 }
                 if (escaped) { escaped = false }
@@ -146,11 +279,17 @@ class GrammarScanner {
                         if (value == 34 || value == 39) {
                             state = value
                             stateLine = line
+                            stateSourceLine = sourceLine
+                            stateColumn = column
+                            stateOffset = offset
                         }
                         else {
                             if (value == 47 && (following() == 47 || following() == 42)) {
                                 state = following()
                                 stateLine = line
+                                stateSourceLine = sourceLine
+                                stateColumn = column
+                                stateOffset = offset
                                 advance()
                             }
                             else {
@@ -158,6 +297,7 @@ class GrammarScanner {
                                     depth += 1
                                     if (depth > 256) {
                                         problem = format("line {}: @insert brace nesting exceeds 256", line)
+                                        problemSpan = span(offset, sourceLine, column)
                                         return token
                                     }
                                 }
@@ -175,10 +315,17 @@ class GrammarScanner {
         if (current() < 0) {
             if (state == 34 || state == 39) {
                 problem = format("line {}: unterminated @insert quoted literal", stateLine)
+                problemSpan = span(stateOffset, stateSourceLine, stateColumn)
             }
             else {
-                if (state == 42) { problem = format("line {}: unterminated @insert block comment", stateLine) }
-                else { problem = format("line {}: unterminated @insert block", startLine) }
+                if (state == 42) {
+                    problem = format("line {}: unterminated @insert block comment", stateLine)
+                    problemSpan = span(stateOffset, stateSourceLine, stateColumn)
+                }
+                else {
+                    problem = format("line {}: unterminated @insert block", startLine)
+                    problemSpan = span(startOffset, startSourceLine, startColumn)
+                }
             }
             return token
         }
@@ -187,22 +334,35 @@ class GrammarScanner {
         skipTrivia()
         if (problem.equals("") && current() != 59) {
             problem = format("line {}: @insert block must end with ';'", startLine)
+            problemSpan = span(offset, sourceLine, column)
         }
         if (problem.equals("")) { advance() }
+        token.span = span(startOffset, startSourceLine, startColumn)
+        if (!problem.equals("") && problemSpan == null) { problemSpan = token.span }
         return token
     }
 
     GrammarToken next() {
         skipTrivia()
-        if (!problem.equals("")) { return GrammarToken(0, "", "", line) }
+        if (!problem.equals("")) {
+            GrammarToken failed(0, "", "", line)
+            failed.span = problemSpan
+            return failed
+        }
         int startLine = line
+        int startSourceLine = sourceLine
+        int startColumn = column
+        int startOffset = offset
         int value = current()
-        if (value < 0) { return GrammarToken(0, "", "", line) }
+        if (value < 0) {
+            return makeToken(0, "", "", startOffset, startSourceLine, startColumn, startLine)
+        }
 
         if (letter(value)) {
             int startIndex = offset
             while (letter(current()) || digit(current())) { advance() }
-            return GrammarToken(256, source.slice(startIndex, offset), "", startLine)
+            return makeToken(256, source.slice(startIndex, offset), "", startOffset,
+                             startSourceLine, startColumn, startLine)
         }
 
         if (value == 34 || value == 39) {
@@ -212,6 +372,9 @@ class GrammarScanner {
             int literalStart = offset
             while (current() >= 0 && current() != quote && current() != 10) {
                 if (current() == 92) {
+                    int escapeOffset = offset
+                    int escapeSourceLine = sourceLine
+                    int escapeColumn = column
                     literal.append(source.slice(literalStart, offset))
                     advance()
                     int escaped = current()
@@ -223,7 +386,13 @@ class GrammarScanner {
                             else {
                                 if (escaped != 92 && escaped != 34 && escaped != 39) {
                                     problem = format("line {}: unsupported quoted escape", startLine)
-                                    return GrammarToken(0, "", "", startLine)
+                                    if (current() >= 0) { advance() }
+                                    GrammarToken failed = makeToken(0, "", "", startOffset,
+                                        startSourceLine, startColumn, startLine)
+                                    problemSpan = span(escapeOffset, escapeSourceLine,
+                                                       escapeColumn)
+                                    failed.span = problemSpan
+                                    return failed
                                 }
                                 literal.append(source.slice(offset, offset + 1))
                             }
@@ -235,11 +404,15 @@ class GrammarScanner {
             }
             if (current() != quote) {
                 problem = format("line {}: unterminated quoted literal", startLine)
-                return GrammarToken(0, "", "", startLine)
+                GrammarToken failed = makeToken(0, "", "", startOffset,
+                    startSourceLine, startColumn, startLine)
+                problemSpan = failed.span
+                return failed
             }
             literal.append(source.slice(literalStart, offset))
             advance()
-            return GrammarToken(257, literal, "", startLine)
+            return makeToken(257, literal, "", startOffset, startSourceLine,
+                             startColumn, startLine)
         }
 
         if (value == 91) {
@@ -254,29 +427,43 @@ class GrammarScanner {
             }
             if (current() != 93) {
                 problem = format("line {}: unterminated character class", startLine)
-                return GrammarToken(0, "", "", startLine)
+                GrammarToken failed = makeToken(0, "", "", startOffset,
+                    startSourceLine, startColumn, startLine)
+                problemSpan = failed.span
+                return failed
             }
             advance()
-            return GrammarToken(258, source.slice(startIndex, offset), "", startLine)
+            return makeToken(258, source.slice(startIndex, offset), "", startOffset,
+                             startSourceLine, startColumn, startLine)
         }
 
         if (value == 64) {
             advance()
             if (!letter(current())) {
                 problem = format("line {}: expected directive name after @", startLine)
-                return GrammarToken(0, "", "", startLine)
+                GrammarToken failed = makeToken(0, "", "", startOffset,
+                    startSourceLine, startColumn, startLine)
+                problemSpan = failed.span
+                return failed
             }
             int nameStart = offset
             while (letter(current()) || digit(current())) { advance() }
             String directiveName = source.slice(nameStart, offset)
-            if (directiveName.equals("insert")) { return insertion(startLine) }
+            if (directiveName.equals("insert")) {
+                GrammarToken token = insertion(startLine)
+                if (token.span == null) {
+                    token.span = span(startOffset, startSourceLine, startColumn)
+                }
+                if (!problem.equals("") && problemSpan == null) { problemSpan = token.span }
+                return token
+            }
             while (current() == 32 || current() == 9) { advance() }
             int contentStart = offset
             // Only @include interprets quotes; other directive payloads stay opaque.
             int includeQuote = 0
             while (current() >= 0 && (current() != 59 || includeQuote != 0)) {
                 if (directiveName.equals("include")) {
-                    if (current() == 10 && includeQuote != 0) { break }
+                    if ((current() == 10 || current() == 13) && includeQuote != 0) { break }
                     if (current() == includeQuote) { includeQuote = 0 }
                     else {
                         if (includeQuote == 0 && (current() == 34 || current() == 39)) {
@@ -288,19 +475,27 @@ class GrammarScanner {
             }
             if (current() != 59) {
                 problem = format("line {}: directive @{} must end with ';'", startLine, directiveName)
-                return GrammarToken(0, "", "", startLine)
+                GrammarToken failed = makeToken(0, "", "", startOffset,
+                    startSourceLine, startColumn, startLine)
+                problemSpan = failed.span
+                return failed
             }
             String content = source.slice(contentStart, offset).trim()
             advance()
-            return GrammarToken(259, content, directiveName, startLine)
+            return makeToken(259, content, directiveName, startOffset,
+                             startSourceLine, startColumn, startLine)
         }
 
         if (value > 127) {
             problem = format("line {}: unsupported non-ASCII grammar syntax", startLine)
-            return GrammarToken(0, "", "", startLine)
+            GrammarToken failed = makeToken(0, "", "", startOffset,
+                startSourceLine, startColumn, startLine)
+            problemSpan = failed.span
+            return failed
         }
         advance()
-        return GrammarToken(value, source.slice(offset - 1, offset), "", startLine)
+        return makeToken(value, source.slice(offset - 1, offset), "", startOffset,
+                         startSourceLine, startColumn, startLine)
     }
 }
 
@@ -312,6 +507,7 @@ class LexerRule {
     bool skip
     int quote
     int line
+    SourceSpan span
 
     LexerRule(String tokenName, int sourceLine) {
         name = tokenName
@@ -321,6 +517,7 @@ class LexerRule {
         skip = false
         quote = 0
         line = sourceLine
+        span = null
     }
 }
 
@@ -334,6 +531,7 @@ class LexerExpr {
     int maximum
     int line
     bool nullable
+    SourceSpan span
 
     LexerExpr(int expressionKind, int sourceLine) {
         kind = expressionKind
@@ -344,6 +542,7 @@ class LexerExpr {
         maximum = 1
         line = sourceLine
         nullable = false
+        span = null
     }
 }
 
@@ -382,6 +581,7 @@ class RuleExpr {
     int line
     int index
     int required
+    SourceSpan span
 
     RuleExpr(int expressionKind, String text, int sourceLine) {
         kind = expressionKind
@@ -392,6 +592,7 @@ class RuleExpr {
         line = sourceLine
         index = -1
         required = 0
+        span = null
     }
 }
 
@@ -400,12 +601,14 @@ class ParserRule {
     RuleExpr expression
     bool nullable
     int line
+    SourceSpan span
 
     ParserRule(String ruleName, int sourceLine) {
         name = ruleName
         line = sourceLine
         nullable = false
         expression = null
+        span = null
     }
 }
 
@@ -413,11 +616,13 @@ class GrammarDirective {
     String name
     String content
     int line
+    SourceSpan span
 
     GrammarDirective(String directiveName, String payload, int sourceLine) {
         name = directiveName
         content = payload
         line = sourceLine
+        span = null
     }
 }
 
@@ -428,6 +633,9 @@ class CodeInsertion {
     String source
     int line
     int location
+    SourceSpan span
+    SourceSpan targetSpan
+    SourceSpan boundarySpan
 
     CodeInsertion(GrammarToken token, String path, int firstLine) {
         target = token.target
@@ -436,6 +644,9 @@ class CodeInsertion {
         source = path
         line = token.line - firstLine + 1
         location = token.line
+        span = token.span
+        targetSpan = token.targetSpan
+        boundarySpan = token.boundarySpan
     }
 }
 
@@ -451,6 +662,12 @@ class GrammarModel {
     bool leftRecursive
     list lexerStates
     String lexerProblem
+    SourceSpan diagnosticSpan
+    SourceSpan relatedSpan
+    GrammarDiagnostic diagnosticInfo
+    SourceSpan keywordSpan
+    SourceSpan reservedSpan
+    SourceSpan lexerProblemSpan
 
     GrammarModel() {
         lexerRules = []
@@ -464,6 +681,13 @@ class GrammarModel {
         leftRecursive = false
         lexerStates = []
         lexerProblem = ""
+        lexerProblemSpan = null
+        diagnosticSpan = null
+        relatedSpan = null
+        diagnosticInfo = null
+        keywordSpan = null
+        reservedSpan = null
+        lexerProblemSpan = null
     }
 
     LexerRule findLexer(String name) {
@@ -484,6 +708,13 @@ class GrammarModel {
             i += 1
         }
         return null
+    }
+
+    String located(String error, SourceSpan span, SourceSpan related) {
+        diagnosticSpan = span
+        relatedSpan = related
+        diagnosticInfo = GrammarDiagnostic(error, span, related)
+        return error
     }
 
     bool isNullable(RuleExpr expression) {
@@ -510,22 +741,27 @@ class GrammarModel {
             if (findParser(expression.value) == null) {
                 int first = int(expression.value.byteAt(0))
                 if (first >= 65 && first <= 90) {
-                    return format("line {}: unknown lexer token {}", expression.line, expression.value)
+                    return located(format("line {}: unknown lexer token {}", expression.line,
+                        expression.value), expression.span, null)
                 }
-                return format("line {}: unknown parser rule {}", expression.line, expression.value)
+                return located(format("line {}: unknown parser rule {}", expression.line,
+                    expression.value), expression.span, null)
             }
         }
         if (expression.kind == 0) {
             LexerRule token = findLexer(expression.value)
             if (token != null && token.skip) {
-                return format("line {}: skipped lexer token {} cannot be matched by a parser", expression.line, token.name)
+                return located(format("line {}: skipped lexer token {} cannot be matched by a parser",
+                    expression.line, token.name), expression.span, token.span)
             }
         }
         if (expression.kind == 1 && expression.value.length == 0) {
-            return format("line {}: empty quoted terminals are not supported", expression.line)
+            return located(format("line {}: empty quoted terminals are not supported",
+                expression.line), expression.span, null)
         }
         if (expression.kind == 4 && isNullable(expression.children[0] as RuleExpr)) {
-            return format("line {}: nullable repetition is not supported", expression.line)
+            return located(format("line {}: nullable repetition is not supported",
+                expression.line), expression.span, null)
         }
         int i = 0
         while (i < expression.children.length) {
@@ -575,31 +811,39 @@ class GrammarModel {
             list words = directiveWords(directive.content)
             if (directive.name.equals("quoted")) {
                 if (words.length != 2) {
-                    return format("line {}: @quoted requires TOKEN single|double", directive.line)
+                    return located(format("line {}: @quoted requires TOKEN single|double",
+                        directive.line), directive.span, null)
                 }
                 String style = words[1] as String
                 if (!style.equals("single") && !style.equals("double")) {
-                    return format("line {}: @quoted requires single or double", directive.line)
+                    return located(format("line {}: @quoted requires single or double",
+                        directive.line), directive.span, null)
                 }
                 LexerRule rule = LexerRule(words[0] as String, directive.line)
                 rule.quote = 34
                 if (style.equals("single")) { rule.quote = 39 }
+                rule.span = directive.span
                 lexerRules.append(rule)
             }
             if (directive.name.equals("keywords")) {
                 if (words.length != 1 || !keywordToken.equals("")) {
-                    return format("line {}: @keywords requires one identifier token and may occur only once", directive.line)
+                    return located(format("line {}: @keywords requires one identifier token and may occur only once",
+                        directive.line), directive.span, null)
                 }
                 keywordToken = words[0] as String
+                keywordSpan = directive.span
             }
             if (directive.name.equals("reserved")) {
+                reservedSpan = directive.span
                 if (words.length == 0) {
-                    return format("line {}: @reserved requires word names", directive.line)
+                    return located(format("line {}: @reserved requires word names",
+                        directive.line), directive.span, null)
                 }
                 int w = 0
                 while (w < words.length) {
                     if (!identifier(words[w] as String)) {
-                        return format("line {}: @reserved requires identifier spellings", directive.line)
+                        return located(format("line {}: @reserved requires identifier spellings",
+                            directive.line), directive.span, null)
                     }
                     reserved.append(words[w])
                     w += 1
@@ -607,13 +851,15 @@ class GrammarModel {
             }
             if (directive.name.equals("line_comment")) {
                 if (words.length != 1 || (words[0] as String).length == 0) {
-                    return format("line {}: @line_comment requires one nonempty marker", directive.line)
+                    return located(format("line {}: @line_comment requires one nonempty marker",
+                        directive.line), directive.span, null)
                 }
                 lineComments.append(words[0])
             }
             if (directive.name.equals("block_comment")) {
                 if (words.length != 2) {
-                    return format("line {}: @block_comment requires opening and closing markers", directive.line)
+                    return located(format("line {}: @block_comment requires opening and closing markers",
+                        directive.line), directive.span, null)
                 }
                 blockComments.append(words)
             }
@@ -622,11 +868,13 @@ class GrammarModel {
         if (!keywordToken.equals("")) {
             LexerRule token = findLexer(keywordToken)
             if (token == null || token.quote != 0) {
-                return "@keywords must name a declared expression lexer token"
+                return located("@keywords must name a declared expression lexer token",
+                    keywordSpan, null)
             }
         }
         if (reserved.length > 0 && keywordToken.equals("")) {
-            return "@reserved requires @keywords to identify the identifier token"
+            return located("@reserved requires @keywords to identify the identifier token",
+                reservedSpan, null)
         }
         return ""
     }
@@ -636,7 +884,8 @@ class GrammarModel {
             ParserRule target = findParser(expression.value)
             if (target != null) {
                 if (hasName(path, target.name)) {
-                    return format("line {}: left recursion through parser rule {} can repeat without consuming tokens; require a nonnullable prefix or suffix on every cycle", expression.line, target.name)
+                    return located(format("line {}: left recursion through parser rule {} can repeat without consuming tokens; require a nonnullable prefix or suffix on every cycle",
+                        expression.line, target.name), expression.span, target.span)
                 }
                 list next = []
                 int p = 0
@@ -672,18 +921,22 @@ class GrammarModel {
 
     String resolveLexer(LexerExpr expression, int depth) {
         if (depth > 128) {
-            return format("line {}: lexer expression nesting/reference limit exceeded (128)", expression.line)
+            return located(format("line {}: lexer expression nesting/reference limit exceeded (128)",
+                expression.line), expression.span, null)
         }
         if (expression.kind == 1) {
             LexerRule target = findLexer(expression.value)
             if (target == null) {
-                return format("line {}: unknown lexer reference {}", expression.line, expression.value)
+                return located(format("line {}: unknown lexer reference {}", expression.line,
+                    expression.value), expression.span, null)
             }
             if (target.quote != 0) {
-                return format("line {}: cannot compose @quoted token {}", expression.line, target.name)
+                return located(format("line {}: cannot compose @quoted token {}",
+                    expression.line, target.name), expression.span, target.span)
             }
             if (target.state == 1) {
-                return format("line {}: cyclic lexer reference {}", expression.line, target.name)
+                return located(format("line {}: cyclic lexer reference {}",
+                    expression.line, target.name), expression.span, target.span)
             }
             if (target.state == 0) {
                 target.state = 1
@@ -703,7 +956,8 @@ class GrammarModel {
             if (expression.kind == 2 && !child.nullable) { nullable = false }
             if (expression.kind == 3 && child.nullable) { nullable = true }
             if (expression.kind == 4 && child.nullable) {
-                return format("line {}: nullable lexer repetition is not supported", expression.line)
+                return located(format("line {}: nullable lexer repetition is not supported",
+                    expression.line), expression.span, null)
             }
             c += 1
         }
@@ -711,9 +965,11 @@ class GrammarModel {
         return ""
     }
 
-    int lexerState(int kind, list ranges, int next, int alternate, int line) {
+    int lexerState(int kind, list ranges, int next, int alternate, int line,
+                   SourceSpan span) {
         if (lexerStates.length >= 4096) {
             lexerProblem = format("line {}: expanded lexer state limit exceeded (4096)", line)
+            lexerProblemSpan = span
             return -1
         }
         int index = lexerStates.length
@@ -725,10 +981,11 @@ class GrammarModel {
         if (!lexerProblem.equals("")) { return -1 }
         if (depth > 128) {
             lexerProblem = format("line {}: expanded lexer nesting/reference limit exceeded (128)", expression.line)
+            lexerProblemSpan = expression.span
             return -1
         }
         if (expression.kind == 0) {
-            return lexerState(0, expression.ranges, next, -1, expression.line)
+            return lexerState(0, expression.ranges, next, -1, expression.line, expression.span)
         }
         if (expression.kind == 1) {
             return compileLexer(findLexer(expression.value).expression, next, depth + 1)
@@ -746,12 +1003,12 @@ class GrammarModel {
             int c = 1
             while (c < expression.children.length && lexerProblem.equals("")) {
                 int branch = compileLexer(expression.children[c] as LexerExpr, next, depth + 1)
-                result = lexerState(1, [], result, branch, expression.line)
+                result = lexerState(1, [], result, branch, expression.line, expression.span)
                 c += 1
             }
             return result
         }
-        int split = lexerState(1, [], -1, next, expression.line)
+        int split = lexerState(1, [], -1, next, expression.line, expression.span)
         if (split < 0) { return -1 }
         int continuation = next
         if (expression.maximum < 0) { continuation = split }
@@ -762,11 +1019,14 @@ class GrammarModel {
     }
 
     String validate() {
+        diagnosticSpan = null
+        relatedSpan = null
         int insertionIndex = 0
         while (insertionIndex < insertions.length) {
             CodeInsertion block = insertions[insertionIndex] as CodeInsertion
             if (!block.target.equals("c") && !block.target.equals("cwhip")) {
-                return format("line {}: unknown @insert target {}", block.location, block.target)
+                return located(format("line {}: unknown @insert target {}", block.location,
+                    block.target), block.targetSpan, null)
             }
             if (!block.boundary.equals("file_pre") && !block.boundary.equals("file_post") &&
                 !block.boundary.equals("imports") && !block.boundary.equals("declarations") &&
@@ -774,7 +1034,8 @@ class GrammarModel {
                 !block.boundary.equals("scanner_pre") && !block.boundary.equals("scanner_post") &&
                 !block.boundary.equals("parser_pre") && !block.boundary.equals("parser_post") &&
                 !block.boundary.equals("visitor_pre") && !block.boundary.equals("visitor_post")) {
-                return format("line {}: unknown @insert boundary {}", block.location, block.boundary)
+                return located(format("line {}: unknown @insert boundary {}",
+                    block.location, block.boundary), block.boundarySpan, null)
             }
             insertionIndex += 1
         }
@@ -787,10 +1048,21 @@ class GrammarModel {
             LexerRule rule = lexerRules[i] as LexerRule
             int first = int(rule.name.byteAt(0))
             if (first < 65 || first > 90 || !identifier(rule.name)) {
-                return format("line {}: lexer names must begin with an uppercase letter", rule.line)
+                return located(format("line {}: lexer names must begin with an uppercase letter",
+                    rule.line), rule.span, null)
             }
             if (findLexerCount(rule.name) > 1) {
-                return format("line {}: duplicate lexer rule {}", rule.line, rule.name)
+                SourceSpan previous = null
+                int p = 0
+                while (p < i && previous == null) {
+                    LexerRule candidate = lexerRules[p] as LexerRule
+                    if (candidate.name.equals(rule.name)) { previous = candidate.span }
+                    p += 1
+                }
+                if (previous != null) {
+                    return located(format("line {}: duplicate lexer rule {}", rule.line,
+                        rule.name), rule.span, previous)
+                }
             }
             i += 1
         }
@@ -803,11 +1075,15 @@ class GrammarModel {
                 if (!error.equals("")) { return error }
                 rule.state = 2
                 if (rule.expression.nullable) {
-                    return format("line {}: lexer rule {} can match empty input", rule.line, rule.name)
+                    return located(format("line {}: lexer rule {} can match empty input",
+                        rule.line, rule.name), rule.span, null)
                 }
-                int accept = lexerState(2, [], -1, -1, rule.line)
+                int accept = lexerState(2, [], -1, -1, rule.line, rule.span)
                 rule.entry = compileLexer(rule.expression, accept, 0)
-                if (!lexerProblem.equals("")) { return lexerProblem }
+                if (!lexerProblem.equals("")) {
+                    diagnosticSpan = lexerProblemSpan
+                    return lexerProblem
+                }
             }
             i += 1
         }
@@ -817,24 +1093,38 @@ class GrammarModel {
             if (directive.name.equals("skip")) {
                 LexerRule token = findLexer(directive.content)
                 if (token == null) {
-                    return format("line {}: @skip requires a declared lexer token name", directive.line)
+                    return located(format("line {}: @skip requires a declared lexer token name",
+                        directive.line), directive.span, null)
                 }
                 token.skip = true
             }
             i += 1
         }
         if (!keywordToken.equals("") && findLexer(keywordToken).skip) {
-            return "@keywords cannot use a skipped lexer token"
+            LexerRule token = findLexer(keywordToken)
+            return located("@keywords cannot use a skipped lexer token", keywordSpan,
+                           token.span)
         }
         i = 0
         while (i < parserRules.length) {
             ParserRule rule = parserRules[i] as ParserRule
             int first = int(rule.name.byteAt(0))
             if (first < 97 || first > 122) {
-                return format("line {}: parser-rule names must begin with a lowercase letter", rule.line)
+                return located(format("line {}: parser-rule names must begin with a lowercase letter",
+                    rule.line), rule.span, null)
             }
             if (findParserCount(rule.name) > 1) {
-                return format("line {}: duplicate parser rule {}", rule.line, rule.name)
+                SourceSpan previous = null
+                int p = 0
+                while (p < i && previous == null) {
+                    ParserRule candidate = parserRules[p] as ParserRule
+                    if (candidate.name.equals(rule.name)) { previous = candidate.span }
+                    p += 1
+                }
+                if (previous != null) {
+                    return located(format("line {}: duplicate parser rule {}", rule.line,
+                        rule.name), rule.span, previous)
+                }
             }
             i += 1
         }
@@ -894,8 +1184,11 @@ class GrammarReader {
     GrammarToken inclusion
     String sourcePath
     int sourceFirstLine
+    SourceSpan problemSpan
+    GrammarDiagnostic diagnosticInfo
 
-    GrammarReader(String source, int firstLine, String path) {
+    GrammarReader(String source, int firstLine, String path, String shownPath,
+                  SourceLocation parent) {
         tokens = []
         position = 0
         classPosition = 0
@@ -903,12 +1196,15 @@ class GrammarReader {
         inclusion = null
         sourcePath = path
         sourceFirstLine = firstLine
-        GrammarScanner scanner(source)
-        scanner.line = firstLine
+        problemSpan = null
+        diagnosticInfo = null
+        GrammarScanner scanner(source, path, shownPath, firstLine, parent)
         while (true) {
             GrammarToken token = scanner.next()
             if (!scanner.problem.equals("")) {
                 problem = scanner.problem
+                problemSpan = scanner.problemSpan
+                diagnosticInfo = GrammarDiagnostic(problem, problemSpan, null)
                 return
             }
             tokens.append(token)
@@ -926,12 +1222,10 @@ class GrammarReader {
         return token
     }
 
-    String expect(int kind, String description) {
-        GrammarToken token = take()
-        if (token.kind != kind) {
-            problem = format("line {}: expected {}", token.line, description)
-        }
-        return token.text
+    void fail(String message, SourceSpan span) {
+        problem = message
+        problemSpan = span
+        diagnosticInfo = GrammarDiagnostic(message, span, null)
     }
 
     int classByte(GrammarToken token) {
@@ -944,7 +1238,7 @@ class GrammarReader {
             if (byte == 114) { return 13 }
             if (byte == 116) { return 9 }
             if (byte != 92 && byte != 93 && byte != 91 && byte != 45 && byte != 94) {
-                problem = format("line {}: unsupported character-class escape", token.line)
+                fail(format("line {}: unsupported character-class escape", token.line), token.span)
             }
         }
         return byte
@@ -963,18 +1257,18 @@ class GrammarReader {
                 classPosition += 1
                 last = classByte(token)
                 if (last < first) {
-                    problem = format("line {}: descending character-class range", token.line)
+                    fail(format("line {}: descending character-class range", token.line), token.span)
                     return ranges
                 }
             }
             if (first == 0 || last > 127) {
-                problem = format("line {}: character classes must contain non-NUL ASCII bytes", token.line)
+                fail(format("line {}: character classes must contain non-NUL ASCII bytes", token.line), token.span)
                 return ranges
             }
             ranges.append(ByteRange(first, last))
         }
         if (ranges.length == 0) {
-            problem = format("line {}: empty character class", token.line)
+            fail(format("line {}: empty character class", token.line), token.span)
         }
         if (negated && problem.equals("")) {
             list complement = []
@@ -997,7 +1291,7 @@ class GrammarReader {
             }
             if (lower >= 0) { complement.append(ByteRange(lower, 127)) }
             if (complement.length == 0) {
-                problem = format("line {}: character class matches no ASCII bytes", token.line)
+                fail(format("line {}: character class matches no ASCII bytes", token.line), token.span)
             }
             return complement
         }
@@ -1007,13 +1301,22 @@ class GrammarReader {
     LexerExpr lexerChoice(int line, int depth) {
         LexerExpr expression = LexerExpr(3, line)
         if (depth > 128) {
-            problem = format("line {}: lexer group nesting limit exceeded (128)", line)
+            fail(format("line {}: lexer group nesting limit exceeded (128)", line), peek().span)
             return expression
         }
         expression.children.append(lexerSequence(line, depth))
         while (peek().line == line && peek().kind == 124 && problem.equals("")) {
             take()
             expression.children.append(lexerSequence(line, depth))
+        }
+        if (expression.children.length > 0 &&
+            (expression.children[0] as LexerExpr).span != null) {
+            expression.span = (expression.children[0] as LexerExpr).span
+            int child = expression.children.length - 1
+            if (child >= 0 && (expression.children[child] as LexerExpr).span != null) {
+                expression.span = SourceSpan(expression.span.first,
+                    (expression.children[child] as LexerExpr).span.last)
+            }
         }
         return expression
     }
@@ -1027,26 +1330,30 @@ class GrammarReader {
             if (token.kind == 258) {
                 atom = LexerExpr(0, token.line)
                 atom.ranges = classRanges(token)
+                atom.span = token.span
             }
             else {
                 if (token.kind == 256) {
                     atom = LexerExpr(1, token.line)
                     atom.value = token.text
+                    atom.span = token.span
                 }
                 else {
                     if (token.kind == 257) {
                         atom = LexerExpr(2, token.line)
+                        atom.span = token.span
                         if (token.text.length == 0) {
-                            problem = format("line {}: empty lexer literal is not supported", token.line)
+                            fail(format("line {}: empty lexer literal is not supported", token.line), token.span)
                         }
                         int b = 0
                         while (b < token.text.length) {
                             int byte = int(token.text.byteAt(b))
                             if (byte == 0 || byte > 127) {
-                                problem = format("line {}: lexer literals must contain non-NUL ASCII bytes", token.line)
+                                fail(format("line {}: lexer literals must contain non-NUL ASCII bytes", token.line), token.span)
                             }
                             LexerExpr character = LexerExpr(0, token.line)
                             character.ranges.append(ByteRange(byte, byte))
+                            character.span = token.span
                             atom.children.append(character)
                             b += 1
                         }
@@ -1054,13 +1361,20 @@ class GrammarReader {
                     else {
                         if (token.kind == 40) {
                             atom = lexerChoice(line, depth + 1)
-                            if (problem.equals("") && (peek().line != line || peek().kind != 41)) {
-                                problem = format("line {}: expected ')' after lexer group", token.line)
+                            if (atom.span != null) {
+                                atom.span = SourceSpan(token.span.first, atom.span.last)
                             }
-                            if (problem.equals("")) { take() }
+                            if (problem.equals("") && (peek().line != line || peek().kind != 41)) {
+                                fail(format("line {}: expected ')' after lexer group", token.line), peek().span)
+                            }
+                            if (peek().line == line && peek().kind == 41) {
+                                GrammarToken closing = take()
+                                atom.span = SourceSpan(token.span.first, closing.span.last)
+                            }
                         }
                         else {
-                            problem = format("line {}: unsupported lexer expression syntax (expected class, literal, reference, or group)", token.line)
+                            fail(format("line {}: unsupported lexer expression syntax (expected class, literal, reference, or group)",
+                                token.line), token.span)
                             return expression
                         }
                     }
@@ -1070,6 +1384,8 @@ class GrammarReader {
                 GrammarToken quantifier = take()
                 LexerExpr repeated = LexerExpr(4, quantifier.line)
                 repeated.children.append(atom)
+                if (atom.span == null) { repeated.span = quantifier.span }
+                else { repeated.span = SourceSpan(atom.span.first, quantifier.span.last) }
                 if (quantifier.kind != 43) { repeated.minimum = 0 }
                 if (quantifier.kind != 63) { repeated.maximum = -1 }
                 atom = repeated
@@ -1077,7 +1393,14 @@ class GrammarReader {
             expression.children.append(atom)
         }
         if (expression.children.length == 0 && problem.equals("")) {
-            problem = format("line {}: expected nonempty lexer expression", line)
+            fail(format("line {}: expected nonempty lexer expression", line), peek().span)
+        }
+        if (expression.children.length > 0 &&
+            (expression.children[0] as LexerExpr).span != null &&
+            (expression.children[expression.children.length - 1] as LexerExpr).span != null) {
+            expression.span = SourceSpan(
+                (expression.children[0] as LexerExpr).span.first,
+                (expression.children[expression.children.length - 1] as LexerExpr).span.last)
         }
         return expression
     }
@@ -1089,6 +1412,13 @@ class GrammarReader {
             take()
             expression.children.append(sequence())
         }
+        if (expression.children.length > 0 &&
+            (expression.children[0] as RuleExpr).span != null &&
+            (expression.children[expression.children.length - 1] as RuleExpr).span != null) {
+            expression.span = SourceSpan(
+                (expression.children[0] as RuleExpr).span.first,
+                (expression.children[expression.children.length - 1] as RuleExpr).span.last)
+        }
         return expression
     }
 
@@ -1098,16 +1428,27 @@ class GrammarReader {
                peek().kind != 59 && problem.equals("")) {
             GrammarToken token = take()
             RuleExpr atom = null
-            if (token.kind == 256) { atom = RuleExpr(0, token.text, token.line) }
+            if (token.kind == 256) {
+                atom = RuleExpr(0, token.text, token.line)
+                atom.span = token.span
+            }
             else {
-                if (token.kind == 257) { atom = RuleExpr(1, token.text, token.line) }
+                if (token.kind == 257) {
+                    atom = RuleExpr(1, token.text, token.line)
+                    atom.span = token.span
+                }
                 else {
                     if (token.kind == 40) {
                         atom = choice()
-                        expect(41, "')' after parser group")
+                        GrammarToken closing = take()
+                        if (closing.kind != 41) {
+                            fail(format("line {}: expected ')' after parser group",
+                                closing.line), closing.span)
+                        }
+                        atom.span = SourceSpan(token.span.first, closing.span.last)
                     }
                     else {
-                        problem = format("line {}: unsupported parser-expression syntax", token.line)
+                        fail(format("line {}: unsupported parser-expression syntax", token.line), token.span)
                         return expression
                     }
                 }
@@ -1116,11 +1457,18 @@ class GrammarReader {
                 GrammarToken quantifier = take()
                 RuleExpr repeated = RuleExpr(4, "", quantifier.line)
                 repeated.children.append(atom)
+                if (atom.span == null) { repeated.span = quantifier.span }
+                else { repeated.span = SourceSpan(atom.span.first, quantifier.span.last) }
                 if (quantifier.kind != 43) { repeated.minimum = 0 }
                 if (quantifier.kind != 63) { repeated.maximum = -1 }
                 atom = repeated
             }
             expression.children.append(atom)
+        }
+        if (expression.children.length > 0) {
+            expression.span = SourceSpan(
+                (expression.children[0] as RuleExpr).span.first,
+                (expression.children[expression.children.length - 1] as RuleExpr).span.last)
         }
         return expression
     }
@@ -1139,7 +1487,11 @@ class GrammarReader {
                     inclusion = first
                     return
                 }
-                else { grammar.directives.append(GrammarDirective(first.name, first.text, first.line)) }
+                else {
+                    GrammarDirective directive(first.name, first.text, first.line)
+                    directive.span = first.span
+                    grammar.directives.append(directive)
+                }
             }
             else {
                 if (first.kind == 256) {
@@ -1147,29 +1499,35 @@ class GrammarReader {
                     if (separator.kind == 61) {
                         LexerRule rule = LexerRule(first.text, first.line)
                         rule.expression = lexerChoice(first.line, 0)
+                        rule.span = first.span
                         if (peek().line == first.line && peek().kind == 59) { take() }
                         if (peek().kind != 0 && peek().line == first.line && problem.equals("")) {
-                            problem = format("line {}: unexpected token after lexer expression", first.line)
+                            fail(format("line {}: unexpected token after lexer expression",
+                                first.line), peek().span)
                         }
                         grammar.lexerRules.append(rule)
                     }
                     else {
                         if (separator.kind == 58) {
                             ParserRule rule(first.text, first.line)
+                            rule.span = first.span
                             rule.expression = choice()
                             if (problem.equals("") && peek().kind != 59) {
-                                problem = format("line {}: parser rule must end with ';'", first.line)
+                                fail(format("line {}: parser rule must end with ';'",
+                                    first.line), peek().span)
                             }
                             if (problem.equals("")) { take() }
                             grammar.parserRules.append(rule)
                         }
                         else {
-                            problem = format("line {}: expected '=' or ':' after declaration name", first.line)
+                            fail(format("line {}: expected '=' or ':' after declaration name",
+                                first.line), separator.span)
                         }
                     }
                 }
                 else {
-                    problem = format("line {}: expected lexer rule, parser rule, or @directive", first.line)
+                    fail(format("line {}: expected lexer rule, parser rule, or @directive",
+                        first.line), first.span)
                 }
             }
         }
@@ -1183,13 +1541,16 @@ class GrammarSource {
     int lineCount
     int includedAt
     bool active
+    SourceLocation includedFrom
 
-    GrammarSource(String filename, int first, int count, int parent) {
+    GrammarSource(String filename, int first, int count, SourceLocation parent) {
         path = filename
         displayPath = filename
         firstLine = first
         lineCount = count
-        includedAt = parent
+        includedAt = 0
+        if (parent != null) { includedAt = parent.logicalLine }
+        includedFrom = parent
         active = true
     }
 }
@@ -1201,6 +1562,9 @@ class GrammarSources {
     int nextLine
     int depth
     String problem
+    SourceSpan diagnosticSpan
+    SourceSpan relatedSpan
+    GrammarDiagnostic diagnosticInfo
 
     GrammarSources(list searchPaths) {
         paths = searchPaths
@@ -1208,6 +1572,9 @@ class GrammarSources {
         nextLine = 1
         depth = 0
         problem = ""
+        diagnosticSpan = null
+        relatedSpan = null
+        diagnosticInfo = null
     }
 
     String location(int line) {
@@ -1223,6 +1590,10 @@ class GrammarSources {
     }
 
     String diagnostic(String error) {
+        if (diagnosticInfo == null && diagnosticSpan != null) {
+            diagnosticInfo = GrammarDiagnostic(error, diagnosticSpan, relatedSpan)
+        }
+        if (diagnosticInfo != null) { return renderDiagnostic(diagnosticInfo) }
         if (!error.startsWith("line ")) { return error }
         int end = 5
         int line = 0
@@ -1248,15 +1619,48 @@ class GrammarSources {
         return result
     }
 
-    void load(String path, int includedAt, GrammarModel grammar) {
+    String renderLocation(SourceLocation location, int endOffset) {
+        return format("{}:{}:{}: bytes {}-{}", location.displayPath, location.line,
+                      location.column, location.offset, endOffset)
+    }
+
+    String renderDiagnostic(GrammarDiagnostic diagnostic) {
+        if (diagnostic.span == null) { return diagnostic.message }
+        SourceSpan span = diagnostic.span
+        String result = format("{}: {}", renderLocation(span.first, span.last.offset),
+                               diagnostic.message)
+        if (diagnostic.related != null) {
+            result.append(format("\n  related: {}", renderLocation(
+                diagnostic.related.first, diagnostic.related.last.offset)))
+        }
+        SourceLocation parent = span.first.includedFrom
+        int count = 0
+        while (parent != null && count < 8) {
+            result.append(format("\n  included from {}:{}:{}: byte {}",
+                parent.displayPath, parent.line, parent.column, parent.offset))
+            parent = parent.includedFrom
+            count += 1
+        }
+        if (parent != null) { result.append("\n  included from ...") }
+        return result
+    }
+
+    void load(String path, SourceSpan includeSpan, GrammarModel grammar) {
         Sys.FileSystem fs()
         String absolute = fs.absolutePath(path)
+        int includedAt = 0
+        SourceLocation includedFrom = null
+        if (includeSpan != null) {
+            includedAt = includeSpan.first.logicalLine
+            includedFrom = includeSpan.first
+        }
         int i = 0
         while (i < files.length) {
             GrammarSource previous = files[i] as GrammarSource
             if (previous.path.equals(absolute)) {
                 if (previous.active) {
                     problem = format("line {}: include cycle involving {}", includedAt, absolute)
+                    diagnosticSpan = includeSpan
                 }
                 return
             }
@@ -1264,11 +1668,13 @@ class GrammarSources {
         }
         if (depth >= 128 || files.length >= 1024) {
             problem = format("line {}: grammar include limit exceeded (128 levels, 1024 files)", includedAt)
+            diagnosticSpan = includeSpan
             return
         }
         if (!fs.isFile(absolute)) {
             problem = format("{}: expected a readable regular grammar file", absolute)
             if (includedAt != 0) { problem = format("line {}: {}", includedAt, problem) }
+            diagnosticSpan = includeSpan
             return
         }
         String source = ""
@@ -1283,31 +1689,51 @@ class GrammarSources {
         except() as error { problem = format("{}: {}", absolute, error) }
         if (!problem.equals("")) {
             if (includedAt != 0) { problem = format("line {}: {}", includedAt, problem) }
+            diagnosticSpan = includeSpan
             return
         }
         int count = 1
         i = 0
+        bool previousCR = false
         while (i < source.length) {
-            if (int(source.byteAt(i)) == 10) { count += 1 }
+            int value = int(source.byteAt(i))
+            if (value == 13) {
+                count += 1
+                previousCR = true
+            }
+            else {
+                if (value == 10) {
+                    if (!previousCR) { count += 1 }
+                    previousCR = false
+                }
+                else { previousCR = false }
+            }
             i += 1
         }
-        GrammarSource file(absolute, nextLine, count, includedAt)
+        GrammarSource file(absolute, nextLine, count, includedFrom)
         if (includedAt == 0) { file.displayPath = path }
+        else { file.displayPath = absolute }
         files.append(file)
         nextLine += count + 1
         depth += 1
-        GrammarReader reader(source, file.firstLine, absolute)
+        GrammarReader reader(source, file.firstLine, absolute, file.displayPath, includedFrom)
         while (problem.equals("")) {
             reader.readInto(grammar)
             problem = reader.problem
+            if (!problem.equals("")) {
+                diagnosticSpan = reader.problemSpan
+                diagnosticInfo = reader.diagnosticInfo
+            }
             if (!problem.equals("") || reader.inclusion == null) { break }
-            includeFile(reader.inclusion.text, absolute, reader.inclusion.line, grammar)
+            includeFile(reader.inclusion.text, absolute, reader.inclusion.span, grammar)
         }
         depth -= 1
         file.active = false
     }
 
-    void includeFile(String payload, String parent, int line, GrammarModel grammar) {
+    void includeFile(String payload, String parent, SourceSpan includeSpan,
+                     GrammarModel grammar) {
+        int line = includeSpan.first.logicalLine
         String name = payload.trim()
         bool valid = name.length > 0
         if (valid) {
@@ -1334,35 +1760,40 @@ class GrammarSources {
         }
         if (!valid) {
             problem = format("line {}: @include requires exactly one nonempty path (quote paths containing spaces)", line)
+            diagnosticSpan = includeSpan
             return
         }
         Sys.FileSystem fs()
         if (name.startsWith("/")) {
-            load(name, line, grammar)
+            load(name, includeSpan, grammar)
             return
         }
         String candidate = fs.join(fs.dirname(parent), name)
         if (fs.exists(candidate) || fs.isDir(candidate)) {
-            load(candidate, line, grammar)
+            load(candidate, includeSpan, grammar)
             return
         }
         int i = 0
         while (i < paths.length) {
             candidate = fs.join(paths[i] as String, name)
             if (fs.exists(candidate) || fs.isDir(candidate)) {
-                load(candidate, line, grammar)
+                load(candidate, includeSpan, grammar)
                 return
             }
             i += 1
         }
         problem = format("line {}: cannot find included grammar {}", line, name)
+        diagnosticSpan = includeSpan
     }
 
     GrammarModel read(String path) {
         GrammarModel grammar()
-        load(path, 0, grammar)
+        load(path, null, grammar)
         if (problem.equals("")) {
             problem = grammar.validate()
+            diagnosticSpan = grammar.diagnosticSpan
+            relatedSpan = grammar.relatedSpan
+            diagnosticInfo = grammar.diagnosticInfo
             if (!problem.equals("") && !problem.startsWith("line ")) {
                 problem = format("{}: {}", path, problem)
             }

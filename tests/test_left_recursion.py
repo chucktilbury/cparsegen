@@ -179,7 +179,8 @@ class LeftRecursionContract:
                 grammar.write_text(text + "DIGIT = [0-9]\n")
                 result = self.generate(grammar)
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-                self.assertIn(f"{grammar}: line {line}: left recursion", result.stderr)
+                self.assertIn(f"{grammar}:{line}:", result.stderr)
+                self.assertIn("left recursion", result.stderr)
                 self.assertIn("require a nonnullable prefix or suffix on every cycle",
                               result.stderr)
                 self.assertFalse(self.generated.exists())

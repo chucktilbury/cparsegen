@@ -204,10 +204,11 @@ errors return `2` and print this line on stderr:
 usage: cparsegen [--library | --target c] [--include-path DIR:DIR...] [--] GRAMMAR OUTPUT OUTPUT.dot
 ```
 
-Grammar/target validation errors return `1` on stderr, normally as
-`GRAMMAR: line N: diagnostic`; some whole-model checks omit the line number.
-Included-file errors name the resolved absolute file and original line,
-followed by `included from PATH: line N` entries back to the main file.
+Grammar/target validation errors return `1` on stderr. Source-located errors
+use `PATH:LINE:COLUMN: bytes START-END: MESSAGE`; whole-model errors without a
+source site use `PATH: MESSAGE`. Included-file diagnostics identify the
+resolved absolute file and retain up to eight `included from PATH:LINE:COLUMN`
+sites, nearest parent first.
 The generator reads and validates the grammar and constructs both output
 strings **before opening either output**. Invalid grammars do not create or
 truncate outputs. Once validation succeeds, outputs are opened in write mode;
@@ -506,7 +507,7 @@ depth-first grammar includes (and their once-only expansion). Different
 boundaries always follow generated layout, regardless of their order in the
 grammar. The shared validated model stores each block's target, boundary,
 unchanged body, absolute source identity, one-based source line, and diagnostic
-line ID; emitters consume these records, never reparse code.
+source span; emitters consume these records, never reparse code.
 All seams are emitted in both CLI and library workflows. C library consumers
 still define `CPARSEGEN_NO_MAIN` before including the generated file; this
 suppresses only the generated CLI, **not** insertion blocks. Cwhip `--library`
@@ -691,10 +692,33 @@ entry : MISSING ;
 INTEGER = [0-9]+
 ```
 
-reports `PATH: line 1: unknown lexer token MISSING` on stderr, exits `1`,
-and creates neither output. A lowercase unresolved name is diagnosed as an
-unknown parser rule. Line numbers are one-based grammar-source line numbers;
-the reader does not retain full filename/column/span objects for declarations.
+reports a source-located unknown-token error on stderr, exits `1`, and creates
+neither output. A lowercase unresolved name is diagnosed as an unknown parser
+rule. Grammar declarations, expressions, directives, and inserted blocks
+retain source provenance through include expansion and validation. Duplicate
+declarations and references to known-but-invalid declarations report the
+primary site and a related site when one is available.
+
+For `entry : MISSING ;` on the first line, the diagnostic is:
+
+```text
+PATH:1:9: bytes 8-15: unknown lexer token MISSING
+```
+
+`LINE` and `COLUMN` are one-based. `START` and `END` are zero-based byte
+offsets in the named source file, with an exclusive end; a missing-token EOF
+site is therefore a zero-width range after the last byte. CRLF counts as one
+line break. Tabs advance one column, and UTF-8 bytes each advance one column;
+columns are byte-oriented, not Unicode-character or terminal-display widths.
+The main grammar keeps the path spelling supplied to cparsegen; included
+files use their resolved absolute paths. Include ancestry is source metadata,
+not a reconstructed string stack, and output truncates chains deeper than
+eight sites with `included from ...`.
+
+This provenance applies to **grammar input** and generator diagnostics only.
+Generated input `AstNode`/`Node` source spans are not added by this milestone:
+they remain as described in [In-memory token/node layouts](#in-memory-tokennode-layouts)
+and the existing generated runtime provides no new AST span API.
 
 Validation is not a full target-language symbol checker: user-chosen names
 can still collide with generated API names or target-language reserved words.

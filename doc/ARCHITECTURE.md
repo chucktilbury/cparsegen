@@ -62,7 +62,7 @@ Keyword remapping applies only when the designated identifier token wins;
 reserved spellings override literal remapping.
 
 Grammar `@include` and target-code `@insert` are also implemented.
-For C, directives outside this list and `@note` are rejected with source-line
+For C, directives outside this list and `@note` are rejected with source-located
 diagnostics before either output is opened, rather than silently ignoring an
 unsupported lexical extension. `@note` remains explicitly inert. Malformed
 supported lexical directives are rejected by the shared reader. This stricter
@@ -349,8 +349,9 @@ terminals (rule offsets/lengths are zero). Neither visitor synthesizes spans.
 The bounded iterative collector balances braces while protecting quoted
 literals and C-style comments; it does not interpret target semantics.
 `CodeInsertion` records target, boundary, byte-preserved body, source path
-and one-based line, plus the unique source-line ID used for include-aware
-diagnostics. Records retain depth-first encounter order in `GrammarModel`.
+and provenance span (byte offsets, one-based line/column, and include parent),
+plus the unique source-line ID used while retaining source order. Records
+retain depth-first encounter order in `GrammarModel`.
 Shared validation rejects unknown targets/boundaries before emission, even
 for blocks not selected by this invocation. Emitters filter those records by
 target and boundary without reparsing them. No insertion is run by the

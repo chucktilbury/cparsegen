@@ -70,6 +70,9 @@ class GeneratorCli {
             CGrammarEmitter cEmitter(grammar, emitter)
             String problem = cEmitter.validate()
             if (!problem.equals("")) {
+                reader.diagnosticSpan = cEmitter.diagnosticSpan
+                reader.relatedSpan = cEmitter.relatedSpan
+                reader.diagnosticInfo = cEmitter.diagnosticInfo
                 io.writeErrorLine(reader.diagnostic(problem))
                 return 1
             }

@@ -137,8 +137,8 @@ class IncludeTests(GeneratorTestCase):
         main = self.write("main.cpg", '@include parts/a.cpg;\nentry : "ok" ;\n')
         child = self.write("parts/a.cpg", "\n@include ../main.cpg;\n")
         diagnostic = self.assert_failure(main, "include cycle")
-        self.assertIn(f"{child}: line 2", diagnostic)
-        self.assertIn(f"included from {main}: line 1", diagnostic)
+        self.assertIn(f"{child}:2:", diagnostic)
+        self.assertIn(f"included from {main}:1:", diagnostic)
         for directive in [
             "@include ;", '@include "";', "@include a.cpg b.cpg;",
             '@include "a.cpg" "b.cpg";', '@include "a.cpg"; extra',
@@ -167,13 +167,14 @@ class IncludeTests(GeneratorTestCase):
             with self.subTest(message=message):
                 leaf.write_text(text)
                 diagnostic = self.assert_failure(main, message)
-                self.assertIn(f"{leaf}: line {line}: {message}", diagnostic)
-                self.assertIn(f"included from {child}: line 1", diagnostic)
-                self.assertIn(f"included from {main}: line 1", diagnostic)
+                self.assertIn(f"{leaf}:{line}:", diagnostic)
+                self.assertIn(message, diagnostic)
+                self.assertIn(f"included from {child}:1:", diagnostic)
+                self.assertIn(f"included from {main}:1:", diagnostic)
         if self.backend == "c":
             leaf.write_text("\n@unsupported opaque;\nTOKEN = [a-z]+\n")
             diagnostic = self.assert_failure(main, "C target does not support @unsupported")
-            self.assertIn(f"{leaf}: line 2", diagnostic)
+            self.assertIn(f"{leaf}:2:", diagnostic)
 
     def test_existing_bad_candidate_is_not_silently_skipped(self):
         main = self.write("grammar/main.cpg", '@include token.cpg;\nentry : TOKEN ;\n')
@@ -191,7 +192,7 @@ class IncludeTests(GeneratorTestCase):
         token.chmod(0)
         self.addCleanup(token.chmod, 0o600)
         diagnostic = self.assert_failure(main, "Cannot open file")
-        self.assertIn(f"{main}: line 1", diagnostic)
+        self.assertIn(f"{main}:1:", diagnostic)
         self.assertIn(str(token), diagnostic)
 
     def test_include_depth_is_bounded(self):
@@ -231,7 +232,8 @@ class IncludeTests(GeneratorTestCase):
             with self.subTest(text=text):
                 self.write("incomplete.cpg", "entry :\n")
                 main.write_text(text)
-                self.assert_failure(main, "line ")
+                message = "parser rule must end" if text.startswith("@include") else "unsupported"
+                self.assert_failure(main, message)
 
     def test_nested_include_uses_resolved_symlink_directory(self):
         self.write("real/entry.cpg", '@include token.cpg;\nentry : TOKEN ;\n')
@@ -284,7 +286,7 @@ class IncludeTests(GeneratorTestCase):
         self.assert_failure(self.directory / "missing.cpg", "readable regular grammar file")
         main = self.write("main.cpg", f'@include "{self.directory}/missing.cpg";\n')
         diagnostic = self.assert_failure(main, "readable regular grammar file")
-        self.assertIn(f"{main}: line 1:", diagnostic)
+        self.assertIn(f"{main}:1:", diagnostic)
         diagnostic = self.assert_failure(self.directory, "readable regular grammar file")
         self.assertIn(str(self.directory), diagnostic)
 
@@ -297,7 +299,7 @@ class IncludeTests(GeneratorTestCase):
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(
             result.stderr,
-            "invalid.cpg: line 1: expected '=' or ':' after declaration name\n",
+            "invalid.cpg:1:7: bytes 6-11: expected '=' or ':' after declaration name\n",
         )
 
 
