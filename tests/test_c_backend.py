@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import subprocess
 import unittest
 
@@ -184,7 +185,11 @@ class CBackendTests(GeneratorTestCase):
                 )
                 result = self.generate(grammar)
                 self.assertEqual(result.returncode, 1, result.stderr)
-                self.assertEqual(result.stderr, f"{grammar}: line 3: C target does not support @{name}\n")
+                self.assertRegex(
+                    result.stderr,
+                    rf"^{re.escape(str(grammar))}:3:\d+: bytes \d+-\d+: "
+                    rf"C target does not support @{name}\n$",
+                )
                 self.assertFalse(self.generated.exists())
                 self.assertFalse(self.graph.exists())
 
@@ -198,7 +203,7 @@ class CBackendTests(GeneratorTestCase):
                 grammar.write_text("entry : IDENT ;\nIDENT = [a-z]+\n" + directive + "\n")
                 result = self.generate(grammar)
                 self.assertEqual(result.returncode, 1)
-                self.assertIn(f"{grammar}: line 3:", result.stderr)
+                self.assertIn(f"{grammar}:3:", result.stderr)
                 self.assertFalse(self.generated.exists())
                 self.assertFalse(self.graph.exists())
 

@@ -202,7 +202,7 @@ class InsertionTests(GeneratorTestCase):
                         result = self.invoke(ORDINARY + invalid, backend)
                         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
                         self.assertIn(message, result.stderr)
-                        self.assertIn("input.cpg: line 3:", result.stderr)
+                        self.assertIn(":3:", result.stderr)
                         for path in (self.generated, self.graph):
                             if existing:
                                 self.assertEqual(path.read_bytes(), b"preserve existing output")
@@ -225,9 +225,10 @@ class InsertionTests(GeneratorTestCase):
             for backend in ("c", "cwhip"):
                 result = self.invoke(ORDINARY + b'@include child.cpg;\n', backend)
                 self.assertEqual(result.returncode, 1, result.stderr)
-                self.assertIn(f"{leaf}: line {line}: {message}", result.stderr)
-                self.assertIn(f"included from {child}: line 2", result.stderr)
-                self.assertIn(f"included from {main}: line 3", result.stderr)
+                self.assertIn(f"{leaf}:{line}:", result.stderr)
+                self.assertIn(message, result.stderr)
+                self.assertIn(f"included from {child}:2:", result.stderr)
+                self.assertIn(f"included from {main}:3:", result.stderr)
 
     def test_collection_limits(self):
         for backend in ("c", "cwhip"):

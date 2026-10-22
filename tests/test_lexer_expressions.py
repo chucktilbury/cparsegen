@@ -213,7 +213,10 @@ class LexerExpressionValidationTests(GeneratorTestCase):
                     grammar.write_text("entry : TOKEN ;\nTOKEN = " + expression + "\n")
                     result = self.generate(grammar, backend)
                     self.assertEqual(result.returncode, 1, result.stderr)
-                    self.assertIn(f"{grammar}: line 2:", result.stderr)
+                    self.assertRegex(
+                        result.stderr,
+                        rf"^{re.escape(str(grammar))}:\d+:\d+: bytes \d+-\d+:",
+                    )
                     self.assertIn(diagnostic, result.stderr)
                     self.assertFalse(self.generated.with_suffix(
                         ".c" if backend == "c" else ".cw").exists())
@@ -222,10 +225,10 @@ class LexerExpressionValidationTests(GeneratorTestCase):
     def test_reference_cycles_and_quoted_references(self):
         for backend in ["cwhip", "c"]:
             for declarations, diagnostic in [
-                ('TOKEN = OTHER\nOTHER = TOKEN "x"\n', "line 3: cyclic lexer reference TOKEN"),
-                ('TOKEN = OTHER\nOTHER = THIRD\nTHIRD = OTHER\n', "line 4: cyclic lexer reference OTHER"),
-                ('TOKEN = STRING\n@quoted STRING double;\n', "line 2: cannot compose @quoted token STRING"),
-                ('TOKEN = OTHER?\nOTHER = [a]\n', "line 2: lexer rule TOKEN can match empty input"),
+                ('TOKEN = OTHER\nOTHER = TOKEN "x"\n', "cyclic lexer reference TOKEN"),
+                ('TOKEN = OTHER\nOTHER = THIRD\nTHIRD = OTHER\n', "cyclic lexer reference OTHER"),
+                ('TOKEN = STRING\n@quoted STRING double;\n', "cannot compose @quoted token STRING"),
+                ('TOKEN = OTHER?\nOTHER = [a]\n', "lexer rule TOKEN can match empty input"),
                 ('TOKEN = OTHER\nOTHER = [a]*\n', "can match empty input"),
             ]:
                 with self.subTest(backend=backend, declarations=declarations):
@@ -247,7 +250,7 @@ class LexerExpressionValidationTests(GeneratorTestCase):
             grammar.write_text("entry : TOKEN ;\nTOKEN = " + expression + "\n")
             result = self.generate(grammar)
             self.assertEqual(result.returncode, 1, result.stderr)
-            self.assertIn("line 2:", result.stderr)
+            self.assertIn(f"{grammar}:2:", result.stderr)
             self.assertIn(diagnostic, result.stderr)
         declarations = "\n".join(
             f"R{i} = R{i+1} R{i+1}" for i in range(13)

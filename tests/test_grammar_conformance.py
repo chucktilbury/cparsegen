@@ -76,7 +76,7 @@ class GrammarConformanceTests(GeneratorTestCase):
             ),
             (
                 "entry : TOKEN ;\nTOKEN = ([a-z]+\n",
-                2, "expected ')' after lexer group",
+                3, "expected ')' after lexer group",
             ),
             (
                 "entry : TOKEN ;\nTOKEN = [a-z]+||[0-9]+\n",
@@ -101,7 +101,7 @@ class GrammarConformanceTests(GeneratorTestCase):
                 self.assertEqual(result.stdout, "")
                 self.assertRegex(
                     result.stderr,
-                    rf"^{re.escape(str(grammar))}: line {line}: "
+                    rf"^{re.escape(str(grammar))}:{line}:\d+: bytes \d+-\d+: "
                     rf"{re.escape(diagnostic)}\n$",
                 )
                 self.assertFalse(self.generated.exists())

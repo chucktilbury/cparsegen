@@ -4,10 +4,16 @@ include "c_runtime.cw"
 class CGrammarEmitter {
     GrammarModel grammar
     GrammarEmitter shared
+    SourceSpan diagnosticSpan
+    SourceSpan relatedSpan
+    GrammarDiagnostic diagnosticInfo
 
     CGrammarEmitter(GrammarModel model, GrammarEmitter emitter) {
         grammar = model
         shared = emitter
+        diagnosticSpan = null
+        relatedSpan = null
+        diagnosticInfo = null
     }
 
     String validate() {
@@ -18,6 +24,10 @@ class CGrammarEmitter {
                 !directive.name.equals("reserved") && !directive.name.equals("quoted") &&
                 !directive.name.equals("line_comment") && !directive.name.equals("block_comment") &&
                 !directive.name.equals("note")) {
+                diagnosticSpan = directive.span
+                diagnosticInfo = GrammarDiagnostic(
+                    format("line {}: C target does not support @{}",
+                        directive.line, directive.name), directive.span, null)
                 return format("line {}: C target does not support @{}", directive.line, directive.name)
             }
             i += 1
