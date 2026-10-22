@@ -330,6 +330,72 @@ class CBackendTests(GeneratorTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "entry(TOKEN(" + "a" * 257 + "))\n")
 
+    def test_generated_cli_usage_help_and_output_failure(self):
+        grammar = 'entry : NUMBER ;\nNUMBER = [0-9]+\n'
+        source = self.directory / "cli-input.txt"
+        source.write_text("12")
+        for backend in ("cwhip", "c"):
+            executable = self.compile_grammar(grammar, backend)
+            for args in ([], ["--unknown", str(source)],
+                         ["--complete", "--json", str(source)], [str(source), "extra"]):
+                with self.subTest(backend=backend, args=args):
+                    result = subprocess.run(
+                        [str(executable), *args], capture_output=True, text=True, timeout=30,
+                    )
+                    self.assertEqual(result.returncode, 2)
+                    usage, empty = ((result.stderr, result.stdout) if backend == "c"
+                                    else (result.stdout, result.stderr))
+                    self.assertIn("usage:", usage)
+                    self.assertEqual(empty, "")
+            if backend == "c":
+                result = subprocess.run(
+                    [str(executable), "--help"], capture_output=True, text=True, timeout=30,
+                )
+                self.assertEqual(result.returncode, 0)
+                self.assertIn("--json", result.stdout)
+                self.assertEqual(result.stderr, "")
+                if os.path.exists("/dev/full"):
+                    with open("/dev/full", "w") as full:
+                        result = subprocess.run(
+                            [str(executable), str(source)], stdout=full,
+                            stderr=subprocess.PIPE, text=True, timeout=30,
+                        )
+                    self.assertEqual(result.returncode, 1)
+                    self.assertEqual(result.stderr, "parser: output write failed\n")
+
+    def test_negated_class_byte_domain_and_text_input_boundary(self):
+        grammar = 'entry : TOKEN ;\nTOKEN = [^x]\n'
+        executables = [self.compile_grammar(grammar, backend) for backend in ("cwhip", "c")]
+        source = self.directory / "byte.txt"
+        for byte in range(256):
+            with self.subTest(byte=byte):
+                source.write_bytes(bytes([byte]))
+                # Cwhip's text-file API requires valid UTF-8 before scanning.
+                parsers = executables if byte < 128 else executables[1:]
+                results = [subprocess.run(
+                    [str(executable), "--complete", str(source)],
+                    capture_output=True, timeout=30,
+                ) for executable in parsers]
+                accepted = 1 <= byte <= 127 and byte != ord("x")
+                expected = ((0, b"entry(TOKEN(" + bytes([byte]) + b"))\n", b"")
+                            if accepted else (1, b"lex error at byte 0\n", b""))
+                for result in results:
+                    self.assertEqual((result.returncode, result.stdout, result.stderr), expected)
+        source.write_bytes(b"\xc3\xa9")
+        for executable in executables:
+            result = subprocess.run(
+                [str(executable), "--complete", str(source)], capture_output=True, timeout=30,
+            )
+            self.assertEqual((result.returncode, result.stdout, result.stderr),
+                             (1, b"lex error at byte 0\n", b""))
+        source.write_bytes(b"\xff")
+        result = subprocess.run(
+            [str(executables[0]), str(source)], capture_output=True, timeout=30,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, b"")
+        self.assertIn(b"String bytes are not valid UTF-8", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

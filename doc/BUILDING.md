@@ -192,6 +192,27 @@ or under `CMAKE_PREFIX_PATH`. Set `CWHIP_SDK` to include the installed-SDK
 integration test. If you customized `CWHIP_BIN_DIR`, also set
 `CPARSEGEN_EXECUTABLE` to the absolute path of the built generator.
 
+The [feature/target matrix](TEST-COVERAGE.md) maps named tests to the
+implemented contracts, with sampled-versus-exhaustive scope, API differences,
+and validation outcomes. The installed-SDK opt-in also installs cparsegen to
+a private prefix and generates, compiles, and runs C from that installed binary.
+Optional artifact/diagnostic parity needs a separately built baseline:
+
+```sh
+CPARSEGEN_BASELINE_EXECUTABLE=/absolute/path/to/baseline/cparsegen \
+  cmake --build build --target test
+```
+
+Use a CLI-compatible current-main build; see the matrix's
+[reproduction commands](TEST-COVERAGE.md#audit-reproduction-and-recorded-outcomes).
+For a historical binary predating `--dot`, also set
+`CPARSEGEN_BASELINE_POSITIONAL_DOT=1`. Without a baseline, the two parity
+tests explicitly skip; without `CWHIP_SDK`, direct unittest runs skip the
+real installed-SDK test. Include permission checks skip when run as root.
+The documentation suite checks tracked local Markdown links/anchors and
+executes representative generation/compilation/CLI/library/insertion snippets
+in temporary directories using the existing unittest runner.
+
 ## Build the calculator example
 
 From the repository root:
@@ -244,6 +265,8 @@ Optional host-C sanitizer validation, using the same test runner:
 
 ```sh
 CPARSEGEN_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer -g' \
+  ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
+  UBSAN_OPTIONS=halt_on_error=1 \
   cmake --build build --target test
 ```
 

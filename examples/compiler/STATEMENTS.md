@@ -303,6 +303,9 @@ values to `int32_t`; the runtime owns formatting, stdio, and error handling.
 The block callback dispatches its statement children between C braces.
 Conditional and loop callbacks dispatch the condition and body blocks, emitting
 `if`/`else` and `while` rather than evaluating conditions in the compiler.
+Conditions use an explicit `0 != (expression)` truth test so parenthesized
+equality expressions compile under both GCC and Clang's strict warning flags;
+the validated `bool` value is still evaluated exactly once.
 Validation visits every body, including unreachable branches.
 Expression callbacks preserve precedence and left associativity using nested
 checked arithmetic helper calls. Integer tokens become decimal `INT32_C`
@@ -405,8 +408,9 @@ Zero-parameter functions and zero-argument calls use `name()`. Every call
 must name a collected function and pass exactly its declared number of
 arguments; arguments must match parameter types exactly. Return
 expressions must match the annotated return type (or `int` when omitted).
-Functions are not first-class values, and calls are expressions, not standalone
-statements. Definitions cannot be nested inside blocks/functions.
+Functions are not first-class values. Value-returning calls are expressions
+and may also appear as statements discarding the result; typed output builtins
+are statements only. Definitions cannot be nested inside blocks/functions.
 `return` is only valid inside a function and must have a value; a bare
 `return;` is accepted by the grammar but rejected by the semantic visitor.
 

@@ -120,6 +120,21 @@ class SourceProvenanceTests(GeneratorTestCase):
         self.assertFalse(self.generated.exists())
         self.assertFalse(self.graph.exists())
 
+    def test_deep_include_diagnostic_chain_is_explicitly_truncated(self):
+        for index in range(11):
+            self.write_bytes(f"{index}.cpg", f"@include {index + 1}.cpg;\n".encode())
+        leaf = self.write_bytes("11.cpg", b"entry : MISSING ;\nTOKEN = [a-z]+\n")
+        result = self.invoke(self.directory / "0.cpg")
+        self.assertEqual(result.returncode, 1)
+        lines = result.stderr.splitlines()
+        self.assertEqual(lines[0], f"{leaf}:1:9: bytes 8-15: unknown lexer token MISSING")
+        self.assertEqual(len(lines), 10)
+        for index, line in zip(range(10, 2, -1), lines[1:9]):
+            self.assertEqual(line, f"  included from {self.directory / str(index)}.cpg:1:1: byte 0")
+        self.assertEqual(lines[-1], "  included from ...")
+        self.assertFalse(self.generated.exists())
+        self.assertFalse(self.graph.exists())
+
 
 class CSourceProvenanceTests(SourceProvenanceTests):
     backend = "c"

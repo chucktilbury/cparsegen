@@ -2,8 +2,10 @@
 
 These examples use the installed Cwhip SDK and cparsegen, not handwritten
 scanners or parsers. Run the commands below from the repository root. Configure
-with `./scripts/setup` first, or use `cmake -S . -B build` with your SDK selected
+with `cmake -S . -B build` with your SDK selected
 as described in [Building](../doc/BUILDING.md).
+`./scripts/setup` instead opens a shell inside `build/`; return to the root
+before using the root-relative commands below.
 The small `expression.cpg` demonstrates consuming left recursion and runs
 with either backend; its original nested expression nodes are preserved.
 
@@ -311,7 +313,10 @@ results: 256 nested parser-rule calls, 100,000 matcher calls per
 parse, and 4,096 results per intermediate set. The iterative NFA scanner limits
 matching to 100,000 state visits per token, with 4,096 expanded states and
 128 expression/reference edges per path at generation time. Left-recursive
-expansion uses the same budgets and is not linear-time. Full source spans, include stacks,
-more efficient recursion handling, richer lexer syntax, C++/Python backends, and
-wider C grammar coverage remain future work. The standalone-C slice also
+expansion uses the same budgets and is not linear-time. Grammar-source spans,
+include stacks, and shared NFA/parser analysis are implemented; generated-input
+AST spans, more efficient recursion handling, richer lexer syntax, C++/Python
+backends, and wider C grammar coverage remain future work. The standalone-C slice also
 enforces 1 MiB input and 64 MiB cumulative arena-data limits.
+See the [feature/target evidence matrix](../doc/TEST-COVERAGE.md) for the
+executable coverage and explicit target/mode exceptions.

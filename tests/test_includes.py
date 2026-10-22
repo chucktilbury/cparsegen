@@ -261,6 +261,16 @@ class IncludeTests(GeneratorTestCase):
         token.write_text("@include alias.cpg;\nTOKEN = [a-z]+\n")
         self.assert_failure(main, "include cycle")
 
+    def test_hard_links_are_distinct_include_sources(self):
+        main = self.write(
+            "main.cpg", "@include token.cpg;\n@include alias.cpg;\nentry : TOKEN ;\n",
+        )
+        token = self.write("token.cpg", 'TOKEN = "ok"\n')
+        os.link(token, self.directory / "alias.cpg")
+        diagnostic = self.assert_failure(main, "duplicate lexer rule TOKEN")
+        self.assertIn(f"{self.directory / 'alias.cpg'}:1:", diagnostic)
+        self.assertIn(f"related: {token}:1:", diagnostic)
+
     def test_cli_validation_and_library_mode(self):
         main = self.write("main.cpg", '@include token.cpg;\nentry : TOKEN ;\n')
         self.write("token.cpg", 'TOKEN = "ok"\n')

@@ -168,6 +168,7 @@ class CliTests(GeneratorTestCase):
         for arguments in [
             [], ["--dot", "graph.dot"], ["grammar.cpg", "parser.cw", "graph.dot"],
             ["grammar.cpg", "parser.cw", "--unknown"],
+            ["--help"], ["--version"],
             ["--unknown", "grammar.cpg"], ["--dot"],
             ["grammar.cpg", "--dot"], ["grammar.cpg", "--dot", ""],
             ["--dot", "--library", "grammar.cpg"],
@@ -175,6 +176,9 @@ class CliTests(GeneratorTestCase):
             ["--dot", "a.dot", "grammar.cpg", "--dot", "b.dot"],
             ["--target"], ["grammar.cpg", "--target"],
             ["--target", "rust", "grammar.cpg"],
+            ["--target", "cpp", "grammar.cpg"],
+            ["--target", "c++", "grammar.cpg"],
+            ["--target", "python", "grammar.cpg"],
             ["--target", "cwhip", "grammar.cpg"],
             ["--target", "c", "grammar.cpg", "--target", "c"],
             ["--library", "grammar.cpg", "--library"],

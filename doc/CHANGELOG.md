@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Audit implemented features against named Cwhip/C CLI/library tests and add
+  a maintained feature/target evidence matrix. Repair optional baseline parity
+  to read real grammar paths and use the current CLI (legacy positional DOT
+  is explicit opt-in). Add executable lifetime/legacy visitor, allocation-fault,
+  NFA boundary, CLI, include-alias and documentation workflow regressions.
+  Reconcile current architecture, resource limits and example documentation;
+  preserve historical entries below. Fix statement-demo condition emission
+  to compile parenthesized equality under strict Clang warnings without changing
+  evaluation; generated parser bytes remain unchanged.
+
 - Make the parser-output positional path optional: derive `.cw` (default or
   `--library`) or `.c` (`--target c`) beside the supplied grammar by replacing
   its filename's last extension. Generate DOT only with named `--dot FILE`;
@@ -194,5 +204,7 @@
   configurable root output directories, and build documentation.
 - Add the standard MIT license.
 
-The parser generator remains an early prototype; consult the architecture
-document for its current syntax boundary and deferred behavior.
+The parser generator remains an early prototype; consult the
+[input/output reference](INPUT-OUTPUT.md) for current behavior, the
+[coverage matrix](TEST-COVERAGE.md) for executable evidence, and the
+[architecture document](ARCHITECTURE.md) for deferred proposals.

@@ -255,3 +255,205 @@ int main(void) {
 ''')
         result = self.run_consumer(executable)
         self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
+
+    def test_library_tokens_tree_shapes_and_retained_roots(self):
+        grammar = self.directory / "lifetime.cpg"
+        parts = self.directory / "parts"
+        parts.mkdir()
+        grammar.write_text(
+            '@include parts/entry.cpg;\n@include parts/tokens.cpg;\n',
+        )
+        (parts / "entry.cpg").write_text(
+            'entry : item ("," item)* empty ;\nitem : WORD ;\nempty : ;\n'
+            '@include tokens.cpg;\n',
+        )
+        (parts / "tokens.cpg").write_text(
+            'WORD = LETTER+\nLETTER = [a-z]\nSPACE = [ \\t\\r\\n]+\n@skip SPACE;\n'
+            '@block_comment /* */;\n'
+        )
+        sources = {
+            "c": r'''
+#define CPARSEGEN_NO_MAIN
+#include "parser.c"
+#include <assert.h>
+int main(void) {
+    const unsigned char input[] = {' ', 'a', 'b', ',', '\r', '\n', 'c'};
+    Context ctx, other;
+    cpg_init(&ctx, input, sizeof(input), "borrowed");
+    const Node *root = cpg_parse(&ctx, 1);
+    assert(root && !ctx.problem && ctx.token_count == 3);
+    assert(ctx.input == input && ctx.length == sizeof(input));
+    assert(!strcmp(ctx.tokens[0].kind, "WORD") && ctx.tokens[0].offset == 1);
+    assert(ctx.tokens[0].length == 2 && ctx.tokens[1].offset == 3);
+    assert(ctx.tokens[2].offset == 6 && ctx.tokens[2].length == 1);
+    assert(!strcmp(cpg_node_kind(root), "entry") && cpg_child_count(root) == 4);
+    assert(root->offset == 0 && cpg_node_text_length(root) == 0);
+    const Node *word = cpg_child_at(cpg_child_at(root, 0), 0);
+    assert(cpg_node_text(&ctx, word) == input + 1);
+    assert(cpg_node_text_length(word) == 2);
+    assert(!memcmp(cpg_node_text(&ctx, word), "ab", 2));
+    assert(!strcmp(cpg_node_kind(cpg_child_at(root, 1)), "@literal0"));
+    const Node *empty = cpg_child_at(root, 3);
+    assert(!strcmp(cpg_node_kind(empty), "empty") && cpg_child_count(empty) == 0);
+    assert(!cpg_child_at(root, 4) && !cpg_child_at(root, (size_t)-1));
+    cpg_init(&other, (const unsigned char *)"z", 1, "other");
+    assert(cpg_parse(&other, 1));
+    cpg_destroy(&other);
+    assert(cpg_parse(&ctx, 0));
+    assert(!memcmp(cpg_node_text(&ctx, word), "ab", 2));
+    assert(cpg_child_count(root) == 4);
+    cpg_destroy(&ctx);
+    cpg_destroy(&ctx);
+    return 0;
+}
+''',
+            "cwhip": '''
+include "parser.cw"
+class Retained {
+    AstNode tree() {
+        InputScanner scanner(" ab,\\r\\nc")
+        if (!scanner.scan() || scanner.tokens.length != 3) { Sys.Process().exit(10) }
+        LexToken first = scanner.tokens[0] as LexToken
+        LexToken last = scanner.tokens[2] as LexToken
+        if (!first.kind.equals("WORD") || !first.text.equals("ab")
+                || first.offset != 1 || last.offset != 6) { Sys.Process().exit(11) }
+        GeneratedParser parser(scanner.tokens)
+        AstNode root = parser.parseAll()
+        if (root == null || parser.position != 3 || root.childCount() != 4
+                || !root.lexeme().equals("") || !root.childAt(3).kind().equals("empty")
+                || root.childAt(3).childCount() != 0) { Sys.Process().exit(12) }
+        scanner.input = "?"
+        if (scanner.scan() || scanner.errorOffset != 0
+                || !scanner.problem.equals("lex error at byte 0")) { Sys.Process().exit(13) }
+        scanner.input = "z"
+        if (!scanner.scan() || scanner.tokens.length != 1 || scanner.errorOffset != -1
+                || !scanner.problem.equals("")) { Sys.Process().exit(14) }
+        parser.position = 0
+        if (parser.parse_item() == null || parser.position != 1) { Sys.Process().exit(15) }
+        if (parser.parse_item() != null || parser.position != 1
+                || parser.problem.equals("")) { Sys.Process().exit(16) }
+        parser.position = 2
+        if (parser.parseAll() == null || parser.position != 3
+                || !parser.problem.equals("")) { Sys.Process().exit(17) }
+        return root
+    }
+}
+start {
+    AstNode root = Retained().tree()
+    if (!root.render().equals(
+            "entry(item(WORD(ab)), @literal0(,), item(WORD(c)), empty())")) {
+        Sys.Process().exit(18)
+    }
+}
+''',
+        }
+        for backend, source in sources.items():
+            with self.subTest(backend=backend):
+                result = self.run_consumer(self.consumer(backend, grammar, source))
+                self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
+
+    def test_legacy_cwhip_visitor_remains_rule_only_and_ordered(self):
+        executable = self.consumer("cwhip", FIXTURES / "grammar.cpg", '''
+include "parser.cw"
+class Legacy : GeneratedVisitor {
+    String events
+    Legacy() { super GeneratedVisitor()
+events = "" }
+    void pre_entry(AstNode node) { events.append("pre:entry ") }
+    void post_entry(AstNode node) { events.append("post:entry ") }
+    void pre_pair(AstNode node) { events.append("pre:pair ") }
+    void post_pair(AstNode node) { events.append("post:pair ") }
+    void pre_empty(AstNode node) { events.append("pre:empty ") }
+    void post_empty(AstNode node) { events.append("post:empty ") }
+    int enter(AstNode node) { Sys.Process().exit(20)
+return VISIT_ERROR }
+    int onNode(AstNode node) { Sys.Process().exit(21)
+return VISIT_ERROR }
+}
+start {
+    InputScanner scanner("12+34")
+    if (!scanner.scan()) { Sys.Process().exit(10) }
+    GeneratedParser parser(scanner.tokens)
+    AstNode root = parser.parseAll()
+    if (root == null) { Sys.Process().exit(11) }
+    Legacy visitor()
+    visitor.visit(root)
+    print(visitor.events)
+}
+''')
+        result = self.run_consumer(executable)
+        self.assertEqual((result.returncode, result.stdout, result.stderr), (
+            0, "pre:entry pre:pair post:pair pre:empty post:empty post:entry ", "",
+        ))
+
+    def test_c_allocation_failures_and_arena_boundary_are_recoverable(self):
+        grammar = self.directory / "allocation.cpg"
+        grammar.write_text('entry : NUMBER "+" NUMBER ;\nNUMBER = [0-9]+\n')
+        executable = self.consumer("c", grammar, r'''
+#include <stdlib.h>
+#include <assert.h>
+static size_t calls, fail_at, live;
+static void *fault_malloc(size_t size) {
+    if (++calls == fail_at) return NULL;
+    void *p = malloc(size);
+    if (p) ++live;
+    return p;
+}
+static void *fault_calloc(size_t count, size_t size) {
+    if (++calls == fail_at) return NULL;
+    void *p = calloc(count, size);
+    if (p) ++live;
+    return p;
+}
+static void fault_free(void *p) {
+    if (p) { assert(live); --live; }
+    free(p);
+}
+#define malloc fault_malloc
+#define calloc fault_calloc
+#define free fault_free
+#define CPARSEGEN_NO_MAIN
+#include "parser.c"
+#undef malloc
+#undef calloc
+#undef free
+int main(void) {
+    size_t total = 0;
+    for (size_t failure = 0; failure <= total; ++failure) {
+        Context ctx;
+        calls = 0;
+        fail_at = failure;
+        cpg_init(&ctx, (const unsigned char *)"12+34", 5, "allocation");
+        const Node *root = cpg_parse(&ctx, 1);
+        if (!failure) {
+            assert(root && !ctx.problem);
+            total = calls;
+            assert(total > 10);
+        } else {
+            assert(!root && !strcmp(ctx.problem, "C runtime allocation failed"));
+        }
+        cpg_destroy(&ctx);
+        cpg_destroy(&ctx);
+        assert(live == 0);
+    }
+    static Context ctx;
+    fail_at = 0;
+    cpg_init(&ctx, (const unsigned char *)"", 0, "arena");
+    if (!setjmp(ctx.failure)) {
+        assert(allocate(&ctx, 64u * 1024u * 1024u, 1));
+        assert(ctx.allocated == 64u * 1024u * 1024u);
+        (void)allocate(&ctx, 1, 1);
+        assert(!"allocation beyond budget succeeded");
+    }
+    assert(ctx.problem && !strcmp(ctx.problem, "C runtime memory limit exceeded"));
+    cpg_destroy(&ctx);
+    assert(!live && !ctx.allocated && !ctx.allocations);
+    cpg_init(&ctx, (const unsigned char *)"12+34", 5, "retry");
+    assert(cpg_parse(&ctx, 1));
+    cpg_destroy(&ctx);
+    assert(!live);
+    return 0;
+}
+''')
+        result = self.run_consumer(executable)
+        self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))

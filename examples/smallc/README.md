@@ -207,11 +207,12 @@ storage layout, and runtime behavior remain unspecified.
 
 The generated matcher remains bounded: 256 nested **parser-rule** calls,
 100,000 matcher calls per parse, 4,096 candidates per intermediate set, and
-100,000 scanner pattern calls per token. Grammar-expression wrappers no
+100,000 scanner NFA state visits per token boundary. Grammar-expression wrappers no
 longer count as separate source-recursion levels. Exceeding a limit reports
 an explicit error rather than returning a truncated AST. These examples do
 not promise arbitrary-size C inputs or production compiler performance.
-Standalone C additionally limits input to 1 MiB, scanner-part recursion to 256,
+Both scanners use iterative state sets, not recursive pattern matching.
+Standalone C additionally limits input to 1 MiB
 and cumulative arena data to 64 MiB. Exhaustion is explicit; these C-specific
 bounds can reject larger inputs accepted by Cwhip. The tested sample corpus is
 within both runtimes' budgets.
