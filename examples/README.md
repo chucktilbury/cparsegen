@@ -4,8 +4,8 @@ These examples use the installed Cwhip SDK and cparsegen, not handwritten
 scanners or parsers. Run the commands below from the repository root. Configure
 with `./scripts/setup` first, or use `cmake -S . -B build` with your SDK selected
 as described in [Building](../doc/BUILDING.md).
-The older `expression.cpg` remains a provisional left-recursive grammar sketch,
-not a runnable example.
+The small `expression.cpg` demonstrates consuming left recursion and runs
+with either backend; its original nested expression nodes are preserved.
 
 ## Visitor application integration
 
@@ -158,9 +158,12 @@ patterns are sequences of non-negated ASCII character classes with optional
 Lexer-rule composition, general regex groups/alternation, and escaped quoted
 terminals remain unsupported.
 
-Left recursion is diagnosed, not transformed: write expression levels as in
-the calculator grammar. Parser repetition of a nullable expression is
-rejected. The generated parser preserves alternatives until their surrounding
+Consuming direct/indirect left recursion, including nullable prefixes, is
+supported by span-bounded expansion in both backends. Cycles with nullable
+context on both sides are rejected because they admit infinitely many
+equal-span trees. See the [left-recursion contract](../doc/INPUT-OUTPUT.md#left-recursion)
+for examples and the exact rejection boundary. Parser repetition of a nullable
+expression is rejected. The generated parser preserves alternatives until their surrounding
 sequence can match, chooses the shortest successful prefix, and keeps source
 order on equal-length ties. Whole-input mode requires a complete candidate
 instead of discarding trailing tokens.
@@ -228,7 +231,8 @@ This is a bounded backtracking implementation, not yet a production compiler
 frontend. It reports resource limits rather than silently truncating parse
 results: 256 nested parser-rule calls, 100,000 matcher calls per
 parse, and 4,096 results per intermediate set. The scanner also limits pattern
-matching to 100,000 calls per token. Full source spans, include stacks,
-left-recursion normalization, richer lexer syntax, C++/Python backends, and
+matching to 100,000 calls per token. Left-recursive expansion uses the same
+budgets and is not linear-time. Full source spans, include stacks,
+more efficient recursion handling, richer lexer syntax, C++/Python backends, and
 wider C grammar coverage remain future work. The standalone-C slice also
 enforces 1 MiB input and 64 MiB cumulative arena-data limits.

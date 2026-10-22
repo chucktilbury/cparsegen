@@ -51,7 +51,7 @@ This slice targets `examples/calculator/calculator.cpg` and
 checkers. The SmallC Cwhip app adds an opt-in AST semantic pass; neither
 generated parser backend performs those checks. It supports all currently validated parser
 expressions (references, literals, sequences, choices, groups, `?`/`*`/`+`,
-empty alternatives, non-left recursion), character-class regex sequences,
+empty alternatives, consuming left recursion), character-class regex sequences,
 and `@skip`. Declaration interleaving and forward references are resolved
 by the shared reader. Shared invalid-grammar diagnostics still apply.
 `@keywords`, `@reserved`, `@quoted`, `@line_comment`, and `@block_comment`
@@ -188,10 +188,17 @@ Lexer rules that can match empty input are rejected.
 
 Parser expressions now support token and parser-rule references, quoted
 terminals, sequences, ordered alternatives, groups, `?`/`*`/`+`, and explicit
-empty alternatives. Forward references and non-left recursion work.
+empty alternatives. Forward references and consuming left recursion work.
 Validation computes rule nullability, rejects repetitions with nullable
-operands, and diagnoses direct/indirect left recursion including cycles
-through nullable prefixes. Left recursion is not transformed.
+operands, and rejects direct/indirect cycles whose surrounding context can
+be empty on both sides. Consuming cycles, including those through nullable
+prefixes, use span-bounded expansion in both runtimes. A sequence reserves
+one token per nonnullable remaining child before matching its current
+child; each recursion cycle therefore advances the start or decreases the
+ending-token ceiling. This preserves original source ordering and rule-node
+nesting without helper rules or greedy suffix folding. Non-left-recursive
+grammars keep the previous matcher behavior. See the
+[exact boundary and examples](INPUT-OUTPUT.md#left-recursion).
 
 The generated parser retains candidate matches until surrounding sequences
 have matched; a locally shorter rule match cannot incorrectly hide a longer
@@ -347,9 +354,11 @@ and child order, and AST associativity. A conventional greedy suffix loop
 must not be assumed correct merely because it removes recursion. For
 example, an expression grammar intended to produce `((a+b)+c)` must retain
 that AST shape without changing which input extent the grammar matches.
-Transformation details and the supported direct/indirect cases remain open
-until their behavior is validated against representative grammars. A
-left-recursive form the implementation cannot preserve must fail with a
+The current implementation uses span-bounded expansion for consuming direct,
+indirect, and nullable-prefix cycles, preserving all finite derivations within
+the runtime budgets. It rejects zero-context cycles because they admit
+infinitely many equal-span rule wrappers. It does not substitute productions
+or flatten the resulting AST. A left-recursive form it cannot preserve fails with a
 source-located diagnostic rather than generate a looping or
 semantics-changing parser.
 
@@ -371,10 +380,10 @@ same model and be deterministic for the same grammar.
 
 This document remains a design proposal with provisional fixtures. The
 executable now establishes declaration collection, a typed expression model,
-reference/nullability/left-cycle validation, and Cwhip plus DOT emission for
-working small examples. Later work adds C, C++, and Python emitters, richer
-regexes and source tracking, efficient parser analysis, and supported
-left-recursion transformations. The calculator and SmallC grammar are concrete
+reference/nullability/zero-context-cycle validation, consuming left recursion,
+and Cwhip/C plus DOT emission for working small examples. Later work adds
+C++ and Python emitters, richer regexes and source tracking, and more
+efficient parser analysis. The calculator and SmallC grammar are concrete
 fixtures. SmallC's next milestone is source-order semantic validation and,
 eventually, a separate bytecode backend; see its
 [boundary notes](../examples/smallc/README.md#single-pass-and-semantic-boundary).

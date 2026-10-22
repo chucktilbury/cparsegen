@@ -230,7 +230,7 @@ class GeneratorTests(GeneratorTestCase):
     def test_invalid_grammars_fail_before_creating_outputs(self):
         cases = [
             ('entry : missing ;\nINTEGER = [0-9]+\n', "unknown parser rule missing"),
-            ('entry : entry INTEGER | INTEGER ;\nINTEGER = [0-9]+\n', "left recursion"),
+            ('entry : entry | INTEGER ;\nINTEGER = [0-9]+\n', "left recursion"),
             ('entry : other ;\nother : entry | INTEGER ;\nINTEGER = [0-9]+\n', "left recursion"),
             ('entry : empty entry | INTEGER ;\nempty : ;\nINTEGER = [0-9]+\n', "left recursion"),
             ('entry : (INTEGER?)* ;\nINTEGER = [0-9]+\n', "nullable repetition"),
