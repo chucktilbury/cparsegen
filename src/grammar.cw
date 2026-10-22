@@ -94,11 +94,28 @@ class GrammarScanner {
         if (value == 34 || value == 39) {
             int quote = value
             advance()
-            int startIndex = offset
+            String literal = ""
+            int literalStart = offset
             while (current() >= 0 && current() != quote && current() != 10) {
                 if (current() == 92) {
-                    problem = format("line {}: escapes are not supported in this prototype", startLine)
-                    return GrammarToken(0, "", "", startLine)
+                    literal.append(source.slice(literalStart, offset))
+                    advance()
+                    int escaped = current()
+                    if (escaped == 110) { literal.append("\n") }
+                    else {
+                        if (escaped == 114) { literal.append("\r") }
+                        else {
+                            if (escaped == 116) { literal.append("\t") }
+                            else {
+                                if (escaped != 92 && escaped != 34 && escaped != 39) {
+                                    problem = format("line {}: unsupported quoted escape", startLine)
+                                    return GrammarToken(0, "", "", startLine)
+                                }
+                                literal.append(source.slice(offset, offset + 1))
+                            }
+                        }
+                    }
+                    literalStart = offset + 1
                 }
                 advance()
             }
@@ -106,7 +123,7 @@ class GrammarScanner {
                 problem = format("line {}: unterminated quoted literal", startLine)
                 return GrammarToken(0, "", "", startLine)
             }
-            String literal = source.slice(startIndex, offset)
+            literal.append(source.slice(literalStart, offset))
             advance()
             return GrammarToken(257, literal, "", startLine)
         }
@@ -150,6 +167,10 @@ class GrammarScanner {
             return GrammarToken(259, content, directiveName, startLine)
         }
 
+        if (value > 127) {
+            problem = format("line {}: unsupported non-ASCII grammar syntax", startLine)
+            return GrammarToken(0, "", "", startLine)
+        }
         advance()
         return GrammarToken(value, source.slice(offset - 1, offset), "", startLine)
     }
@@ -157,29 +178,59 @@ class GrammarScanner {
 
 class LexerRule {
     String name
-    list parts
+    LexerExpr expression
+    int state
+    int entry
     bool skip
     int quote
     int line
 
     LexerRule(String tokenName, int sourceLine) {
         name = tokenName
-        parts = []
+        expression = null
+        state = 0
+        entry = -1
         skip = false
         quote = 0
         line = sourceLine
     }
 }
 
-class RegexPart {
+// Kinds: character class, reference, sequence, choice, repetition.
+class LexerExpr {
+    int kind
+    String value
+    list children
     list ranges
     int minimum
     int maximum
+    int line
+    bool nullable
 
-    RegexPart(list characters, int lower, int upper) {
+    LexerExpr(int expressionKind, int sourceLine) {
+        kind = expressionKind
+        value = ""
+        children = []
+        ranges = []
+        minimum = 1
+        maximum = 1
+        line = sourceLine
+        nullable = false
+    }
+}
+
+// Thompson states: byte transition, epsilon split, accepting state.
+class LexerState {
+    int kind
+    list ranges
+    int next
+    int alternate
+
+    LexerState(int stateKind, list characters, int target, int other) {
+        kind = stateKind
         ranges = characters
-        minimum = lower
-        maximum = upper
+        next = target
+        alternate = other
     }
 }
 
@@ -251,6 +302,8 @@ class GrammarModel {
     list lineComments
     list blockComments
     bool leftRecursive
+    list lexerStates
+    String lexerProblem
 
     GrammarModel() {
         lexerRules = []
@@ -261,6 +314,8 @@ class GrammarModel {
         lineComments = []
         blockComments = []
         leftRecursive = false
+        lexerStates = []
+        lexerProblem = ""
     }
 
     LexerRule findLexer(String name) {
@@ -419,7 +474,7 @@ class GrammarModel {
         if (!keywordToken.equals("")) {
             LexerRule token = findLexer(keywordToken)
             if (token == null || token.quote != 0) {
-                return "@keywords must name a declared character-class lexer token"
+                return "@keywords must name a declared expression lexer token"
             }
         }
         if (reserved.length > 0 && keywordToken.equals("")) {
@@ -467,6 +522,97 @@ class GrammarModel {
         return ""
     }
 
+    String resolveLexer(LexerExpr expression, int depth) {
+        if (depth > 128) {
+            return format("line {}: lexer expression nesting/reference limit exceeded (128)", expression.line)
+        }
+        if (expression.kind == 1) {
+            LexerRule target = findLexer(expression.value)
+            if (target == null) {
+                return format("line {}: unknown lexer reference {}", expression.line, expression.value)
+            }
+            if (target.quote != 0) {
+                return format("line {}: cannot compose @quoted token {}", expression.line, target.name)
+            }
+            if (target.state == 1) {
+                return format("line {}: cyclic lexer reference {}", expression.line, target.name)
+            }
+            if (target.state == 0) {
+                target.state = 1
+                String error = resolveLexer(target.expression, depth + 1)
+                if (!error.equals("")) { return error }
+                target.state = 2
+            }
+            expression.nullable = target.expression.nullable
+            return ""
+        }
+        bool nullable = expression.kind == 2 || (expression.kind == 4 && expression.minimum == 0)
+        int c = 0
+        while (c < expression.children.length) {
+            LexerExpr child = expression.children[c] as LexerExpr
+            String error = resolveLexer(child, depth + 1)
+            if (!error.equals("")) { return error }
+            if (expression.kind == 2 && !child.nullable) { nullable = false }
+            if (expression.kind == 3 && child.nullable) { nullable = true }
+            if (expression.kind == 4 && child.nullable) {
+                return format("line {}: nullable lexer repetition is not supported", expression.line)
+            }
+            c += 1
+        }
+        expression.nullable = nullable
+        return ""
+    }
+
+    int lexerState(int kind, list ranges, int next, int alternate, int line) {
+        if (lexerStates.length >= 4096) {
+            lexerProblem = format("line {}: expanded lexer state limit exceeded (4096)", line)
+            return -1
+        }
+        int index = lexerStates.length
+        lexerStates.append(LexerState(kind, ranges, next, alternate))
+        return index
+    }
+
+    int compileLexer(LexerExpr expression, int next, int depth) {
+        if (!lexerProblem.equals("")) { return -1 }
+        if (depth > 128) {
+            lexerProblem = format("line {}: expanded lexer nesting/reference limit exceeded (128)", expression.line)
+            return -1
+        }
+        if (expression.kind == 0) {
+            return lexerState(0, expression.ranges, next, -1, expression.line)
+        }
+        if (expression.kind == 1) {
+            return compileLexer(findLexer(expression.value).expression, next, depth + 1)
+        }
+        if (expression.kind == 2) {
+            int c = expression.children.length - 1
+            while (c >= 0 && lexerProblem.equals("")) {
+                next = compileLexer(expression.children[c] as LexerExpr, next, depth + 1)
+                c -= 1
+            }
+            return next
+        }
+        if (expression.kind == 3) {
+            int result = compileLexer(expression.children[0] as LexerExpr, next, depth + 1)
+            int c = 1
+            while (c < expression.children.length && lexerProblem.equals("")) {
+                int branch = compileLexer(expression.children[c] as LexerExpr, next, depth + 1)
+                result = lexerState(1, [], result, branch, expression.line)
+                c += 1
+            }
+            return result
+        }
+        int split = lexerState(1, [], -1, next, expression.line)
+        if (split < 0) { return -1 }
+        int continuation = next
+        if (expression.maximum < 0) { continuation = split }
+        int child = compileLexer(expression.children[0] as LexerExpr, continuation, depth + 1)
+        (lexerStates[split] as LexerState).next = child
+        if (expression.minimum == 0) { return split }
+        return child
+    }
+
     String validate() {
         String directiveError = lexicalDirectives()
         if (!directiveError.equals("")) { return directiveError }
@@ -482,15 +628,22 @@ class GrammarModel {
             if (findLexerCount(rule.name) > 1) {
                 return format("line {}: duplicate lexer rule {}", rule.line, rule.name)
             }
-            bool nullable = true
-            int p = 0
-            while (p < rule.parts.length) {
-                RegexPart part = rule.parts[p] as RegexPart
-                if (part.minimum > 0) { nullable = false }
-                p += 1
-            }
-            if (nullable && rule.quote == 0) {
-                return format("line {}: lexer rule {} can match empty input", rule.line, rule.name)
+            i += 1
+        }
+        i = 0
+        while (i < lexerRules.length) {
+            LexerRule rule = lexerRules[i] as LexerRule
+            if (rule.quote == 0) {
+                rule.state = 1
+                String error = resolveLexer(rule.expression, 0)
+                if (!error.equals("")) { return error }
+                rule.state = 2
+                if (rule.expression.nullable) {
+                    return format("line {}: lexer rule {} can match empty input", rule.line, rule.name)
+                }
+                int accept = lexerState(2, [], -1, -1, rule.line)
+                rule.entry = compileLexer(rule.expression, accept, 0)
+                if (!lexerProblem.equals("")) { return lexerProblem }
             }
             i += 1
         }
@@ -572,11 +725,13 @@ class GrammarModel {
 class GrammarReader {
     list tokens
     int position
+    int classPosition
     String problem
 
     GrammarReader(String source) {
         tokens = []
         position = 0
+        classPosition = 0
         problem = ""
         GrammarScanner scanner(source)
         while (true) {
@@ -608,43 +763,34 @@ class GrammarReader {
         return token.text
     }
 
+    int classByte(GrammarToken token) {
+        int byte = int(token.text.byteAt(classPosition))
+        classPosition += 1
+        if (byte == 92) {
+            byte = int(token.text.byteAt(classPosition))
+            classPosition += 1
+            if (byte == 110) { return 10 }
+            if (byte == 114) { return 13 }
+            if (byte == 116) { return 9 }
+            if (byte != 92 && byte != 93 && byte != 91 && byte != 45 && byte != 94) {
+                problem = format("line {}: unsupported character-class escape", token.line)
+            }
+        }
+        return byte
+    }
+
     list classRanges(GrammarToken token) {
         String pattern = token.text
         list ranges = []
-        int i = 1
-        while (i < pattern.length - 1) {
-            int first = int(pattern.byteAt(i))
-            if (first == 94 && i == 1) {
-                problem = format("line {}: negated character classes are not supported", token.line)
-                return ranges
-            }
-            if (first == 92) {
-                i += 1
-                first = int(pattern.byteAt(i))
-                if (first == 110) { first = 10 }
-                else {
-                    if (first == 114) { first = 13 }
-                    else {
-                        if (first == 116) { first = 9 }
-                        else {
-                            if (first != 92 && first != 93 && first != 45) {
-                                problem = format("line {}: unsupported character-class escape", token.line)
-                                return ranges
-                            }
-                        }
-                    }
-                }
-            }
-            i += 1
+        classPosition = 1
+        bool negated = int(pattern.byteAt(1)) == 94
+        if (negated) { classPosition += 1 }
+        while (classPosition < pattern.length - 1 && problem.equals("")) {
+            int first = classByte(token)
             int last = first
-            if (i + 1 < pattern.length - 1 && int(pattern.byteAt(i)) == 45) {
-                i += 1
-                last = int(pattern.byteAt(i))
-                if (last == 92) {
-                    problem = format("line {}: escaped range endpoints are not supported", token.line)
-                    return ranges
-                }
-                i += 1
+            if (classPosition + 1 < pattern.length - 1 && int(pattern.byteAt(classPosition)) == 45) {
+                classPosition += 1
+                last = classByte(token)
                 if (last < first) {
                     problem = format("line {}: descending character-class range", token.line)
                     return ranges
@@ -659,7 +805,110 @@ class GrammarReader {
         if (ranges.length == 0) {
             problem = format("line {}: empty character class", token.line)
         }
+        if (negated && problem.equals("")) {
+            list complement = []
+            int byte = 1
+            int lower = -1
+            while (byte <= 127) {
+                bool included = false
+                int r = 0
+                while (r < ranges.length) {
+                    ByteRange range = ranges[r] as ByteRange
+                    if (byte >= range.first && byte <= range.last) { included = true }
+                    r += 1
+                }
+                if (!included && lower < 0) { lower = byte }
+                if (included && lower >= 0) {
+                    complement.append(ByteRange(lower, byte - 1))
+                    lower = -1
+                }
+                byte += 1
+            }
+            if (lower >= 0) { complement.append(ByteRange(lower, 127)) }
+            if (complement.length == 0) {
+                problem = format("line {}: character class matches no ASCII bytes", token.line)
+            }
+            return complement
+        }
         return ranges
+    }
+
+    LexerExpr lexerChoice(int line, int depth) {
+        LexerExpr expression = LexerExpr(3, line)
+        if (depth > 128) {
+            problem = format("line {}: lexer group nesting limit exceeded (128)", line)
+            return expression
+        }
+        expression.children.append(lexerSequence(line, depth))
+        while (peek().line == line && peek().kind == 124 && problem.equals("")) {
+            take()
+            expression.children.append(lexerSequence(line, depth))
+        }
+        return expression
+    }
+
+    LexerExpr lexerSequence(int line, int depth) {
+        LexerExpr expression = LexerExpr(2, line)
+        while (peek().line == line && peek().kind != 0 && peek().kind != 124 &&
+               peek().kind != 41 && peek().kind != 59 && problem.equals("")) {
+            GrammarToken token = take()
+            LexerExpr atom = null
+            if (token.kind == 258) {
+                atom = LexerExpr(0, token.line)
+                atom.ranges = classRanges(token)
+            }
+            else {
+                if (token.kind == 256) {
+                    atom = LexerExpr(1, token.line)
+                    atom.value = token.text
+                }
+                else {
+                    if (token.kind == 257) {
+                        atom = LexerExpr(2, token.line)
+                        if (token.text.length == 0) {
+                            problem = format("line {}: empty lexer literal is not supported", token.line)
+                        }
+                        int b = 0
+                        while (b < token.text.length) {
+                            int byte = int(token.text.byteAt(b))
+                            if (byte == 0 || byte > 127) {
+                                problem = format("line {}: lexer literals must contain non-NUL ASCII bytes", token.line)
+                            }
+                            LexerExpr character = LexerExpr(0, token.line)
+                            character.ranges.append(ByteRange(byte, byte))
+                            atom.children.append(character)
+                            b += 1
+                        }
+                    }
+                    else {
+                        if (token.kind == 40) {
+                            atom = lexerChoice(line, depth + 1)
+                            if (problem.equals("") && (peek().line != line || peek().kind != 41)) {
+                                problem = format("line {}: expected ')' after lexer group", token.line)
+                            }
+                            if (problem.equals("")) { take() }
+                        }
+                        else {
+                            problem = format("line {}: unsupported lexer expression syntax (expected class, literal, reference, or group)", token.line)
+                            return expression
+                        }
+                    }
+                }
+            }
+            if (peek().line == line && (peek().kind == 42 || peek().kind == 43 || peek().kind == 63)) {
+                GrammarToken quantifier = take()
+                LexerExpr repeated = LexerExpr(4, quantifier.line)
+                repeated.children.append(atom)
+                if (quantifier.kind != 43) { repeated.minimum = 0 }
+                if (quantifier.kind != 63) { repeated.maximum = -1 }
+                atom = repeated
+            }
+            expression.children.append(atom)
+        }
+        if (expression.children.length == 0 && problem.equals("")) {
+            problem = format("line {}: expected nonempty lexer expression", line)
+        }
+        return expression
     }
 
     RuleExpr choice() {
@@ -718,24 +967,10 @@ class GrammarReader {
                     GrammarToken separator = take()
                     if (separator.kind == 61) {
                         LexerRule rule = LexerRule(first.text, first.line)
-                        while (peek().kind == 258 && peek().line == first.line && problem.equals("")) {
-                            GrammarToken tokenClass = take()
-                            list ranges = classRanges(tokenClass)
-                            int minimum = 1
-                            int maximum = 1
-                            if (peek().line == first.line &&
-                                (peek().kind == 43 || peek().kind == 42 || peek().kind == 63)) {
-                                int quantifier = take().kind
-                                if (quantifier != 43) { minimum = 0 }
-                                if (quantifier != 63) { maximum = -1 }
-                            }
-                            rule.parts.append(RegexPart(ranges, minimum, maximum))
-                        }
-                        if (rule.parts.length == 0) {
-                            problem = format("line {}: expected lexer character class", first.line)
-                        }
-                        if (peek().kind != 0 && peek().line == first.line) {
-                            problem = format("line {}: unsupported lexer regex syntax", first.line)
+                        rule.expression = lexerChoice(first.line, 0)
+                        if (peek().line == first.line && peek().kind == 59) { take() }
+                        if (peek().kind != 0 && peek().line == first.line && problem.equals("")) {
+                            problem = format("line {}: unexpected token after lexer expression", first.line)
                         }
                         grammar.lexerRules.append(rule)
                     }

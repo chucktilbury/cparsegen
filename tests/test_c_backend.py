@@ -255,7 +255,7 @@ class CBackendTests(GeneratorTestCase):
         executable = self.compile_grammar(
             'entry : DIGITS ;\nDIGITS = [0-9]*[0-9]*[0-9]\n'
         )
-        result = self.parse(executable, "1" * 1000)
+        result = self.parse(executable, "1" * 25000)
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stdout, "scanner resource limit exceeded\n")
         executable = self.compile_grammar('entry : ("a" | "a")* ;\nUNUSED = [0-9]\n')
@@ -316,14 +316,14 @@ class CBackendTests(GeneratorTestCase):
                 self.assertIn(problem, result.stderr)
                 self.assertRegex(result.stderr, r":\d+:\d+: ")
 
-    def test_scanner_part_depth_limit(self):
+    def test_flat_scanner_sequences_do_not_use_recursive_stack(self):
         executable = self.compile_grammar('entry : TOKEN ;\nTOKEN = ' + "[a]" * 256 + "\n")
         result = self.parse(executable, "a" * 256)
         self.assertEqual(result.returncode, 0, result.stderr)
         executable = self.compile_grammar('entry : TOKEN ;\nTOKEN = ' + "[a]" * 257 + "\n")
         result = self.parse(executable, "a" * 257)
-        self.assertEqual(result.returncode, 1)
-        self.assertEqual(result.stdout, "scanner resource limit exceeded\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "entry(TOKEN(" + "a" * 257 + "))\n")
 
 
 if __name__ == "__main__":

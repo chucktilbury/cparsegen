@@ -123,6 +123,46 @@ Use `--complete` to require the whole input, as above. Library consumers use
 `GeneratedParser.parseAll()` for the same behavior. The calculator always
 uses this complete-input API.
 
+## Composable lexer expressions
+
+[lexer-expressions.cpg](lexer-expressions.cpg) composes signed decimal/exponent
+numbers and identifiers from named helpers, including forward references:
+
+```text
+NUMBER = ("+" | "-")? DIGIT+ ("." DIGIT+)? EXP?
+IDENT = LETTER (LETTER | DIGIT)*
+EXP = [eE] ("+" | "-")? DIGIT+
+DIGIT = [0-9]
+LETTER = [A-Za-z_]
+```
+
+The complete grammar also declares `assignment`, skipped whitespace, keyword
+remapping, and comments. Run it with either backend:
+
+```sh
+mkdir -p build/lexer-expressions
+./bin/cparsegen examples/lexer-expressions.cpg \
+  build/lexer-expressions/parser.cw build/lexer-expressions/grammar.dot
+cwhip build/lexer-expressions/parser.cw -o build/lexer-expressions/parse-cw
+./bin/cparsegen --target c examples/lexer-expressions.cpg \
+  build/lexer-expressions/parser.c build/lexer-expressions/grammar.dot
+cc -std=c99 -Wall -Wextra -Werror -pedantic \
+  build/lexer-expressions/parser.c -o build/lexer-expressions/parse-c
+printf 'let total = -12.5e+2; // amount\n' > build/lexer-expressions/input.txt
+build/lexer-expressions/parse-cw --complete build/lexer-expressions/input.txt
+build/lexer-expressions/parse-c --complete build/lexer-expressions/input.txt
+```
+
+Both print:
+
+```text
+assignment(@literal0(let), IDENT(total), @literal1(=), NUMBER(-12.5e+2), @literal2(;))
+```
+
+Helpers remain scanner candidates; declaring larger tokens first keeps their
+token kinds on equal-length ties. References compose patterns, not parser/AST
+nodes. See the [exact syntax, escaping, and limits](../doc/INPUT-OUTPUT.md#lexer-declarations).
+
 ## Standalone C calculator syntax parser
 
 ```sh
@@ -153,10 +193,12 @@ see [Application integration](../doc/VISITORS.md) and the
 
 The generator now supports named parser-rule references, groups,
 alternation, sequences, `?`/`*`/`+`, and explicit empty alternatives. Lexer
-patterns are sequences of non-negated ASCII character classes with optional
-`?`/`*`/`+`; `@skip TOKEN;` marks a whitespace-like token as discarded.
-Lexer-rule composition, general regex groups/alternation, and escaped quoted
-terminals remain unsupported.
+patterns support ASCII classes/ranges/negation, quoted literals, named-rule
+composition, groups, alternation, concatenation, and `?`/`*`/`+`.
+`@skip TOKEN;` discards the winning token. Lexer patterns must be single-line,
+nonnullable, and acyclic; there are no wildcard/anchor operators, counted
+repetition, backreferences, or Unicode classes. Grammar literals support
+`\\`, `\"`, `\'`, `\n`, `\r`, and `\t`.
 
 Consuming direct/indirect left recursion, including nullable prefixes, is
 supported by span-bounded expansion in both backends. Cycles with nullable
@@ -227,12 +269,13 @@ inside a quoted token are not skipped.
 
 ## Resource bounds
 
-This is a bounded backtracking implementation, not yet a production compiler
+The parser uses bounded backtracking and is not yet a production compiler
 frontend. It reports resource limits rather than silently truncating parse
 results: 256 nested parser-rule calls, 100,000 matcher calls per
-parse, and 4,096 results per intermediate set. The scanner also limits pattern
-matching to 100,000 calls per token. Left-recursive expansion uses the same
-budgets and is not linear-time. Full source spans, include stacks,
+parse, and 4,096 results per intermediate set. The iterative NFA scanner limits
+matching to 100,000 state visits per token, with 4,096 expanded states and
+128 expression/reference edges per path at generation time. Left-recursive
+expansion uses the same budgets and is not linear-time. Full source spans, include stacks,
 more efficient recursion handling, richer lexer syntax, C++/Python backends, and
 wider C grammar coverage remain future work. The standalone-C slice also
 enforces 1 MiB input and 64 MiB cumulative arena-data limits.

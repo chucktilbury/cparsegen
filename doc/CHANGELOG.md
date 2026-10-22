@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Implement composable lexer expressions in both backends: grouping,
+  alternation, concatenation, `?`/`*`/`+`, ASCII classes/ranges/negation,
+  quoted literals and forward named-rule references. Define precedence and
+  escaping; preserve simple class rules and allow optional lexer semicolons.
+  Resolve/validate the shared AST and compile bounded Thompson NFAs before
+  emitting either target. Reject empty tokens, nullable repetition, reference
+  cycles, unknown/quoted-token references, and excessive nesting/expansion
+  with source lines. Iterative deduplicated matching removes exponential
+  scanner backtracking while preserving longest-byte selection, tie ordering,
+  skips, keywords, comments, quoted input, and parser/AST APIs. Add cross-backend
+  scanner/offset regressions, malformed-expression tests, and a runnable grammar.
+
 - Support consuming direct, mutual/indirect, and nullable-prefix left recursion
   in both generated backends using span-bounded expansion. Preserve original
   rule nesting, source-order ties, precedence/associativity, caller

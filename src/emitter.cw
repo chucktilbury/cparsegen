@@ -96,11 +96,11 @@ class GrammarEmitter {
         output.append("    String kind() { return name }\n    String lexeme() { return text }\n    int childCount() { return children.length }\n    AstNode childAt(int index) { return children[index] as AstNode }\n")
         output.append("    String render() {\n        String result = \"\"\n        result.append(name)\n        result.append(\"(\")\n        if (children.length == 0) { result.append(text) }\n        int i = 0\n        while (i < children.length) {\n            if (i > 0) { result.append(\", \") }\n            result.append((children[i] as AstNode).render())\n            i += 1\n        }\n        result.append(\")\")\n        return result\n    }\n}\n\n")
         output.append("class ScanRange {\n    int first\n    int last\n    ScanRange(int a, int b) { first = a\nlast = b }\n}\n\n")
-        output.append("class ScanPart {\n    list ranges\n    int minimum\n    int maximum\n    ScanPart(list r, int a, int b) { ranges = r\nminimum = a\nmaximum = b }\n")
+        output.append("class ScanState {\n    int kind\n    list ranges\n    int next\n    int alternate\n    ScanState(int k, list r, int n, int a) { kind = k\nranges = r\nnext = n\nalternate = a }\n")
         output.append("    bool accepts(int byte) {\n        int i = 0\n        while (i < ranges.length) {\n            ScanRange range = ranges[i] as ScanRange\n            if (byte >= range.first && byte <= range.last) { return true }\n            i += 1\n        }\n        return false\n    }\n}\n\n")
-        output.append("class ScanRule {\n    String name\n    list parts\n    bool skip\n    int quote\n    ScanRule(String n, list p, bool s, int q) { name = n\nparts = p\nskip = s\nquote = q }\n}\n\n")
-        output.append("class InputScanner {\n    String input\n    list tokens\n    list rules\n    list lineComments\n    list blockComments\n    int errorOffset\n    String problem\n    int steps\n")
-        output.append("    InputScanner(String text) {\n        input = text\n        tokens = []\n        rules = []\n        lineComments = []\n        blockComments = []\n        errorOffset = -1\n        problem = \"\"\n        steps = 0\n")
+        output.append("class ScanRule {\n    String name\n    int entry\n    bool skip\n    int quote\n    ScanRule(String n, int e, bool s, int q) { name = n\nentry = e\nskip = s\nquote = q }\n}\n\n")
+        output.append("class InputScanner {\n    String input\n    list tokens\n    list rules\n    list states\n    list lineComments\n    list blockComments\n    int errorOffset\n    String problem\n    int steps\n")
+        output.append("    InputScanner(String text) {\n        input = text\n        tokens = []\n        rules = []\n        states = []\n        lineComments = []\n        blockComments = []\n        errorOffset = -1\n        problem = \"\"\n        steps = 0\n")
         int comment = 0
         while (comment < grammar.lineComments.length) {
             output.append(format("        lineComments.append({})\n", quoted(grammar.lineComments[comment] as String)))
@@ -112,34 +112,35 @@ class GrammarEmitter {
             output.append(format("        blockComments.append([{}, {}])\n", quoted(markers[0] as String), quoted(markers[1] as String)))
             comment += 1
         }
+        int s = 0
+        while (s < grammar.lexerStates.length) {
+            LexerState state = grammar.lexerStates[s] as LexerState
+            output.append(format("        list ranges{} = []\n", s))
+            int n = 0
+            while (n < state.ranges.length) {
+                ByteRange range = state.ranges[n] as ByteRange
+                output.append(format("        ranges{}.append(ScanRange({}, {}))\n", s, range.first, range.last))
+                n += 1
+            }
+            output.append(format("        states.append(ScanState({}, ranges{}, {}, {}))\n", state.kind, s, state.next, state.alternate))
+            s += 1
+        }
         int r = 0
         while (r < grammar.lexerRules.length) {
             LexerRule rule = grammar.lexerRules[r] as LexerRule
-            output.append(format("        list parts{} = []\n", r))
-            int p = 0
-            while (p < rule.parts.length) {
-                RegexPart part = rule.parts[p] as RegexPart
-                output.append(format("        list ranges{}_{} = []\n", r, p))
-                int n = 0
-                while (n < part.ranges.length) {
-                    ByteRange range = part.ranges[n] as ByteRange
-                    output.append(format("        ranges{}_{}.append(ScanRange({}, {}))\n", r, p, range.first, range.last))
-                    n += 1
-                }
-                output.append(format("        parts{}.append(ScanPart(ranges{}_{}, {}, {}))\n", r, r, p, part.minimum, part.maximum))
-                p += 1
-            }
             String skipped = "false"
             if (rule.skip) { skipped = "true" }
-            output.append(format("        rules.append(ScanRule({}, parts{}, {}, {}))\n", quoted(rule.name), r, skipped, rule.quote))
+            output.append(format("        rules.append(ScanRule({}, {}, {}, {}))\n", quoted(rule.name), rule.entry, skipped, rule.quote))
             r += 1
         }
         output.append("    }\n")
         output.append("    bool startsAt(int at, String marker) {\n        return input.length - at >= marker.length && input.slice(at, at + marker.length).equals(marker)\n    }\n")
         output.append("    int skipComment(int at) {\n        int c = 0\n        while (c < lineComments.length) {\n            String marker = lineComments[c] as String\n            if (startsAt(at, marker)) {\n                int end = at + marker.length\n                while (end < input.length && int(input.byteAt(end)) != 10 && int(input.byteAt(end)) != 13) { end += 1 }\n                return end\n            }\n            c += 1\n        }\n        c = 0\n        while (c < blockComments.length) {\n            list markers = blockComments[c] as list\n            String opening = markers[0] as String\n            String closing = markers[1] as String\n            if (startsAt(at, opening)) {\n                int end = at + opening.length\n                while (end < input.length && !startsAt(end, closing)) { end += 1 }\n                if (end == input.length) { errorOffset = at\nproblem = format(\"unterminated block comment at byte {}\", at)\nreturn -1 }\n                return end + closing.length\n            }\n            c += 1\n        }\n        return at\n    }\n")
         output.append("    int matchQuote(int at, int quote) {\n        if (int(input.byteAt(at)) != quote) { return -1 }\n        int end = at + 1\n        int characters = 0\n        while (end < input.length && int(input.byteAt(end)) != quote) {\n            int byte = int(input.byteAt(end))\n            if (byte < 32 || byte > 126) { break }\n            if (byte == 92) {\n                end += 1\n                if (end == input.length) { break }\n                byte = int(input.byteAt(end))\n                if (byte != 92 && byte != 34 && byte != 39 && byte != 110 && byte != 114 && byte != 116 && byte != 48) {\n                    errorOffset = end\n                    problem = format(\"invalid quoted escape at byte {}\", end)\n                    return -1\n                }\n            }\n            characters += 1\n            end += 1\n        }\n        if (end >= input.length || int(input.byteAt(end)) != quote) {\n            errorOffset = at\n            problem = format(\"unterminated quoted token at byte {}\", at)\n            return -1\n        }\n        if (quote == 39 && characters != 1) {\n            errorOffset = at\n            problem = format(\"character literal must contain one byte or escape at byte {}\", at)\n            return -1\n        }\n        return end + 1\n    }\n")
-        output.append("    int matchParts(list parts, int index, int offset) {\n        steps += 1\n        if (steps > 100000) { problem = \"scanner resource limit exceeded\"\nreturn -1 }\n        if (index == parts.length) { return offset }\n        ScanPart part = parts[index] as ScanPart\n        int end = offset\n        while (end < input.length && (part.maximum < 0 || end - offset < part.maximum) && part.accepts(int(input.byteAt(end)))) { end += 1 }\n        int best = -1\n        while (end - offset >= part.minimum) {\n            int candidate = matchParts(parts, index + 1, end)\n            if (candidate > best) { best = candidate }\n            if (!problem.equals(\"\")) { return -1 }\n            end -= 1\n        }\n        return best\n    }\n")
-        output.append("    bool scan() {\n        tokens = []\n        errorOffset = -1\n        problem = \"\"\n        int i = 0\n        while (i < input.length) {\n            int afterComment = skipComment(i)\n            if (afterComment < 0) { return false }\n            if (afterComment > i) { i = afterComment }\n            else {\n            int bestEnd = i\n            String bestKind = \"\"\n            bool skip = false\n            int r = 0\n            steps = 0\n            while (r < rules.length) {\n                ScanRule rule = rules[r] as ScanRule\n                int end = -1\n                if (rule.quote != 0) { end = matchQuote(i, rule.quote) }\n                else { end = matchParts(rule.parts, 0, i) }\n                if (!problem.equals(\"\")) {\n                    if (errorOffset < 0) { errorOffset = i }\n                    return false\n                }\n                if (end > bestEnd) { bestEnd = end\nbestKind = rule.name\nskip = rule.skip }\n                r += 1\n            }\n")
+        output.append("    void addState(list active, list seen, int index) {\n        if (index >= 0 && !(seen[index] as bool)) { seen[index] = true\nactive.append(index) }\n    }\n")
+        output.append("    bool closure(list active, list seen) {\n        int i = 0\n        while (i < active.length) {\n            steps += 1\n            if (steps > 100000) { problem = \"scanner resource limit exceeded\"\nreturn false }\n            ScanState state = states[active[i] as int] as ScanState\n            if (state.kind == 1) { addState(active, seen, state.next)\naddState(active, seen, state.alternate) }\n            i += 1\n        }\n        return true\n    }\n")
+        output.append("    int matchStates(int entry, int offset) {\n        list active = []\n        list seen = []\n        int s = 0\n        while (s < states.length) { seen.append(false)\ns += 1 }\n        addState(active, seen, entry)\n        int best = -1\n        int at = offset\n        while (active.length > 0) {\n            if (!closure(active, seen)) { return -1 }\n            list next = []\n            s = 0\n            while (s < seen.length) { seen[s] = false\ns += 1 }\n            s = 0\n            while (s < active.length) {\n                ScanState state = states[active[s] as int] as ScanState\n                if (state.kind == 2) { best = at }\n                if (state.kind == 0 && at < input.length && state.accepts(int(input.byteAt(at)))) { addState(next, seen, state.next) }\n                s += 1\n            }\n            if (at == input.length) { return best }\n            active = next\n            at += 1\n        }\n        return best\n    }\n")
+        output.append("    bool scan() {\n        tokens = []\n        errorOffset = -1\n        problem = \"\"\n        int i = 0\n        while (i < input.length) {\n            int afterComment = skipComment(i)\n            if (afterComment < 0) { return false }\n            if (afterComment > i) { i = afterComment }\n            else {\n            int bestEnd = i\n            String bestKind = \"\"\n            bool skip = false\n            int r = 0\n            steps = 0\n            while (r < rules.length) {\n                ScanRule rule = rules[r] as ScanRule\n                int end = -1\n                if (rule.quote != 0) { end = matchQuote(i, rule.quote) }\n                else { end = matchStates(rule.entry, i) }\n                if (!problem.equals(\"\")) {\n                    if (errorOffset < 0) { errorOffset = i }\n                    return false\n                }\n                if (end > bestEnd) { bestEnd = end\nbestKind = rule.name\nskip = rule.skip }\n                r += 1\n            }\n")
         int lit = 0
         while (lit < literals.length) {
             String value = literals[lit] as String
