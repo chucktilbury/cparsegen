@@ -1,34 +1,32 @@
 class GrammarEmitter {
     GrammarModel grammar
+    Analysis analysis
     list literals
     list expressions
     list visitorNames
     list visitorSuffixes
 
+    // Reads only the shared, already-validated Analysis; it recomputes nothing.
     GrammarEmitter(GrammarModel model) {
         grammar = model
-        literals = []
-        expressions = []
+        analysis = model.analysis
+        literals = analysis.literals
+        expressions = analysis.expressions
         visitorNames = []
         visitorSuffixes = []
         int i = 0
-        while (i < grammar.parserRules.length) {
-            collect((grammar.parserRules[i] as ParserRule).expression)
-            i += 1
-        }
-        i = 0
-        while (i < grammar.parserRules.length) {
-            String name = (grammar.parserRules[i] as ParserRule).name
+        while (i < analysis.parserRules.length) {
+            String name = (analysis.parserRules[i] as ParserRuleFacts).name
             visitorNames.append(name)
             visitorSuffixes.append(format("rule_{}", name))
             i += 1
         }
         i = 0
-        while (i < grammar.lexerRules.length) {
-            LexerRule rule = grammar.lexerRules[i] as LexerRule
-            if (!rule.skip) {
-                visitorNames.append(rule.name)
-                visitorSuffixes.append(format("token_{}", rule.name))
+        while (i < analysis.lexers.length) {
+            LexerPlan plan = analysis.lexers[i] as LexerPlan
+            if (!plan.skip) {
+                visitorNames.append(plan.name)
+                visitorSuffixes.append(format("token_{}", plan.name))
             }
             i += 1
         }
@@ -38,30 +36,6 @@ class GrammarEmitter {
             visitorSuffixes.append(format("literal_{}", i))
             i += 1
         }
-    }
-
-    void collect(RuleExpr expression) {
-        // A conservative token lower bound; leave non-left-recursive matching unchanged.
-        if (grammar.leftRecursive && !grammar.isNullable(expression)) { expression.required = 1 }
-        int i = 0
-        while (i < expression.children.length) {
-            collect(expression.children[i] as RuleExpr)
-            i += 1
-        }
-        if (expression.kind == 1 && literalIndex(expression.value) < 0) {
-            literals.append(expression.value)
-        }
-        expression.index = expressions.length
-        expressions.append(expression)
-    }
-
-    int literalIndex(String value) {
-        int i = 0
-        while (i < literals.length) {
-            if ((literals[i] as String).equals(value)) { return i }
-            i += 1
-        }
-        return -1
     }
 
     String quoted(String value) {
@@ -120,19 +94,19 @@ class GrammarEmitter {
         output.append("class InputScanner {\n    String input\n    list tokens\n    list rules\n    list states\n    list lineComments\n    list blockComments\n    int errorOffset\n    String problem\n    int steps\n")
         output.append("    InputScanner(String text) {\n        input = text\n        tokens = []\n        rules = []\n        states = []\n        lineComments = []\n        blockComments = []\n        errorOffset = -1\n        problem = \"\"\n        steps = 0\n")
         int comment = 0
-        while (comment < grammar.lineComments.length) {
-            output.append(format("        lineComments.append({})\n", quoted(grammar.lineComments[comment] as String)))
+        while (comment < analysis.lexical.lineComments.length) {
+            output.append(format("        lineComments.append({})\n", quoted(analysis.lexical.lineComments[comment] as String)))
             comment += 1
         }
         comment = 0
-        while (comment < grammar.blockComments.length) {
-            list markers = grammar.blockComments[comment] as list
+        while (comment < analysis.lexical.blockComments.length) {
+            list markers = analysis.lexical.blockComments[comment] as list
             output.append(format("        blockComments.append([{}, {}])\n", quoted(markers[0] as String), quoted(markers[1] as String)))
             comment += 1
         }
         int s = 0
-        while (s < grammar.lexerStates.length) {
-            LexerState state = grammar.lexerStates[s] as LexerState
+        while (s < analysis.lexerStates.length) {
+            LexerState state = analysis.lexerStates[s] as LexerState
             output.append(format("        list ranges{} = []\n", s))
             int n = 0
             while (n < state.ranges.length) {
@@ -144,8 +118,8 @@ class GrammarEmitter {
             s += 1
         }
         int r = 0
-        while (r < grammar.lexerRules.length) {
-            LexerRule rule = grammar.lexerRules[r] as LexerRule
+        while (r < analysis.lexers.length) {
+            LexerPlan rule = analysis.lexers[r] as LexerPlan
             String skipped = "false"
             if (rule.skip) { skipped = "true" }
             output.append(format("        rules.append(ScanRule({}, {}, {}, {}))\n", quoted(rule.name), rule.entry, skipped, rule.quote))
@@ -166,16 +140,16 @@ class GrammarEmitter {
                 value.length, value.length, quoted(value), value.length, value.length, quoted(literalKind(lit))))
             lit += 1
         }
-        if (!grammar.keywordToken.equals("")) {
-            output.append(format("            if (bestKind.equals({})) {{\n                String word = input.slice(i, bestEnd)\n", quoted(grammar.keywordToken)))
+        if (!analysis.lexical.keywordToken.equals("")) {
+            output.append(format("            if (bestKind.equals({})) {{\n                String word = input.slice(i, bestEnd)\n", quoted(analysis.lexical.keywordToken)))
             lit = 0
             while (lit < literals.length) {
                 output.append(format("                if (word.equals({})) {{ bestKind = {} }}\n", quoted(literals[lit] as String), quoted(literalKind(lit))))
                 lit += 1
             }
             lit = 0
-            while (lit < grammar.reserved.length) {
-                output.append(format("                if (word.equals({})) {{ bestKind = \"@reserved\" }}\n", quoted(grammar.reserved[lit] as String)))
+            while (lit < analysis.lexical.reserved.length) {
+                output.append(format("                if (word.equals({})) {{ bestKind = \"@reserved\" }}\n", quoted(analysis.lexical.reserved[lit] as String)))
                 lit += 1
             }
             output.append("            }\n")
@@ -191,26 +165,25 @@ class GrammarEmitter {
         output.append("    GeneratedParser(list inputTokens) {\n        tokens = inputTokens\n        rules = []\n        position = 0\n        errorPosition = 0\n        steps = 0\n        endLimit = tokens.length\n        problem = \"\"\n")
         int i = 0
         while (i < expressions.length) {
-            RuleExpr expression = expressions[i] as RuleExpr
+            ParserExprRecord expression = expressions[i] as ParserExprRecord
             String children = "["
             int c = 0
             while (c < expression.children.length) {
                 if (c > 0) { children.append(", ") }
-                RuleExpr child = expression.children[c] as RuleExpr
-                children.append(format("e{}", child.index))
+                children.append(format("e{}", expression.children[c] as int))
                 c += 1
             }
             children.append("]")
             String value = expression.value
-            if (expression.kind == 1) { value = literalKind(literalIndex(value)) }
+            if (expression.kind == 1) { value = literalKind(expression.literal) }
             output.append(format("        ParserExpr e{} = ParserExpr({}, {}, {}, {}, {}, {})\n",
                 i, expression.kind, quoted(value), children, expression.minimum, expression.maximum, expression.required))
             i += 1
         }
         i = 0
-        while (i < grammar.parserRules.length) {
-            ParserRule rule = grammar.parserRules[i] as ParserRule
-            output.append(format("        rules.append(ParserRuleDef({}, e{}))\n", quoted(rule.name), rule.expression.index))
+        while (i < analysis.parserRules.length) {
+            ParserRuleFacts rule = analysis.parserRules[i] as ParserRuleFacts
+            output.append(format("        rules.append(ParserRuleDef({}, e{}))\n", quoted(rule.name), rule.root))
             i += 1
         }
         output.append("    }\n")
@@ -298,16 +271,17 @@ dispatcher = "dispatch" }
         return output
     }
 
-    void dotExpression(String output, String owner, RuleExpr expression, String order) {
+    void dotExpression(String output, String owner, int index, String order) {
+        ParserExprRecord expression = expressions[index] as ParserExprRecord
         if (expression.kind == 0) {
             output.append(format("    {} -> {} [label={}];\n", owner, expression.value, quoted(order)))
         }
         if (expression.kind == 1) {
-            output.append(format("    {} -> __cpg_literal{} [label={}];\n", owner, literalIndex(expression.value), quoted(order)))
+            output.append(format("    {} -> __cpg_literal{} [label={}];\n", owner, expression.literal, quoted(order)))
         }
         int i = 0
         while (i < expression.children.length) {
-            dotExpression(output, owner, expression.children[i] as RuleExpr, format("{}.{}", order, i + 1))
+            dotExpression(output, owner, expression.children[i] as int, format("{}.{}", order, i + 1))
             i += 1
         }
     }
@@ -321,8 +295,8 @@ dispatcher = "dispatch" }
             i += 1
         }
         i = 0
-        while (i < grammar.lexerRules.length) {
-            LexerRule rule = grammar.lexerRules[i] as LexerRule
+        while (i < analysis.lexers.length) {
+            LexerPlan rule = analysis.lexers[i] as LexerPlan
             output.append(format("    {} [shape=ellipse];\n", rule.name))
             i += 1
         }
@@ -332,9 +306,9 @@ dispatcher = "dispatch" }
             i += 1
         }
         i = 0
-        while (i < grammar.parserRules.length) {
-            ParserRule rule = grammar.parserRules[i] as ParserRule
-            dotExpression(output, rule.name, rule.expression, "alt")
+        while (i < analysis.parserRules.length) {
+            ParserRuleFacts rule = analysis.parserRules[i] as ParserRuleFacts
+            dotExpression(output, rule.name, rule.root, "alt")
             i += 1
         }
         output.append("}\n")
