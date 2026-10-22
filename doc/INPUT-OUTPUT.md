@@ -281,15 +281,76 @@ not support backslash escapes or LF inside the quotes; use the opposite
 quote delimiter to include a quote, for example `'"'`. This is distinct from
 the source-input escape handling enabled by `@quoted`.
 
-Forward rule references and recursion that is not left-recursive are
-supported. Direct/indirect left recursion, including cycles through nullable
-prefixes, is rejected, not rewritten. A nullable operand under any postfix
-quantifier, including `?`, is rejected as `nullable repetition`.
+Forward rule references and recursion are supported, including consuming
+direct/indirect left recursion and cycles through nullable prefixes. A
+nullable operand under any postfix quantifier, including `?`, is rejected as
+`nullable repetition`.
 
 There are no embedded actions, return types, semantic predicates,
 precedence/associativity declarations, named captures, tree-rewrite
 directives, or automatic expression folding. Encode precedence in separate
 rules, as in the [calculator grammar](../examples/calculator/calculator.cpg).
+
+### Left recursion
+
+Both backends support left-recursive grammars without flattening rule nodes
+or introducing helper-rule nodes. For example:
+
+```text
+expression : expression "+" INTEGER | INTEGER ;
+INTEGER = [0-9]+
+```
+
+Complete parsing of `1+2+3` yields:
+
+```text
+expression(expression(expression(INTEGER(1)), @literal0(+), INTEGER(2)), @literal0(+), INTEGER(3))
+```
+
+Prefix parsing still returns `expression(INTEGER(1))`. Longer candidates
+remain available to callers. Separate expression/term rules encode
+precedence; no precedence is inferred from operator spellings. Ambiguous
+grammars retain source-order choice, including at each nested recursive
+call: `e : e e | DIGIT ;` prefers left nesting for three digits, whereas
+`e : DIGIT | e e ;` prefers right nesting.
+
+Supported forms include mutual/indirect cycles (`a : b "x" | INTEGER ;`
+and `b : a "y" | INTEGER ;`), grouped recursion, nonnullable repeated
+suffixes, nullable bases, and nullable prefixes such as
+`e : empty e "+" INTEGER | INTEGER ;` with `empty : ;`.
+Every cycle must consume tokens somewhere in its surrounding context.
+Cycles with **both nullable prefixes and nullable suffixes** are rejected,
+even in unreachable rules: for example `e : e | INTEGER ;`,
+`e : empty e | INTEGER ;`, `e : e "x"? | INTEGER ;`, or the mutual
+unit cycle `a : b ; b : a | INTEGER ;`. These can insert arbitrarily many
+rule wrappers without consuming another token, so choosing a finite tree
+would silently change derivation/order semantics. Remove the unit/nullable
+cycle, or require a nonnullable prefix or suffix on every cycle.
+Diagnostics identify the closing reference's source line and rule.
+Purely consuming cycles with no terminating alternative are allowed but
+cannot match; they terminate with a parse error within the usual budgets.
+
+The implementation uses **span-bounded expansion**, not greedy suffix
+folding or grammar substitution. After nullability analysis, each
+nonnullable expression supplies a conservative lower bound of one token.
+While matching a sequence, the matcher reserves the sum of those bounds
+for its remaining children and temporarily reduces the current child's
+ending-token ceiling. Consuming prefixes advance the starting index;
+consuming suffixes reduce the ceiling. With zero-context cycles excluded,
+recursive expansion is finite for a finite token stream. Only impossible
+derivations are pruned; alternatives, result order, and AST construction
+are unchanged. Non-left-recursive grammars retain their original matching
+behavior and diagnostics.
+
+This is still bounded exhaustive backtracking, **not packrat or a
+linear-time left-recursion algorithm**. Even a single deterministic
+left-recursive chain can retain quadratically many intermediate results;
+ambiguous grammars can require exponential work. Recursive expansion counts
+toward the existing depth/call/result budgets, including in prefix mode,
+and C's arena budget also applies. Budget exhaustion is an explicit error,
+never an incomplete tree or a silently chosen early candidate. Parse-error
+positions in left-recursive grammars reflect the farthest explored
+span-feasible position, not a guarantee of the most helpful offending token.
 
 ### Directives
 
@@ -393,7 +454,7 @@ backend emits files. It reports the first problem, not a list of errors.
 | Required declarations | No lexer rule or no parser rule |
 | Uniqueness/references | Duplicate lexer/parser names, unknown token/rule references, parser reference to skipped token |
 | Character classes | Empty/negated/non-ASCII/NUL classes, unsupported escapes, descending ranges, escaped ending range endpoints |
-| Nullability/recursion | Empty-matching lexer rules, empty quoted terminals, nullable quantified operands, direct/indirect left recursion |
+| Nullability/recursion | Empty-matching lexer rules, empty quoted terminals, nullable quantified operands, recursion cycles with nullable context on both sides |
 | Directives | Invalid arity/style/name/reference; duplicate `@keywords`; `@reserved` without `@keywords`; skipped keyword token |
 | C target | Any directive outside the supported allowlist, even one accepted opaquely by Cwhip |
 
@@ -873,7 +934,8 @@ Use the dedicated guides for application-specific language/checking limits:
 | Spaces cause `lex error` | Grammar whitespace does not skip source whitespace; declare and skip an input token. |
 | Trailing text is accepted | Prefix mode is the default; use `--complete`, C `--json`, Cwhip `parseAll()`, or C `cpg_parse(..., 1)`. |
 | A suffix causes a lexical error despite prefix mode | The scanner validates the entire file before selecting a parse. |
-| `left recursion` / `nullable repetition` | Rewrite the grammar; this version does not normalize left recursion or allow quantified nullable operands. |
+| `left recursion` | A cycle can repeat without consuming tokens. Remove the unit/nullable cycle or require a nonnullable prefix or suffix on every cycle; consuming left recursion is supported. |
+| `nullable repetition` | Quantified operands must be nonnullable, including under `?`; rewrite the optional/repeated expression. |
 | `@include`/other directive appears accepted in Cwhip | Opaque payload collection is not execution; only the supported lexical directives have effects. C rejects unknown directives. |
 | Tree text is not a number or decoded string | Terminal values are source spellings; conversion belongs to a handwritten consumer. |
 | Syntax success but application rejects input | Application visitors/checkers implement their own semantics; parse success does not imply semantic validity. |
@@ -907,8 +969,8 @@ trees and do not provide a separate configurable traversal budget.
 The older [architecture document](ARCHITECTURE.md) includes proposed
 `SourceSpan`, normalization, source-stack, and future-backend interfaces.
 Those proposal sections are not the implemented input/output contract.
-Likewise, [examples/expression.cpg](../examples/expression.cpg) is a
-left-recursive design sketch, not a runnable grammar for this generator.
+The direct-left-recursive [expression grammar](../examples/expression.cpg)
+is now runnable with either backend.
 
 ## Implementation and verification sources
 
@@ -919,6 +981,7 @@ inferring features from the architecture proposal:
 | --- | --- |
 | Generator arguments, outputs, validation ordering | [main.cw](../src/main.cw), [generator tests](../tests/test_generator.py), [C backend tests](../tests/test_c_backend.py) |
 | Grammar syntax, directives, validation | [grammar.cw](../src/grammar.cw), [grammar conformance tests](../tests/test_grammar_conformance.py) |
+| Left-recursive recognition, AST/order preservation, rejection boundary and budgets | [left-recursion tests](../tests/test_left_recursion.py), [grammar.cw](../src/grammar.cw), both runtimes |
 | Cwhip source/API, tree structure, DOT | [emitter.cw](../src/emitter.cw), [generator tests](../tests/test_generator.py) |
 | C source, runtime/API, JSON, budgets | [c_emitter.cw](../src/c_emitter.cw), [c_runtime.cw](../src/c_runtime.cw), [C backend tests](../tests/test_c_backend.py) |
 | Visitor behavior and library failure handling | [visitor tests](../tests/test_visitors.py), [consumer fixtures](../tests/fixtures/visitor), [integration guide](VISITORS.md) |
@@ -929,7 +992,7 @@ After building the generator, the narrowly scoped core contract suite is:
 
 ```sh
 PYTHONPATH=tests python3 -m unittest \
-  test_generator test_grammar_conformance test_c_backend test_visitors
+  test_generator test_grammar_conformance test_left_recursion test_c_backend test_visitors
 ```
 
 It generates/compiles real Cwhip and C parsers, checks successful and failed

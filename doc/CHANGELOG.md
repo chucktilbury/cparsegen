@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Support consuming direct, mutual/indirect, and nullable-prefix left recursion
+  in both generated backends using span-bounded expansion. Preserve original
+  rule nesting, source-order ties, precedence/associativity, caller
+  continuations, and shortest-prefix/complete-input selection. Reject cycles
+  with nullable context on both sides, which admit infinitely many equal-span
+  derivations, with a source-line diagnostic and rewrite guidance. Existing
+  parser budgets remain explicit failures; this is not a linear-time parser.
+  Add cross-backend recognition/tree/order/budget regressions and library/
+  visitor reuse coverage. No compiler-demo grammar or behavior changes.
+
 - Scope cleanup: remove the object-oriented extensions (classes, objects,
   references, constructors, single inheritance, virtual dispatch) that were
   added to the optional statement compiler, along with their runtime, lowering,

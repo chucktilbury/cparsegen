@@ -202,6 +202,7 @@ class RuleExpr {
     int maximum
     int line
     int index
+    int required
 
     RuleExpr(int expressionKind, String text, int sourceLine) {
         kind = expressionKind
@@ -211,6 +212,7 @@ class RuleExpr {
         maximum = 1
         line = sourceLine
         index = -1
+        required = 0
     }
 }
 
@@ -248,6 +250,7 @@ class GrammarModel {
     list reserved
     list lineComments
     list blockComments
+    bool leftRecursive
 
     GrammarModel() {
         lexerRules = []
@@ -257,6 +260,7 @@ class GrammarModel {
         reserved = []
         lineComments = []
         blockComments = []
+        leftRecursive = false
     }
 
     LexerRule findLexer(String name) {
@@ -424,12 +428,12 @@ class GrammarModel {
         return ""
     }
 
-    String leftCycle(RuleExpr expression, list path) {
+    String leftCycle(RuleExpr expression, list path, bool zeroOnly) {
         if (expression.kind == 0) {
             ParserRule target = findParser(expression.value)
             if (target != null) {
                 if (hasName(path, target.name)) {
-                    return format("line {}: left recursion through parser rule {}", expression.line, target.name)
+                    return format("line {}: left recursion through parser rule {} can repeat without consuming tokens; require a nonnullable prefix or suffix on every cycle", expression.line, target.name)
                 }
                 list next = []
                 int p = 0
@@ -438,14 +442,25 @@ class GrammarModel {
                     p += 1
                 }
                 next.append(target.name)
-                return leftCycle(target.expression, next)
+                return leftCycle(target.expression, next, zeroOnly)
             }
         }
         int i = 0
         while (i < expression.children.length) {
             RuleExpr child = expression.children[i] as RuleExpr
-            String error = leftCycle(child, path)
-            if (!error.equals("")) { return error }
+            bool nullableSuffix = true
+            if (zeroOnly && expression.kind == 2) {
+                int s = i + 1
+                while (s < expression.children.length) {
+                    if (!isNullable(expression.children[s] as RuleExpr)) { nullableSuffix = false }
+                    s += 1
+                }
+            }
+            // Only zero-context cycles admit infinitely many equal-span trees.
+            if (!zeroOnly || nullableSuffix) {
+                String error = leftCycle(child, path, zeroOnly)
+                if (!error.equals("")) { return error }
+            }
             if (expression.kind == 2 && !isNullable(child)) { return "" }
             i += 1
         }
@@ -525,8 +540,9 @@ class GrammarModel {
             String error = validateExpression(rule.expression)
             if (!error.equals("")) { return error }
             list path = [rule.name]
-            error = leftCycle(rule.expression, path)
+            error = leftCycle(rule.expression, path, true)
             if (!error.equals("")) { return error }
+            if (!leftCycle(rule.expression, path, false).equals("")) { leftRecursive = true }
             i += 1
         }
         return ""

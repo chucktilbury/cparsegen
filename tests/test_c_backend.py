@@ -205,7 +205,7 @@ class CBackendTests(GeneratorTestCase):
     def test_invalid_grammar_is_rejected_identically(self):
         cases = [
             'entry : missing ;\n',
-            'entry : entry "a" | "a" ;\n',
+            'entry : entry | "a" ;\nUNUSED = [0-9]\n',
             'entry : ("a"?)* ;\n',
             'entry : TOKEN ;\nTOKEN = [0-9]*\n',
         ]

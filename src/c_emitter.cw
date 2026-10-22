@@ -132,8 +132,8 @@ continue }
             RuleExpr expression = shared.expressions[i] as RuleExpr
             String value = expression.value
             if (expression.kind == 1) { value = shared.literalKind(shared.literalIndex(value)) }
-            output.append(format("{{{}, {}, children{}, {}, {}, {}}},\n",
-                expression.kind, quoted(value), i, expression.children.length, expression.minimum, expression.maximum))
+            output.append(format("{{{}, {}, children{}, {}, {}, {}, {}}},\n",
+                expression.kind, quoted(value), i, expression.children.length, expression.minimum, expression.maximum, expression.required))
             i += 1
         }
         output.append("};\nstatic const Rule rules[] = {\n")

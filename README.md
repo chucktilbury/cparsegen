@@ -111,7 +111,7 @@ The generator itself still requires the Cwhip SDK. Default generation and
 `--library` remain Cwhip-only and unchanged.
 
 The C slice supports the shared character-class regex/EBNF subset, including
-`@skip`, forward references, non-left recursion, empty rules, keyword/reserved
+`@skip`, forward references, consuming left recursion, empty rules, keyword/reserved
 discrimination, ASCII quoted character/string tokens, and line/block comments.
 `--json` requires complete input and prints the same syntax-node schema as
 the Cwhip SmallC frontend, with source-located errors on stderr. The existing

@@ -115,6 +115,105 @@ class VisitorTests(GeneratorTestCase):
     def test_cwhip_example(self):
         self.assert_example("cwhip")
 
+    def test_left_recursive_library_tree_visitors_and_repeated_selection(self):
+        grammar = self.directory / "left.cpg"
+        grammar.write_text('entry : entry "+" NUMBER | NUMBER ;\nNUMBER = [0-9]\n')
+        sources = {
+            "c": r'''
+#define CPARSEGEN_NO_MAIN
+#include "parser.c"
+#include <assert.h>
+typedef struct { const Context *ctx; int rules, number; } Seen;
+static CpgVisit rule(const Node *node, void *user) {
+    Seen *seen = user;
+    assert(!strcmp(cpg_node_kind(node), "entry"));
+    ++seen->rules;
+    return CPG_CONTINUE;
+}
+static CpgVisit number(const Node *node, void *user) {
+    Seen *seen = user;
+    assert(cpg_node_text_length(node) == 1);
+    seen->number = seen->number * 10 + *cpg_node_text(seen->ctx, node) - '0';
+    return CPG_CONTINUE;
+}
+int main(void) {
+    Context ctx;
+    cpg_init(&ctx, (const unsigned char *)"1+2+3", 5, "left");
+    const Node *prefix = cpg_parse(&ctx, 0);
+    assert(prefix && cpg_child_count(prefix) == 1);
+    assert(cpg_child_at(prefix, 0)->offset == 0);
+    const Node *root = cpg_parse(&ctx, 1);
+    assert(root && cpg_child_count(root) == 3);
+    assert(cpg_child_count(cpg_child_at(root, 0)) == 3);
+    assert(cpg_child_count(cpg_child_at(cpg_child_at(root, 0), 0)) == 1);
+    CpgVisitor visitor = {0};
+    visitor.enter_rule_entry = rule;
+    Seen seen = {&ctx, 0, 0};
+    assert(cpg_walk(root, &visitor, &seen) == CPG_CONTINUE);
+    assert(seen.rules == 3);
+    const Node *digit = cpg_child_at(cpg_child_at(cpg_child_at(root, 0), 0), 0);
+    assert(cpg_node_text_length(digit) == 1 && *cpg_node_text(&ctx, digit) == '1');
+    visitor.enter_token_NUMBER = number;
+    seen.rules = 0;
+    assert(cpg_walk(root, &visitor, &seen) == CPG_CONTINUE);
+    assert(seen.rules == 3 && seen.number == 123);
+    cpg_destroy(&ctx);
+    cpg_init(&ctx, (const unsigned char *)"1+", 2, "left");
+    assert(!cpg_parse(&ctx, 1) && ctx.problem);
+    assert(cpg_parse(&ctx, 0) && !ctx.problem);
+    cpg_destroy(&ctx);
+    return 0;
+}
+''',
+            "cwhip": '''
+include "parser.cw"
+class Seen : GeneratedVisitor {
+    int rules
+    String digits
+    Seen() { super GeneratedVisitor()
+rules = 0
+digits = "" }
+    int enter_rule_entry(AstNode node) { rules += 1
+return VISIT_CONTINUE }
+    int enter_token_NUMBER(AstNode node) { digits.append(node.lexeme())
+return VISIT_CONTINUE }
+}
+start {
+    InputScanner scanner("1+2+3")
+    if (!scanner.scan()) { Sys.Process().exit(10) }
+    GeneratedParser parser(scanner.tokens)
+    AstNode prefix = parser.parse_entry()
+    if (prefix == null || prefix.childCount() != 1 || parser.position != 1) {
+        Sys.Process().exit(11)
+    }
+    parser.position = 0
+    AstNode root = parser.parseAll()
+    if (root == null || root.childCount() != 3 || parser.position != 5
+            || root.childAt(0).childCount() != 3
+            || root.childAt(0).childAt(0).childCount() != 1) {
+        Sys.Process().exit(12)
+    }
+    Seen visitor()
+    if (visitor.walk(root) != visitor.VISIT_CONTINUE || visitor.rules != 3
+            || !visitor.digits.equals("123")) { Sys.Process().exit(13) }
+    InputScanner bad("1+")
+    if (!bad.scan()) { Sys.Process().exit(14) }
+    GeneratedParser retry(bad.tokens)
+    if (retry.parseAll() != null || retry.position != 0 || retry.problem.equals("")) {
+        Sys.Process().exit(15)
+    }
+    if (retry.parse_entry() == null || retry.position != 1 || !retry.problem.equals("")) {
+        Sys.Process().exit(16)
+    }
+}
+''',
+        }
+        for backend, source in sources.items():
+            with self.subTest(backend=backend):
+                result = self.run_consumer(self.consumer(backend, grammar, source))
+                self.assertEqual((result.returncode, result.stdout, result.stderr),
+                                 (0, "", ""))
+
     def test_c_library_reports_failures_without_exiting_or_printing(self):
         grammar = self.directory / "recursive.cpg"
         grammar.write_text('entry : NUMBER | "(" entry ")" ;\nNUMBER = [0-9]+\n')
