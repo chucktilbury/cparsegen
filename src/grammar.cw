@@ -3,12 +3,16 @@ class GrammarToken {
     String text
     String name
     int line
+    String target
+    String boundary
 
     GrammarToken(int tokenKind, String tokenText, String tokenName, int tokenLine) {
         kind = tokenKind
         text = tokenText
         name = tokenName
         line = tokenLine
+        target = ""
+        boundary = ""
     }
 }
 
@@ -76,6 +80,116 @@ class GrammarScanner {
                 }
             }
         }
+    }
+
+    String insertionWord() {
+        while (current() == 32 || current() == 9 || current() == 10 || current() == 13) { advance() }
+        int startIndex = offset
+        if (letter(current())) {
+            while (letter(current()) || digit(current())) { advance() }
+        }
+        return source.slice(startIndex, offset)
+    }
+
+    GrammarToken insertion(int startLine) {
+        GrammarToken token(260, "", "insert", startLine)
+        token.target = insertionWord()
+        token.boundary = insertionWord()
+        while (current() == 32 || current() == 9 || current() == 10 || current() == 13) { advance() }
+        if (token.target.equals("") || token.boundary.equals("") || current() != 123) {
+            problem = format("line {}: @insert requires TARGET BOUNDARY {{ code }};", startLine)
+            return token
+        }
+        advance()
+        int startIndex = offset
+        int depth = 1
+        // State: code, quote byte, line comment ('/'), or block comment ('*').
+        int state = 0
+        int stateLine = line
+        bool escaped = false
+        while (current() >= 0) {
+            int value = current()
+            int size = offset - startIndex
+            if (size > 1048576 || (size == 1048576 && !(value == 125 && state == 0 && depth == 1))) {
+                problem = format("line {}: @insert block exceeds 1048576 bytes", startLine)
+                return token
+            }
+            // C translation-phase rewriting would change delimiter recognition.
+            if (value == 0 || (value == 92 && (following() == 10 || following() == 13)) ||
+                (value == 63 && following() == 63)) {
+                problem = format("line {}: @insert forbids NUL, backslash-newline and trigraph prefixes", line)
+                return token
+            }
+            if (state == 34 || state == 39) {
+                if (value == 10 || value == 13) {
+                    problem = format("line {}: unterminated @insert quoted literal", stateLine)
+                    return token
+                }
+                if (escaped) { escaped = false }
+                else {
+                    if (value == state) { state = 0 }
+                    else { if (value == 92) { escaped = true } }
+                }
+            }
+            else {
+                if (state == 47) {
+                    if (value == 10 || value == 13) { state = 0 }
+                }
+                else {
+                    if (state == 42) {
+                        if (value == 42 && following() == 47) {
+                            advance()
+                            state = 0
+                        }
+                    }
+                    else {
+                        if (value == 34 || value == 39) {
+                            state = value
+                            stateLine = line
+                        }
+                        else {
+                            if (value == 47 && (following() == 47 || following() == 42)) {
+                                state = following()
+                                stateLine = line
+                                advance()
+                            }
+                            else {
+                                if (value == 123) {
+                                    depth += 1
+                                    if (depth > 256) {
+                                        problem = format("line {}: @insert brace nesting exceeds 256", line)
+                                        return token
+                                    }
+                                }
+                                if (value == 125) {
+                                    depth -= 1
+                                    if (depth == 0) { break }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            advance()
+        }
+        if (current() < 0) {
+            if (state == 34 || state == 39) {
+                problem = format("line {}: unterminated @insert quoted literal", stateLine)
+            }
+            else {
+                if (state == 42) { problem = format("line {}: unterminated @insert block comment", stateLine) }
+                else { problem = format("line {}: unterminated @insert block", startLine) }
+            }
+            return token
+        }
+        token.text = source.slice(startIndex, offset)
+        advance()
+        skipTrivia()
+        if (problem.equals("") && current() != 59) {
+            problem = format("line {}: @insert block must end with ';'", startLine)
+        }
+        if (problem.equals("")) { advance() }
+        return token
     }
 
     GrammarToken next() {
@@ -155,6 +269,7 @@ class GrammarScanner {
             int nameStart = offset
             while (letter(current()) || digit(current())) { advance() }
             String directiveName = source.slice(nameStart, offset)
+            if (directiveName.equals("insert")) { return insertion(startLine) }
             while (current() == 32 || current() == 9) { advance() }
             int contentStart = offset
             // Only @include interprets quotes; other directive payloads stay opaque.
@@ -306,10 +421,29 @@ class GrammarDirective {
     }
 }
 
+class CodeInsertion {
+    String target
+    String boundary
+    String content
+    String source
+    int line
+    int location
+
+    CodeInsertion(GrammarToken token, String path, int firstLine) {
+        target = token.target
+        boundary = token.boundary
+        content = token.text
+        source = path
+        line = token.line - firstLine + 1
+        location = token.line
+    }
+}
+
 class GrammarModel {
     list lexerRules
     list parserRules
     list directives
+    list insertions
     String keywordToken
     list reserved
     list lineComments
@@ -322,6 +456,7 @@ class GrammarModel {
         lexerRules = []
         parserRules = []
         directives = []
+        insertions = []
         keywordToken = ""
         reserved = []
         lineComments = []
@@ -627,6 +762,22 @@ class GrammarModel {
     }
 
     String validate() {
+        int insertionIndex = 0
+        while (insertionIndex < insertions.length) {
+            CodeInsertion block = insertions[insertionIndex] as CodeInsertion
+            if (!block.target.equals("c") && !block.target.equals("cwhip")) {
+                return format("line {}: unknown @insert target {}", block.location, block.target)
+            }
+            if (!block.boundary.equals("file_pre") && !block.boundary.equals("file_post") &&
+                !block.boundary.equals("imports") && !block.boundary.equals("declarations") &&
+                !block.boundary.equals("ast_pre") && !block.boundary.equals("ast_post") &&
+                !block.boundary.equals("scanner_pre") && !block.boundary.equals("scanner_post") &&
+                !block.boundary.equals("parser_pre") && !block.boundary.equals("parser_post") &&
+                !block.boundary.equals("visitor_pre") && !block.boundary.equals("visitor_post")) {
+                return format("line {}: unknown @insert boundary {}", block.location, block.boundary)
+            }
+            insertionIndex += 1
+        }
         String directiveError = lexicalDirectives()
         if (!directiveError.equals("")) { return directiveError }
         if (lexerRules.length == 0) { return "grammar must declare a lexer rule" }
@@ -741,13 +892,17 @@ class GrammarReader {
     int classPosition
     String problem
     GrammarToken inclusion
+    String sourcePath
+    int sourceFirstLine
 
-    GrammarReader(String source, int firstLine) {
+    GrammarReader(String source, int firstLine, String path) {
         tokens = []
         position = 0
         classPosition = 0
         problem = ""
         inclusion = null
+        sourcePath = path
+        sourceFirstLine = firstLine
         GrammarScanner scanner(source)
         scanner.line = firstLine
         while (true) {
@@ -975,6 +1130,10 @@ class GrammarReader {
         if (!problem.equals("")) { return }
         while (peek().kind != 0 && problem.equals("")) {
             GrammarToken first = take()
+            if (first.kind == 260) {
+                grammar.insertions.append(CodeInsertion(first, sourcePath, sourceFirstLine))
+                continue
+            }
             if (first.kind == 259) {
                 if (first.name.equals("include")) {
                     inclusion = first
@@ -1137,7 +1296,7 @@ class GrammarSources {
         files.append(file)
         nextLine += count + 1
         depth += 1
-        GrammarReader reader(source, file.firstLine)
+        GrammarReader reader(source, file.firstLine, absolute)
         while (problem.equals("")) {
             reader.readInto(grammar)
             problem = reader.problem

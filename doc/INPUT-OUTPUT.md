@@ -417,7 +417,7 @@ span-feasible position, not a guarantee of the most helpful offending token.
 
 ### Directives
 
-Directive syntax is `@name payload;`. Except for `@include`, the reader
+Directive syntax is `@name payload;`. Except for `@include` and `@insert`, the reader
 collects payload bytes up to the **first semicolon**, trims the surrounding
 whitespace, and does not parse
 the payload as a parser expression. Quotes/comments inside the payload do
@@ -435,6 +435,7 @@ declaration, not part of a parser-rule expression.
 | `@line_comment //;` | Register one nonempty marker, skipped through CR, LF, or EOF. CR/LF themselves remain for normal scanning. Repeated directives add markers. |
 | `@block_comment /* */;` | Register opening and closing markers. Skip through the first closer; no nesting. An absent closer is a lexical error. Repeated directives add pairs. |
 | `@note any opaque text;` | No generation effect. |
+| `@insert c file_post { ... };` | Insert opaque target code at a validated file-scope boundary; see [Code insertion](#code-insertion). |
 
 Except for `@skip`'s single trimmed token name, supported lexical directive
 arguments are split on spaces, tabs, CR, and LF. Markers are **unquoted
@@ -451,7 +452,115 @@ errors. **Quotes and escape spellings are preserved, not decoded.**
 The Cwhip backend stores other directives as opaque declarations with no
 generation effect; this is not support for an extension named by the
 directive. The C backend explicitly rejects directives outside the table.
-Neither backend implements code insertion.
+
+### Code insertion
+
+```text
+@insert c imports {
+#include <limits.h>
+};
+@insert cwhip visitor_post {
+class MyVisitor : GeneratedVisitor {
+    int enter_token_WORD(AstNode node) { return VISIT_CONTINUE }
+}
+};
+```
+
+The exact syntax is **`@insert TARGET BOUNDARY { BODY };`**. Target and
+boundary are case-sensitive, unquoted identifiers separated by whitespace
+(space, tab, CR or LF); comments are not allowed in the header. Targets are
+exactly `c` (standalone ISO C99) and `cwhip` (the default, including
+`--library`). There is no wildcard/shared target, C++, or Python support.
+Blocks for a different implemented target are validated but not emitted;
+unknown targets or boundaries are errors even in unselected blocks.
+
+Every boundary is **outside** generated classes, structures, functions, and
+rule bodies. The following table describes exact placement, not execution
+timing. `pre`/`post` do not register runtime callbacks.
+
+| Boundary | Cwhip placement | C placement |
+| --- | --- | --- |
+| `file_pre` | Before the built-in `import system as Sys` | Before the generated banner and standard includes |
+| `imports` | Immediately after the built-in import | Immediately after all built-in standard includes |
+| `declarations` | After `imports`, before `LexToken` | After `imports`, before any generated typedef |
+| `ast_pre` | After `LexToken`, before `AstNode` | After `Token`, before `typedef struct Node Node` and its definition |
+| `ast_post` | Immediately after `AstNode` | Immediately after `struct Node`, before `Result` and the remaining shared types including `Context` |
+| `scanner_pre` | After `ast_post`, before `ScanRange`/`ScanState`/`ScanRule`/`InputScanner` | After tables and visitor code, before runtime `report`/`fail`/`allocate` and scanner helpers |
+| `scanner_post` | After `InputScanner` | After the complete internal `scan` function |
+| `parser_pre` | After `scanner_post`, before `ParserExpr`/`ParserRuleDef`/`ParseResult`/`GeneratedParser` | After `scanner_post`, before result-building and match helpers |
+| `parser_post` | After `GeneratedParser`, before `visitor_pre` | After `cpg_init`/`cpg_destroy`/`cpg_parse`, before the CLI's `#ifndef CPARSEGEN_NO_MAIN` |
+| `visitor_pre` | After `parser_post`, before `GeneratedVisitor` | After immutable grammar tables, before `CpgVisit`/`CpgHook`/`CpgVisitor`, accessors and walking functions |
+| `visitor_post` | After `GeneratedVisitor`, before the optional CLI `start` | After visitor functions, before `scanner_pre` |
+| `file_post` | After the optional CLI `start`, or after `visitor_post` in library mode | After the CLI's closing `#endif` |
+
+C's physical order is imports/declarations, AST/shared types, tables,
+visitor, scanner, parser, CLI, footer. Cwhip's order is imports/declarations,
+AST, scanner, parser, visitor, CLI, footer. The table does not imply a
+cross-target component ordering. Inserted declarations must respect what is
+already defined at their chosen seam; for example C `ast_post` can use
+`Node` but not yet `Context`, while C `parser_post` can use the parser and
+visitor APIs. Use prototypes or later seams for forward dependencies.
+
+Within each target/boundary, blocks retain encounter order, including
+depth-first grammar includes (and their once-only expansion). Different
+boundaries always follow generated layout, regardless of their order in the
+grammar. The shared validated model stores each block's target, boundary,
+unchanged body, absolute source identity, one-based source line, and diagnostic
+line ID; emitters consume these records, never reparse code.
+All seams are emitted in both CLI and library workflows. C library consumers
+still define `CPARSEGEN_NO_MAIN` before including the generated file; this
+suppresses only the generated CLI, **not** insertion blocks. Cwhip `--library`
+still omits only the generated `start`. To supply an entry point, use library
+mode and put it in the consumer, not a block also compiled with the CLI.
+
+**Delimiters and preservation.** Everything after the opening `{` and before
+its matching `}` is copied byte-for-byte, including leading/trailing
+whitespace, CRLF, comments, semicolons and escape spellings. Neither outer
+brace nor terminating semicolon is emitted. Each emitted body gets one
+additional LF before and after it to prevent accidental token/comment
+concatenation with generated code. The final `;` may be separated from `}`
+by ordinary grammar whitespace/comments. Empty blocks are permitted.
+
+Collection is iterative and uses balanced braces, ordinary single/double
+quoted literals with backslash escapes, `//` line comments (through CR/LF),
+and non-nesting `/* ... */` comments. Braces/semicolons inside those literals
+or comments do not delimit the block. There is no interpolation or
+generator-level escape decoding. A literal `}` can be quoted/commented, or
+balanced with an opening brace when it is actual code. Quotes cannot contain
+raw CR/LF. EOF inside a block, quote or block comment and a missing final
+`;` produce source-located diagnostics, including grammar include ancestry,
+before outputs are opened or truncated.
+
+Each body is limited to **1,048,576 bytes** and **256 simultaneous brace
+levels including the outer delimiter**. NUL, backslash immediately followed
+by CR or LF, and every `??` trigraph prefix are rejected everywhere in the
+body, even in comments/quotes. This deliberately excludes C translation-phase
+line splicing/trigraphs that could change delimiter recognition. No C
+preprocessing, macro expansion, conditional-branch selection, C++ raw strings,
+or target-language parsing occurs: preprocessor branches and macro bodies
+must be lexically balanced as written, and includes remain literal target
+code. Unsupported target constructs are the consumer compiler's concern.
+Non-ASCII body bytes are preserved, not validated as target syntax. Grammar
+syntax and the generated input scanner keep their existing ASCII contracts.
+
+**Responsibilities and trust.** Treat grammars and included grammar files
+containing insertions as source code from a trusted author. cparsegen copies
+code; it does not compile or execute it during generation. Consumers compile
+and may execute arbitrary injected code, including target include/import
+dependencies and any initialization supported by that language. There is no
+sandbox or semantic/safety validation. Authors own valid declarations,
+dependencies, symbol collisions, linkage, memory/resource handling, and
+compatibility with library and CLI builds. Use `declarations`/component seams
+for public prototypes/types and C `static` helpers for private implementation;
+there is no synthetic public/private section or generated-header split.
+Do not modify generated APIs, reopen classes, or assume stable internal
+symbols. All fragments must be complete file-scope declarations/directives.
+There are no member-insertion seams, inline rule actions, automatic hooks,
+or new parse semantics. AST and ordinary visitor APIs remain the application
+integration model.
+
+The [runnable two-target word counter](../examples/README.md#code-insertion)
+uses injected helper declarations and a visitor with the ordinary parser.
 
 ### Grammar includes
 
@@ -487,6 +596,9 @@ the first encountered parser rule is the entry rule. `@include` cannot split
 a lexer declaration or parser expression, and an included parser rule must
 terminate within its own file. Other directive payloads remain opaque:
 `@note @include missing.cpg;` does not load a file.
+Likewise, `#include` or `include` text inside an `@insert` body is copied for
+the target compiler, never expanded as a grammar file. Use `imports` for
+native include/import text, not the grammar-level `@include`.
 
 Each resolved absolute path is expanded **once per generator invocation**.
 Repeated includes, normalized `.`/`..` paths, symlink aliases, and diamonds
@@ -1051,7 +1163,7 @@ Use the dedicated guides for application-specific language/checking limits:
 | `left recursion` | A cycle can repeat without consuming tokens. Remove the unit/nullable cycle or require a nonnullable prefix or suffix on every cycle; consuming left recursion is supported. |
 | `nullable repetition` | Quantified operands must be nonnullable, including under `?`; rewrite the optional/repeated expression. |
 | `cannot find included grammar` | Check the including file's directory and the ordered `--include-path DIR:DIR...` list. An empty path component explicitly adds the working directory. |
-| Other directive appears accepted in Cwhip | Unknown payloads are opaque, not executed. C rejects unknown directives; `@include` and the listed lexical directives are implemented by both targets. |
+| Other directive appears accepted in Cwhip | Unknown payloads are opaque, not executed. C rejects unknown directives; `@include`, `@insert`, and the listed lexical directives are implemented by both targets. |
 | Tree text is not a number or decoded string | Terminal values are source spellings; conversion belongs to a handwritten consumer. |
 | Syntax success but application rejects input | Application visitors/checkers implement their own semantics; parse success does not imply semantic validity. |
 

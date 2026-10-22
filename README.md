@@ -133,6 +133,13 @@ AST compiles to a bounded Thompson NFA, avoiding backtracking explosions and
 rejecting nullable token patterns and reference cycles before generation.
 See [the runnable example](examples/README.md#composable-lexer-expressions).
 
+Both also support trusted target-code insertion with
+`@insert c|cwhip BOUNDARY { BODY };`. Twelve file-scope boundaries cover
+imports, declarations and generated components without adding parser-rule
+actions or changing AST/visitor APIs. See the
+[exact contract](doc/INPUT-OUTPUT.md#code-insertion) and
+[runnable two-target example](examples/README.md#code-insertion).
+
 The C slice supports the shared lexer-expression/EBNF subset, including
 `@skip`, forward references, consuming left recursion, empty rules, keyword/reserved
 discrimination, ASCII quoted character/string tokens, and line/block comments.
