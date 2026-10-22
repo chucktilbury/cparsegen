@@ -284,7 +284,7 @@ class LexerExpressionValidationTests(GeneratorTestCase):
         )
         result = subprocess.run(
             [str(self.generator), "--library", str(grammar), str(self.generated),
-             str(self.graph)], capture_output=True, text=True, timeout=60,
+             "--dot", str(self.graph)], capture_output=True, text=True, timeout=60,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         driver = self.directory / "driver.cw"

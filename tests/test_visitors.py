@@ -28,7 +28,7 @@ class VisitorTests(GeneratorTestCase):
         parser = self.directory / ("parser" + suffix)
         result = subprocess.run(
             [str(self.generator), *(["--target", "c"] if backend == "c" else ["--library"]),
-             str(grammar), str(parser), str(self.graph)],
+             str(grammar), str(parser), "--dot", str(self.graph)],
             env=self.env, capture_output=True, text=True, timeout=60,
         )
         self.assertEqual(result.returncode, 0, result.stderr)

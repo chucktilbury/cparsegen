@@ -33,14 +33,14 @@ Generate library parsers, then compile the tiny consumers:
 cmake --build build
 mkdir -p build/insertion
 ./bin/cparsegen --target c examples/insertion/words.cpg \
-  build/insertion/parser.c build/insertion/grammar.dot
+  build/insertion/parser.c --dot build/insertion/grammar.dot
 cp examples/insertion/words.c build/insertion/words.c
 cc -std=c99 -Wall -Wextra -Werror -pedantic \
   build/insertion/words.c -o build/insertion/words-c
 build/insertion/words-c
 
 ./bin/cparsegen --library examples/insertion/words.cpg \
-  build/insertion/parser.cw build/insertion/grammar.dot
+  build/insertion/parser.cw --dot build/insertion/grammar.dot
 cp examples/insertion/words.cw build/insertion/words.cw
 cwhip build/insertion/words.cw -o build/insertion/words-cw
 build/insertion/words-cw
@@ -142,7 +142,7 @@ and skipped whitespace:
 ```sh
 cmake --build build
 mkdir -p build/words
-./bin/cparsegen examples/words.cpg build/words/parser.cw build/words/grammar.dot
+./bin/cparsegen examples/words.cpg build/words/parser.cw --dot build/words/grammar.dot
 cwhip build/words/parser.cw -o build/words/parse-words
 printf 'alpha, beta_2, gamma' > build/words/input.txt
 build/words/parse-words --complete build/words/input.txt
@@ -178,10 +178,10 @@ remapping, and comments. Run it with either backend:
 ```sh
 mkdir -p build/lexer-expressions
 ./bin/cparsegen examples/lexer-expressions.cpg \
-  build/lexer-expressions/parser.cw build/lexer-expressions/grammar.dot
+  build/lexer-expressions/parser.cw --dot build/lexer-expressions/grammar.dot
 cwhip build/lexer-expressions/parser.cw -o build/lexer-expressions/parse-cw
 ./bin/cparsegen --target c examples/lexer-expressions.cpg \
-  build/lexer-expressions/parser.c build/lexer-expressions/grammar.dot
+  build/lexer-expressions/parser.c --dot build/lexer-expressions/grammar.dot
 cc -std=c99 -Wall -Wextra -Werror -pedantic \
   build/lexer-expressions/parser.c -o build/lexer-expressions/parse-c
 printf 'let total = -12.5e+2; // amount\n' > build/lexer-expressions/input.txt

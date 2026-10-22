@@ -50,7 +50,7 @@ class CalculatorTests(unittest.TestCase):
         shutil.copy2(ROOT / "examples/calculator/calculator.cw", directory)
         subprocess.run(
             [str(generator), "--library", str(ROOT / "examples/calculator/calculator.cpg"),
-             str(directory / "parser.cw"), str(directory / "grammar.dot")],
+             str(directory / "parser.cw"), "--dot", str(directory / "grammar.dot")],
             check=True, capture_output=True, text=True, timeout=60,
         )
         subprocess.run(

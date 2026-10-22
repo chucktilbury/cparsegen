@@ -281,7 +281,7 @@ class GeneratorTests(GeneratorTestCase):
         grammar = ROOT / "examples/calculator/calculator.cpg"
         command = [
             str(self.generator), "--library", str(grammar),
-            str(self.generated), str(self.graph),
+            str(self.generated), "--dot", str(self.graph),
         ]
         subprocess.run(command, check=True, capture_output=True, text=True, timeout=60)
         library = self.generated.read_text()
@@ -305,7 +305,7 @@ class GeneratorTests(GeneratorTestCase):
         grammar.write_text('entry : INTEGER "+" INTEGER ;\nINTEGER = [0-9]+\n')
         subprocess.run(
             [str(self.generator), "--library", str(grammar),
-             str(self.generated), str(self.graph)],
+             str(self.generated), "--dot", str(self.graph)],
             check=True, capture_output=True, text=True, timeout=60,
         )
         driver = self.directory / "driver.cw"

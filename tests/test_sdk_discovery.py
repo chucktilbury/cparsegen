@@ -30,6 +30,7 @@ class SdkDiscoveryTests(unittest.TestCase):
         shutil.copy2(ROOT / "scripts/setup", self.project / "scripts")
         shutil.copy2(ROOT / "scripts/sdk-prefix.py", self.project / "scripts")
         (self.project / "src/main.cw").write_text("start {}\n")
+        shutil.copy2(ROOT / "src/paths.c", self.project / "src")
         self.home = self.root / "home"
         self.home.mkdir()
         self.sdk_settings = self.home / ".config/cwhip/sdk.toml"

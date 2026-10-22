@@ -232,7 +232,7 @@ platform-specific APIs, boolean input, and recoverable input errors are deferred
 cmake --build build --target cparsegen
 mkdir -p build/statements-manual
 ./bin/cparsegen --target c examples/compiler/statements.cpg \
-  build/statements-manual/parser.c build/statements-manual/grammar.dot
+  build/statements-manual/parser.c --dot build/statements-manual/grammar.dot
 cc -std=c99 -Wall -Wextra -Werror -pedantic \
   build/statements-manual/parser.c -o build/statements-manual/syntax-parser
 build/statements-manual/syntax-parser --json \

@@ -17,8 +17,9 @@ class IncludeTests(GeneratorTestCase):
     def invoke(self, grammar, *options, cwd=None):
         return subprocess.run(
             [str(self.generator),
-             *(["--target", "c"] if self.backend == "c" else []), *options,
-             str(grammar), str(self.generated), str(self.graph)],
+             *(["--target", "c"] if self.backend == "c" else []),
+             "--dot", str(self.graph), *options,
+             str(grammar), str(self.generated)],
             cwd=cwd, capture_output=True, text=True, timeout=60,
         )
 
@@ -271,7 +272,12 @@ class IncludeTests(GeneratorTestCase):
             ["--unknown"], ["--include-path"], ["--target", "rust"],
             ["--library", "--target", "c"],
         ]:
-            result = self.invoke(main, *options)
+            result = subprocess.run(
+                [str(self.generator),
+                 *(["--target", "c"] if self.backend == "c" else []),
+                 str(main), str(self.generated), "--dot", str(self.graph), *options],
+                capture_output=True, text=True, timeout=60,
+            )
             self.assertEqual(result.returncode, 2, result.stderr)
             self.assertIn("usage: cparsegen", result.stderr)
 

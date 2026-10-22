@@ -79,7 +79,7 @@ define separate grammar semantics.
 
 ## Standalone C target contract
 
-`cparsegen --target c GRAMMAR OUTPUT.c OUTPUT.dot` consumes the same validated
+`cparsegen --target c GRAMMAR [OUTPUT.c] [--dot OUTPUT.dot]` consumes the same validated
 `GrammarModel`, `LexerExpr`/`ByteRange`/`LexerState`, and `RuleExpr` objects as the default
 Cwhip backend. It uses the shared emitter's postorder expression indices and
 literal collection order; it does not translate generated Cwhip, re-read
@@ -281,7 +281,7 @@ intermediate set. The scanner allows 100,000 NFA state visits per token
 boundary across all competing rules.
 Exhaustion is an explicit failure, never a partial success.
 
-`cparsegen --library GRAMMAR OUTPUT.cw OUTPUT.dot` emits the same generated
+`cparsegen --library GRAMMAR [OUTPUT.cw] [--dot OUTPUT.dot]` emits the same generated
 scanner, AST, parser, and visitor without a `start` block. The calculator's
 handwritten evaluator includes that library; its grammar has no semantic
 actions. Rule nodes retain nested rule structure, terminals are leaves, and

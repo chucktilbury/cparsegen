@@ -23,7 +23,7 @@ class InsertionTests(GeneratorTestCase):
             [str(self.generator),
              *(["--target", "c"] if backend == "c" else
                ["--library"] if library else []),
-             str(grammar), str(self.generated), str(self.graph)],
+             str(grammar), str(self.generated), "--dot", str(self.graph)],
             capture_output=True, text=True, timeout=60,
         )
 
