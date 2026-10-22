@@ -31,6 +31,22 @@ generated/shortest-parser generated/input.txt
 The default build type is `debug`. Choose `release` or `profile` with
 `./scripts/setup release` or `./scripts/setup profile`.
 
+Grammars can share declarations with `@include "parts/tokens.cpg";`. Includes
+expand depth-first, once per resolved path, starting relative to the including
+file. Add ordered search directories with repeated POSIX colon-separated
+options:
+
+```sh
+./bin/cparsegen --include-path grammars:vendor/grammars --target c \
+  grammar/main.cpg generated/parser.c generated/grammar.dot
+```
+
+Empty list components mean the current working directory. Nested includes,
+cross-file forward references, and source-located include errors work for both
+backends; cycles and invalid inputs fail before outputs are opened. See
+[grammar includes](doc/INPUT-OUTPUT.md#grammar-includes) for ordering,
+duplicate handling, path syntax, and limits.
+
 ## Generated examples
 
 The [expression compiler](examples/compiler/README.md) demonstrates the complete

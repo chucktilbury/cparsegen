@@ -157,7 +157,20 @@ class GrammarScanner {
             String directiveName = source.slice(nameStart, offset)
             while (current() == 32 || current() == 9) { advance() }
             int contentStart = offset
-            while (current() >= 0 && current() != 59) { advance() }
+            // Only @include interprets quotes; other directive payloads stay opaque.
+            int includeQuote = 0
+            while (current() >= 0 && (current() != 59 || includeQuote != 0)) {
+                if (directiveName.equals("include")) {
+                    if (current() == 10 && includeQuote != 0) { break }
+                    if (current() == includeQuote) { includeQuote = 0 }
+                    else {
+                        if (includeQuote == 0 && (current() == 34 || current() == 39)) {
+                            includeQuote = current()
+                        }
+                    }
+                }
+                advance()
+            }
             if (current() != 59) {
                 problem = format("line {}: directive @{} must end with ';'", startLine, directiveName)
                 return GrammarToken(0, "", "", startLine)
@@ -727,13 +740,16 @@ class GrammarReader {
     int position
     int classPosition
     String problem
+    GrammarToken inclusion
 
-    GrammarReader(String source) {
+    GrammarReader(String source, int firstLine) {
         tokens = []
         position = 0
         classPosition = 0
         problem = ""
+        inclusion = null
         GrammarScanner scanner(source)
+        scanner.line = firstLine
         while (true) {
             GrammarToken token = scanner.next()
             if (!scanner.problem.equals("")) {
@@ -954,13 +970,17 @@ class GrammarReader {
         return expression
     }
 
-    GrammarModel read() {
-        GrammarModel grammar()
-        if (!problem.equals("")) { return grammar }
+    void readInto(GrammarModel grammar) {
+        inclusion = null
+        if (!problem.equals("")) { return }
         while (peek().kind != 0 && problem.equals("")) {
             GrammarToken first = take()
             if (first.kind == 259) {
-                grammar.directives.append(GrammarDirective(first.name, first.text, first.line))
+                if (first.name.equals("include")) {
+                    inclusion = first
+                    return
+                }
+                else { grammar.directives.append(GrammarDirective(first.name, first.text, first.line)) }
             }
             else {
                 if (first.kind == 256) {
@@ -994,8 +1014,200 @@ class GrammarReader {
                 }
             }
         }
-        if (!problem.equals("")) { return grammar }
-        problem = grammar.validate()
+    }
+}
+
+class GrammarSource {
+    String path
+    String displayPath
+    int firstLine
+    int lineCount
+    int includedAt
+    bool active
+
+    GrammarSource(String filename, int first, int count, int parent) {
+        path = filename
+        displayPath = filename
+        firstLine = first
+        lineCount = count
+        includedAt = parent
+        active = true
+    }
+}
+
+// Line IDs remain unique across files while preserving line-local lexer parsing.
+class GrammarSources {
+    list paths
+    list files
+    int nextLine
+    int depth
+    String problem
+
+    GrammarSources(list searchPaths) {
+        paths = searchPaths
+        files = []
+        nextLine = 1
+        depth = 0
+        problem = ""
+    }
+
+    String location(int line) {
+        int i = 0
+        while (i < files.length) {
+            GrammarSource file = files[i] as GrammarSource
+            if (line >= file.firstLine && line < file.firstLine + file.lineCount) {
+                return format("{}: line {}", file.displayPath, line - file.firstLine + 1)
+            }
+            i += 1
+        }
+        return "grammar"
+    }
+
+    String diagnostic(String error) {
+        if (!error.startsWith("line ")) { return error }
+        int end = 5
+        int line = 0
+        while (end < error.length && int(error.byteAt(end)) >= 48 && int(error.byteAt(end)) <= 57) {
+            line = line * 10 + int(error.byteAt(end)) - 48
+            end += 1
+        }
+        String result = format("{}{}", location(line), error.slice(end, error.length))
+        while (line != 0) {
+            int parent = 0
+            int i = 0
+            while (i < files.length) {
+                GrammarSource file = files[i] as GrammarSource
+                if (line >= file.firstLine && line < file.firstLine + file.lineCount) {
+                    parent = file.includedAt
+                    break
+                }
+                i += 1
+            }
+            if (parent != 0) { result.append(format("\n  included from {}", location(parent))) }
+            line = parent
+        }
+        return result
+    }
+
+    void load(String path, int includedAt, GrammarModel grammar) {
+        Sys.FileSystem fs()
+        String absolute = fs.absolutePath(path)
+        int i = 0
+        while (i < files.length) {
+            GrammarSource previous = files[i] as GrammarSource
+            if (previous.path.equals(absolute)) {
+                if (previous.active) {
+                    problem = format("line {}: include cycle involving {}", includedAt, absolute)
+                }
+                return
+            }
+            i += 1
+        }
+        if (depth >= 128 || files.length >= 1024) {
+            problem = format("line {}: grammar include limit exceeded (128 levels, 1024 files)", includedAt)
+            return
+        }
+        if (!fs.isFile(absolute)) {
+            problem = format("{}: expected a readable regular grammar file", absolute)
+            if (includedAt != 0) { problem = format("line {}: {}", includedAt, problem) }
+            return
+        }
+        String source = ""
+        try {
+            Sys.File file(absolute, "r")
+            source = file.readAll()
+            file.close()
+            if (source.length != fs.fileSize(absolute)) {
+                problem = format("{}: incomplete grammar read", absolute)
+            }
+        }
+        except() as error { problem = format("{}: {}", absolute, error) }
+        if (!problem.equals("")) {
+            if (includedAt != 0) { problem = format("line {}: {}", includedAt, problem) }
+            return
+        }
+        int count = 1
+        i = 0
+        while (i < source.length) {
+            if (int(source.byteAt(i)) == 10) { count += 1 }
+            i += 1
+        }
+        GrammarSource file(absolute, nextLine, count, includedAt)
+        if (includedAt == 0) { file.displayPath = path }
+        files.append(file)
+        nextLine += count + 1
+        depth += 1
+        GrammarReader reader(source, file.firstLine)
+        while (problem.equals("")) {
+            reader.readInto(grammar)
+            problem = reader.problem
+            if (!problem.equals("") || reader.inclusion == null) { break }
+            includeFile(reader.inclusion.text, absolute, reader.inclusion.line, grammar)
+        }
+        depth -= 1
+        file.active = false
+    }
+
+    void includeFile(String payload, String parent, int line, GrammarModel grammar) {
+        String name = payload.trim()
+        bool valid = name.length > 0
+        if (valid) {
+            int quote = int(name.byteAt(0))
+            if (quote == 34 || quote == 39) {
+                valid = name.length > 2 && int(name.byteAt(name.length - 1)) == quote
+                if (valid) {
+                    name = name.slice(1, name.length - 1)
+                    int i = 0
+                    while (i < name.length) {
+                        if (int(name.byteAt(i)) == quote || int(name.byteAt(i)) < 32) { valid = false }
+                        i += 1
+                    }
+                }
+            }
+            else {
+                int i = 0
+                while (i < name.length) {
+                    int byte = int(name.byteAt(i))
+                    if (byte <= 32 || byte == 34 || byte == 39) { valid = false }
+                    i += 1
+                }
+            }
+        }
+        if (!valid) {
+            problem = format("line {}: @include requires exactly one nonempty path (quote paths containing spaces)", line)
+            return
+        }
+        Sys.FileSystem fs()
+        if (name.startsWith("/")) {
+            load(name, line, grammar)
+            return
+        }
+        String candidate = fs.join(fs.dirname(parent), name)
+        if (fs.exists(candidate) || fs.isDir(candidate)) {
+            load(candidate, line, grammar)
+            return
+        }
+        int i = 0
+        while (i < paths.length) {
+            candidate = fs.join(paths[i] as String, name)
+            if (fs.exists(candidate) || fs.isDir(candidate)) {
+                load(candidate, line, grammar)
+                return
+            }
+            i += 1
+        }
+        problem = format("line {}: cannot find included grammar {}", line, name)
+    }
+
+    GrammarModel read(String path) {
+        GrammarModel grammar()
+        load(path, 0, grammar)
+        if (problem.equals("")) {
+            problem = grammar.validate()
+            if (!problem.equals("") && !problem.startsWith("line ")) {
+                problem = format("{}: {}", path, problem)
+            }
+        }
         return grammar
     }
 }

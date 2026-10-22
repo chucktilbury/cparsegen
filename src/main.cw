@@ -14,22 +14,53 @@ class GeneratorCli {
     }
 
     int run() {
-        bool library = process.argc() == 5 && process.arg(1).equals("--library")
-        bool cTarget = process.argc() == 6 && process.arg(1).equals("--target") && process.arg(2).equals("c")
-        if (process.argc() != 4 && !library && !cTarget) {
-            io.writeErrorLine("usage: cparsegen [--library | --target c] GRAMMAR OUTPUT OUTPUT.dot")
+        bool library = false
+        bool cTarget = false
+        bool valid = true
+        list paths = []
+        int argument = 1
+        while (argument < process.argc() && process.arg(argument).startsWith("-")) {
+            String option = process.arg(argument)
+            argument += 1
+            if (option.equals("--")) { break }
+            if (option.equals("--library") && !library && !cTarget) { library = true }
+            else {
+                if (option.equals("--target") && !library && !cTarget && argument < process.argc()) {
+                    cTarget = process.arg(argument).equals("c")
+                    valid = cTarget
+                    argument += 1
+                }
+                else {
+                    if (option.equals("--include-path") && argument < process.argc()) {
+                        String value = process.arg(argument)
+                        int startIndex = 0
+                        int end = 0
+                        while (end <= value.length) {
+                            if (end == value.length || int(value.byteAt(end)) == 58) {
+                                String path = value.slice(startIndex, end)
+                                if (path.equals("")) { path = "." }
+                                paths.append(path)
+                                startIndex = end + 1
+                            }
+                            end += 1
+                        }
+                        argument += 1
+                    }
+                    else { valid = false }
+                }
+            }
+            if (!valid) { break }
+        }
+        if (!valid || process.argc() - argument != 3) {
+            io.writeErrorLine("usage: cparsegen [--library | --target c] [--include-path DIR:DIR...] [--] GRAMMAR OUTPUT OUTPUT.dot")
             return 2
         }
 
-        int argument = 1
-        if (library) { argument = 2 }
-        if (cTarget) { argument = 3 }
         String grammarPath = process.arg(argument)
-        String source = Sys.File(grammarPath, "r").readAll()
-        GrammarReader reader(source)
-        GrammarModel grammar = reader.read()
+        GrammarSources reader(paths)
+        GrammarModel grammar = reader.read(grammarPath)
         if (!reader.problem.equals("")) {
-            io.writeErrorLine(format("{}: {}", grammarPath, reader.problem))
+            io.writeErrorLine(reader.diagnostic(reader.problem))
             return 1
         }
 
@@ -39,7 +70,7 @@ class GeneratorCli {
             CGrammarEmitter cEmitter(grammar, emitter)
             String problem = cEmitter.validate()
             if (!problem.equals("")) {
-                io.writeErrorLine(format("{}: {}", grammarPath, problem))
+                io.writeErrorLine(reader.diagnostic(problem))
                 return 1
             }
             program = cEmitter.emitProgram()
