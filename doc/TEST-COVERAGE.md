@@ -50,6 +50,7 @@ listed concrete class:
 | Q | [test_cli.py](../tests/test_cli.py): `CliTests` |
 | U | [test_visitors.py](../tests/test_visitors.py): `VisitorTests` (WL/CL) |
 | M | [test_documentation.py](../tests/test_documentation.py): `DocumentationLinks`, `DocumentationWorkflows` |
+| SCV | [test_smallc_cvm.py](../tests/test_smallc_cvm.py): `SmallCCVMTests` (requires installed CVM 1.0.0 packages and runner) |
 
 ## Grammar, analysis, scanner, and parser
 
@@ -116,6 +117,7 @@ boundary; they do not independently prove the analyzer's internal call count.
 | C input 1 MiB and arena data 64 MiB inclusive; allocation failure cleanup, quiet non-exiting library, destroy twice | C/CL; W/WL N/A (SDK managed allocation, no corresponding explicit caps) | B.`test_input_limit_accepts_exact_boundary_and_rejects_one_more_byte`; U.`test_c_allocation_failures_and_arena_boundary_are_recoverable` injects each malloc/calloc failure in one successful parse, checks zero live allocations and exact arena boundary; U.`test_c_library_reports_failures_without_exiting_or_printing` |
 | Calculator evaluation/variables/batch/interactive/errors | WL consumer only; C syntax is differential, evaluator N/A | [test_calculator.py](../tests/test_calculator.py) `CalculatorTests`; B.`test_calculator_acceptance_rejection_and_rendering` |
 | SmallC samples, precedence/nearest-if/comments/quotes, larger syntax and opt-in semantic boundary | WL app/C syntax; C semantic checker N/A | SmallC classes above: every **4 valid + 8 invalid** committed sample, plus named/table-driven structural and semantic cases; inherited C semantic methods deliberately call the Cwhip checker, not a C checker |
+| SmallC-to-CVM functions/recursion, scalar and array state, strings, global initialization, arithmetic, comparisons, short-circuit logic, loops, branches, checked traps, explicit unsupported statements | CWhip frontend -> public CVM 1.0.0 builders/validator -> installed `cvm-run`; host-C parity where defined | SCV.`test_existing_function_and_array_samples_execute`, `test_globals_arrays_strings_functions_and_control_flow_match_c`, `test_continue_break_and_short_circuit_match_c`, `test_signed_division_and_remainder_follow_c`, `test_branches_ending_in_returns_have_valid_targets`, `test_dynamic_global_initializer_runs_before_main`, `test_char_scalar_increment_and_array_bounds`, `test_checked_overflow_traps_at_runtime`, `test_switch_goto_and_labels_are_explicitly_rejected`, `test_non_main_fallthrough_is_rejected_conservatively` |
 | Expression/statement demos: generation -> AST visitor -> emitted C -> compiled result; typed/runtime/definite-assignment policies are app-owned | CL consumers; syntax-only W/C cases | [test_compiler.py](../tests/test_compiler.py) `CompilerTests`; [test_statement_compiler.py](../tests/test_statement_compiler.py) `StatementCompilerTests` (no generated evaluator or new backend) |
 | SDK discovery/selection/errors, output paths and real installed SDK build | Generator build plus WL apps | [test_sdk_discovery.py](../tests/test_sdk_discovery.py) `SdkDiscoveryTests`, `InstalledSdkTests.test_sdk_toml_builds_generator_and_examples_with_installed_sdk`; actual audit builds every optional target and installs to a private prefix |
 | Documentation local links/anchors and runnable commands/snippets | All tracked Markdown; representative W/WL/C/CL/D workflows | M.`test_tracked_markdown_local_links_and_anchors`, `test_reference_prefix_complete_json_and_words_commands`, `test_reference_complete_c_and_cwhip_library_snippets`, `test_documented_insertion_and_lexer_expression_commands`, `test_documented_manual_visitor_commands`, `test_documented_include_default_output_workflow` |
@@ -253,6 +255,16 @@ cc -std=c99 -Wall -Wextra -Werror -pedantic \
   build/audit-install/parser.c -o build/audit-install/parser
 printf '123+456' > build/audit-install/input.txt
 ./build/audit-install/parser --json build/audit-install/input.txt
+```
+
+The CVM backend has separate external-package evidence and is enabled only
+when configured with a CVM 1.0.0 installation:
+
+```sh
+cmake -S . -B build -DCVM_PREFIX=/path/to/cvm-install
+cmake --build build --target smallc-cvm test-smallc-cvm
+./bin/smallc-cvm examples/smallc/valid/functions.c build/smallc/functions.cvm
+/path/to/cvm-install/bin/cvm-run build/smallc/functions.cvm
 dot -Tsvg build/audit-install/grammar.dot -o build/audit-install/grammar.svg
 ```
 

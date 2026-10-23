@@ -64,6 +64,7 @@ class SmallCTests(unittest.TestCase):
             path.mkdir()
             cls.env[name] = str(path)
         shutil.copy2(EXAMPLE / "smallc.cw", cls.directory)
+        shutil.copy2(EXAMPLE / "smallc_frontend.cw", cls.directory)
         cls.executable = cls.directory / "smallc-ast"
         subprocess.run(
             [str(generator), "--library", str(EXAMPLE / "smallc.cpg"),

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add the optional SmallC-to-CVM v1 application backend. Reuse the parsed,
+  semantically checked AST, emit through the public CVM 1.0.0 builders and
+  validator, and exercise containers with the installed `cvm-run`. Cover
+  scalar/array state, functions, arithmetic, and structured control flow;
+  report unsupported switch/label/goto constructs at their source locations.
+  Preserve the syntax-only AST CLI and standalone C frontend.
+
 - Audit implemented features against named Cwhip/C CLI/library tests and add
   a maintained feature/target evidence matrix. Repair optional baseline parity
   to read real grammar paths and use the current CLI (legacy positional DOT
