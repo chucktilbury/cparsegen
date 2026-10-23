@@ -404,7 +404,7 @@ int main() {
             'int main() { return open("missing-dir/none", "r"); }\n', "open-fail"
         )
         self.assertEqual(failure.returncode, 1)
-        self.assertIn(b"runtime trap", failure.stderr)
+        self.assertIn(b"I/O error", failure.stderr)
         oversized = self.compile_and_run(
             "int main() { char b[2]; return read(0, 3, b); }\n", "oversized"
         )
