@@ -182,6 +182,12 @@ services, and the corresponding end-to-end tests are skipped.
 
 ## Samples
 
+For runnable compiler demonstrations, expected results, and step-by-step
+build/assembly/execution instructions, see the separate
+[end-to-end guide](END-TO-END.md). Its four programs cover operators/control
+flow, arrays/functions, console output and short-write-safe binary file copy.
+The samples below also exercise frontend syntax that the compiler may reject.
+
 - [valid/functions.c](valid/functions.c): a prototype, recursive factorial,
   nested calls, and a later definition.
 - [valid/control.c](valid/control.c): loops, comparisons, switch fall-through,

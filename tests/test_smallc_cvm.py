@@ -141,6 +141,53 @@ class SmallCCVMTests(unittest.TestCase):
                 self.assertEqual(execution.returncode, 0, execution.stderr.decode())
                 self.assertEqual(execution.stdout, f"result: {expected}\n".encode())
 
+    def test_documented_operators_example_matches_host_c(self):
+        source = (EXAMPLE / "end_to_end" / "operators_control.c").read_text()
+        self.assert_matches_c(source, 0, "demo-operators")
+
+    def test_documented_arrays_functions_example(self):
+        # Runtime global initializers are supported by SmallC, not ISO C99.
+        source = (EXAMPLE / "end_to_end" / "arrays_functions.c").read_text()
+        execution = self.compile_and_run(source, "demo-arrays")
+        self.assertEqual(execution.returncode, 0, execution.stderr.decode())
+        self.assertEqual(execution.stderr, b"")
+        self.assertEqual(execution.stdout, b"result: 48\n")
+
+    def test_documented_console_example(self):
+        source = (EXAMPLE / "end_to_end" / "console.c").read_text()
+        execution = self.compile_and_run(source, "demo-console")
+        self.assertEqual(execution.returncode, 0, execution.stderr.decode())
+        self.assertEqual(execution.stderr, b"")
+        self.assertEqual(
+            execution.stdout,
+            b"SmallC -> CVM assembly -> binary\nOK\nyes\nresult: 0\n",
+        )
+
+    def test_documented_binary_copy_example(self):
+        self.require_handle_services()
+        source = (EXAMPLE / "end_to_end" / "binary_copy.c").read_text()
+        compiled, _, assembly = self.compile_source(source, "demo-copy")
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        binary = self.assemble(assembly)
+        for data in (b"", bytes(range(256)), bytes(range(256)) * 4 + b"\xff"):
+            with self.subTest(size=len(data)):
+                (self.directory / "input.bin").write_bytes(data)
+                # Prove "w" truncates existing files, rather than appending.
+                (self.directory / "copy.bin").write_bytes(b"old contents" * 200)
+                (self.directory / "copy.log").write_bytes(b"old log")
+                execution = subprocess.run(
+                    [str(self.runner), str(binary)],
+                    cwd=self.directory, env=self.environment,
+                    capture_output=True, timeout=30,
+                )
+                self.assertEqual(execution.returncode, 0, execution.stderr.decode())
+                self.assertEqual(execution.stderr, b"")
+                self.assertEqual(
+                    execution.stdout, f"OK\nresult: {len(data)}\n".encode()
+                )
+                self.assertEqual((self.directory / "copy.bin").read_bytes(), data)
+                self.assertEqual((self.directory / "copy.log").read_bytes(), b"OK\n")
+
     def test_globals_arrays_strings_functions_and_control_flow_match_c(self):
         source = """\
 int bias = 2;
