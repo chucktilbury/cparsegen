@@ -265,12 +265,12 @@ program. `--check` runs the Cwhip app's source-order semantic checker on the
 AST; the default command remains syntax-only. See the SmallC documentation
 for checked rules and deferred control-flow, array-bound, and runtime checks.
 
-An optional `smallc-cvm` target compiles the same checked AST to CVM v1 using
-the installed public CVM 1.0.0 packages. Configure CMake with `-DCVM_PREFIX`
-pointing to an installation containing `cvm`, `cvmfile`, and `cvm-run`, then
-build the target and run the resulting `.cvm` with that installation's
-`cvm-run`. The backend supports a checked scalar/array/function and structured
-control-flow subset; `switch`, labels, and `goto` are diagnosed explicitly.
+An optional `smallc-cvm` target compiles the same checked AST to textual CVM
+v1 assembly (`smallc-cvm INPUT.c OUTPUT.asm`). The official `cvm-as` assembler
+then encodes the binary and `cvm-run` executes it; the compiler itself needs
+only the Cwhip SDK. It supports a checked scalar/array/function and structured
+control-flow subset plus `print`/`open`/`read`/`write`/`close` built-ins;
+`switch`, labels, and `goto` are diagnosed explicitly.
 See [SmallC](smallc/README.md#compile-and-run-with-cvm) for setup, exact
 coverage, and end-to-end tests.
 

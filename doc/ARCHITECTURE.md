@@ -466,9 +466,10 @@ and Cwhip/C plus DOT emission for working small examples. Later work adds
 C++ and Python emitters, richer regexes and generated-input source tracking, and more
 efficient parser analysis. The calculator and SmallC grammar are concrete
 fixtures. SmallC already has an opt-in source-order semantic checker;
-its optional CVM application backend is separate from cparsegen's grammar
-emitters and consumes the shared checked AST through public CVM packages.
-This does not add SmallC bytecode support to the standalone C target or expand
+its optional `smallc-cvm` compiler is separate from cparsegen's grammar
+emitters, consumes the shared checked AST and emits textual CVM assembly;
+the independent `cvm-as` assembler produces the binary and `cvm-run` executes
+it. This does not add SmallC bytecode support to the standalone C target or expand
 the language into OOP. See its
 [semantic boundary](../examples/smallc/README.md#semantic-checking-and-explicit-limits)
 and [CVM compiler](../examples/smallc/README.md#compile-and-run-with-cvm).

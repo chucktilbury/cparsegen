@@ -1,7 +1,7 @@
-# SmallC frontend and CVM compiler
+# SmallC frontend and CVM assembly compiler
 
 SmallC provides a generated parser, JSON AST, opt-in semantic checker, and an
-optional compiler to CVM v1 bytecode. The Cwhip scanner/parser and AST nodes
+optional compiler that emits textual CVM v1 assembly. The Cwhip scanner/parser and AST nodes
 are generated from [smallc.cpg](smallc.cpg); the shared
 [smallc_frontend.cw](smallc_frontend.cw) provides parser integration and the
 semantic pass. [smallc.cw](smallc.cw) preserves the AST CLI, while
@@ -112,46 +112,73 @@ concatenation, hex/octal constants, and hex/octal escapes are also deferred.
 
 ## Compile and run with CVM
 
-The optional backend consumes the installed public CVM CWhip packages; it
-does not vendor CVM source or define a second bytecode encoder. Install
-`cvm` 1.0.0 and `cvmfile` 1.0.0, plus the matching official `cvm-run` 1.0.0,
-under one prefix. The selected CWhip SDK must support the public binary file
-APIs used by `cvmfile`. Configure with that prefix:
+The pipeline has three separate stages, each owned by a different program:
+
+1. `smallc-cvm` (this repository) checks SmallC and emits **textual CVM
+   assembly**. It never writes a CVM container or encodes bytecode and does
+   not import any CVM package; it needs only the Cwhip SDK.
+2. The official `cvm-as` assembler **encodes the binary** `.cvm` file,
+   resolving labels and function symbols and computing stack limits.
+3. The official `cvm-run` **executes** that binary.
 
 ```sh
-cmake -S . -B build -DCVM_PREFIX=/path/to/cvm-install
+cmake -S . -B build -DCVM_PREFIX=/path/to/cvm-install   # optional, for tests
 cmake --build build --target smallc-cvm
-./bin/smallc-cvm examples/smallc/valid/functions.c build/smallc/functions.cvm
-/path/to/cvm-install/bin/cvm-run build/smallc/functions.cvm
+./bin/smallc-cvm examples/smallc/valid/functions.c build/example.asm
+cvm-as build/example.asm -o build/example.cvm
+cvm-run build/example.cvm
 cmake --build build --target test-smallc-cvm
 ```
 
-`smallc-cvm INPUT.c OUTPUT.cvm` runs the existing semantic checker, lowers
-its AST with the public CVM instruction/container builders, validates the
-container, and writes it only after successful compilation. `CVM_PREFIX` must
-contain `share/cwhip/modules/cvm/1.0.0`,
-`share/cwhip/modules/cvmfile/1.0.0`, and `bin/cvm-run`; CMake fails
-configuration if any is absent. These paths pin the compiler interface to
-CVM/CVMFile 1.0.0. The output is a normal CVM container and can be run outside
-the cparsegen checkout with the installed official runner.
+`smallc-cvm INPUT.c OUTPUT.asm` runs the existing semantic checker, lowers its
+AST to assembly text (`.version 1.0`, `.entry main`, `.global`/`.array`
+records, `.func ... .end`, symbolic labels and `call`/`jz`/`jmp` targets) and
+writes the file only after successful compilation; rejected input leaves any
+existing output untouched. CVM is an independent toolchain: nothing in the
+build needs it except the end-to-end tests. Tests find `cvm-as` and `cvm-run`
+through `-DCVM_PREFIX=<prefix>` (using `<prefix>/bin`), or explicitly with
+`-DCVM_AS=/path/to/cvm-as -DCVM_RUN=/path/to/cvm-run`, or on `PATH`.
+Without them the emitted-text and checker tests still run and the assemble/run
+tests are skipped with a message; `-DCPARSEGEN_REQUIRE_CVM_TOOLS=ON` makes
+missing tools a configure error.
 
 The compiler supports checked signed i32 and unsigned u8 scalars, globals and
 locals, defined functions/prototypes/calls/recursion, one-dimensional
-fixed/inferred arrays with brace and string initializers, arithmetic,
+fixed/inferred arrays with brace and string initializers (constant global
+initializers become static `.array` data with exact `\xHH` escapes), arithmetic,
 comparisons, short-circuit logic, assignments, increments, `if`/`else`,
 `for`, `while`, `break`, `continue`, and `return`. The entry must be
-`int main()`; called prototypes need a definition. Character reads
-zero-extend for integer operations, and narrowing is checked. Arithmetic
-overflow, division by zero, invalid signed division, array bounds violations,
-and checked narrowing trap at runtime.
+`int main()`; called prototypes need a definition. Arithmetic overflow,
+division by zero, array bounds violations and checked narrowing trap at
+runtime. `switch`, `case`, `default`, labels and `goto` parse and may pass
+`--check` but are rejected by code generation with source-located diagnostics.
 
-`switch`, `case`, `default`, labels, and `goto` parse and may pass `--check`,
-but code generation rejects them with source-located diagnostics. Other
-constructs outside the listed subset are likewise rejected explicitly. Array
-extents and brace initializer counts are checked during code generation;
-global initializer expressions run before `main`, and local initializer
-expressions run when their declarations execute. The C and AST frontends
-remain unchanged and do not gain bytecode output.
+### Built-in I/O functions
+
+These names are compiler-recognized pseudo-functions with checked
+signatures; they need no declaration, cannot be defined or redeclared, and
+each lowers to one `sys` service. A `char[]` argument is a char-array name or
+(for compiler built-ins only) a string literal. All transfers are binary.
+
+| SmallC | CVM service |
+| --- | --- |
+| `void print(char[] text)` | `stdout_write`: bytes up to the first NUL (or the whole array); the compiler loops over short writes |
+| `int open(char[] path, char[] mode)` | `file_open`; mode is exactly `"r"`, `"w"` or `"a"`; returns an int handle |
+| `int read(int handle, int length, char[] buffer)` | `file_read_handle`; reads into `buffer` from index 0; returns bytes read, 0 only at EOF |
+| `int write(int handle, int length, char[] buffer)` | `file_write_handle`; writes from index 0; returns bytes actually written, which may be short |
+| `void close(int handle)` | `file_close_handle` |
+
+`length` must be nonnegative and within the buffer capacity. I/O errors, bad
+modes/paths, stale or foreign handles and oversized lengths are runtime traps,
+never error-shaped integers. Because `read`/`write` have no offset parameter
+and SmallC has no array slicing, a short `write` cannot be resumed from the
+middle of a buffer; use buffers sized so that one call suffices, or copy the
+unwritten tail to the front of a buffer. `void` built-ins may only be used as
+expression statements (or `for` init/update expressions).
+
+The file services require a CVM installation that provides
+`file_open`/`file_*_handle`; older `cvm-as` builds reject them as unknown
+services, and the corresponding end-to-end tests are skipped.
 
 ## Samples
 
