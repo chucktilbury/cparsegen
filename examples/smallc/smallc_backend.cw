@@ -175,7 +175,6 @@ class SmallCAssemblyCompiler {
     String asmType(String valueType) {
         if (valueType.equals("int") || valueType.equals("int[]")) { return "i32" }
         if (valueType.equals("char") || valueType.equals("char[]")) { return "u8" }
-        if (valueType.equals("file")) { return "file" }
         return "void"
     }
 
@@ -690,11 +689,8 @@ class SmallCAssemblyCompiler {
             code.op("ret.u8")
         }
         else {
-            if (function.returnType.equals("file")) { code.op("ret.file") }
-            else {
-                code.op1("const.i32", "0")
-                code.op("ret.i32")
-            }
+            code.op1("const.i32", "0")
+            code.op("ret.i32")
         }
         functionText.append(header)
         functionText.append(declarationText())
@@ -1053,10 +1049,7 @@ class SmallCAssemblyCompiler {
             }
             String actual = emitExpression(expression)
             if (actual.equals("char")) { code.op("ret.u8") }
-            else {
-                if (actual.equals("file")) { code.op("ret.file") }
-                else { code.op("ret.i32") }
-            }
+            else { code.op("ret.i32") }
             return
         }
         int i = 0
@@ -1351,7 +1344,7 @@ class SmallCAssemblyCompiler {
                 int a = 0
                 while (a < part.children.length) {
                     AstNode argument = child(part, a)
-                    if (argument.name.equals("assignment")) { result.append(argument) }
+                    if (argument.name.equals("assignment") || argument.name.equals("STRING")) { result.append(argument) }
                     a += 1
                 }
             }
@@ -1390,7 +1383,9 @@ class SmallCAssemblyCompiler {
     // print(char[]): writes the bytes before the first NUL (or the whole array
     // when none), retrying short writes.
     String emitPrint(AstNode argument) {
-        SmallCAsmVariable variable = findVariable(arrayArgumentName(argument).text)
+        bool literal = argument.name.equals("STRING")
+        SmallCAsmVariable variable = null
+        if (!literal) { variable = findVariable(arrayArgumentName(argument).text) }
         String length = addTemporary("int")
         String done = addTemporary("int")
         String scan = code.newLabel()
@@ -1400,24 +1395,31 @@ class SmallCAssemblyCompiler {
         code.op("const.i32 0")
         code.op1("stloc", length)
         code.op("pop")
-        code.mark(scan)
-        code.op1("ldloc", length)
-        emitArrayReference(variable)
-        code.op("alen")
-        code.op("lt.i32")
-        code.op1("jz", scanEnd)
-        emitArrayReference(variable)
-        code.op1("ldloc", length)
-        code.op("aget")
-        if (elementType(variable.valueType).equals("char")) { code.op("to.i32") }
-        code.op1("jz", scanEnd)
-        code.op1("ldloc", length)
-        code.op("const.i32 1")
-        code.op("add.i32")
-        code.op1("stloc", length)
-        code.op("pop")
-        code.op1("jmp", scan)
-        code.mark(scanEnd)
+        if (literal) {
+            code.op1("const.i32", format("{}", stringBytes(argument.text).length))
+            code.op1("stloc", length)
+            code.op("pop")
+        }
+        else {
+            code.mark(scan)
+            code.op1("ldloc", length)
+            emitArrayReference(variable)
+            code.op("alen")
+            code.op("lt.i32")
+            code.op1("jz", scanEnd)
+            emitArrayReference(variable)
+            code.op1("ldloc", length)
+            code.op("aget")
+            if (elementType(variable.valueType).equals("char")) { code.op("to.i32") }
+            code.op1("jz", scanEnd)
+            code.op1("ldloc", length)
+            code.op("const.i32 1")
+            code.op("add.i32")
+            code.op1("stloc", length)
+            code.op("pop")
+            code.op1("jmp", scan)
+            code.mark(scanEnd)
+        }
         code.op("const.i32 0")
         code.op1("stloc", done)
         code.op("pop")
@@ -1426,7 +1428,8 @@ class SmallCAssemblyCompiler {
         code.op1("ldloc", length)
         code.op("lt.i32")
         code.op1("jz", sendEnd)
-        emitArrayReference(variable)
+        if (literal) { emitBufferArgument(argument) }
+        else { emitArrayReference(variable) }
         code.op1("ldloc", done)
         code.op1("ldloc", length)
         code.op1("ldloc", done)
@@ -1441,23 +1444,49 @@ class SmallCAssemblyCompiler {
         return "void"
     }
 
+    // Pushes a char array reference for a bare array name or a string literal.
+    void emitBufferArgument(AstNode argument) {
+        if (argument.name.equals("STRING")) {
+            buffer bytes = stringBytes(argument.text)
+            SmallCAsmArray array = SmallCAsmArray(
+                format("s{}_literal", arrays.length), "char", bytes.length + 1)
+            array.staticInitializer = assemblyString(bytes)
+            array.isGlobal = true
+            arrays.append(array)
+            code.op1("array", array.asmName)
+            return
+        }
+        emitArrayReference(findVariable(arrayArgumentName(argument).text))
+    }
+
     String emitIntrinsic(AstNode node, SmallCIntrinsic intrinsic) {
         list arguments = callArguments(node)
         if (intrinsic.service.equals("stdout_write")) { return emitPrint(arguments[0] as AstNode) }
-        int a = 0
-        while (a < arguments.length && problem.equals("")) {
-            AstNode argument = arguments[a] as AstNode
-            String expected = intrinsic.parameterTypes[a] as String
-            if (expected.equals("char[]")) {
-                AstNode nameNode = arrayArgumentName(argument)
-                emitArrayReference(findVariable(nameNode.text))
+        bool transfer = intrinsic.service.equals("file_read_handle") || intrinsic.service.equals("file_write_handle")
+        if (transfer) {
+            // Source order is (handle, length, buffer); the service takes
+            // (handle, buffer, length). Evaluate in source order via temporaries.
+            String handleSlot = addTemporary("int")
+            String lengthSlot = addTemporary("int")
+            promoteToInt(emitExpression(arguments[0] as AstNode))
+            code.op1("stloc", handleSlot)
+            code.op("pop")
+            promoteToInt(emitExpression(arguments[1] as AstNode))
+            code.op1("stloc", lengthSlot)
+            code.op("pop")
+            code.op1("ldloc", handleSlot)
+            emitBufferArgument(arguments[2] as AstNode)
+            code.op1("ldloc", lengthSlot)
+        }
+        else {
+            int a = 0
+            while (a < arguments.length && problem.equals("")) {
+                AstNode argument = arguments[a] as AstNode
+                String expected = intrinsic.parameterTypes[a] as String
+                if (expected.equals("char[]")) { emitBufferArgument(argument) }
+                else { promoteToInt(emitExpression(argument)) }
+                a += 1
             }
-            else {
-                String actual = emitExpression(argument)
-                if (expected.equals("int")) { promoteToInt(actual) }
-                if (expected.equals("byte") && actual.equals("int")) { code.op("to.u8") }
-            }
-            a += 1
         }
         if (problem.equals("")) { code.op1("sys", intrinsic.service) }
         return intrinsic.resultType

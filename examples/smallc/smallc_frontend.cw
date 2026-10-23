@@ -50,7 +50,7 @@ class SmallCSymbol {
 // declarations in SmallC source; the checker validates calls against these
 // signatures and the CVM backend lowers each one to a single `sys` service.
 // "void" results may only be used as expression statements, "char[]" accepts
-// only the bare name of a char array, and "byte" accepts char or int.
+// the bare name of a char array or a string literal, and "byte" accepts char or int.
 class SmallCIntrinsic {
     String name
     String resultType
@@ -72,16 +72,10 @@ class SmallCIntrinsics {
     SmallCIntrinsics() {
         entries = []
         entries.append(SmallCIntrinsic("print", "void", ["char[]"], "stdout_write"))
-        entries.append(SmallCIntrinsic("cvm_print_int", "void", ["int"], "stdout_i32"))
-        entries.append(SmallCIntrinsic("cvm_print_byte", "void", ["byte"], "stdout_byte"))
-        entries.append(SmallCIntrinsic("cvm_read_byte", "int", [], "stdin_byte"))
-        entries.append(SmallCIntrinsic("cvm_open_read", "file", ["char[]"], "file_open_read"))
-        entries.append(SmallCIntrinsic("cvm_open_write", "file", ["char[]"], "file_open_write"))
-        entries.append(SmallCIntrinsic("cvm_read", "int",
-            ["file", "char[]", "int", "int"], "file_read"))
-        entries.append(SmallCIntrinsic("cvm_write", "int",
-            ["file", "char[]", "int", "int"], "file_write"))
-        entries.append(SmallCIntrinsic("cvm_close", "void", ["file"], "file_close"))
+        entries.append(SmallCIntrinsic("open", "int", ["char[]", "char[]"], "file_open"))
+        entries.append(SmallCIntrinsic("read", "int", ["int", "int", "char[]"], "file_read_handle"))
+        entries.append(SmallCIntrinsic("write", "int", ["int", "int", "char[]"], "file_write_handle"))
+        entries.append(SmallCIntrinsic("close", "void", ["int"], "file_close_handle"))
     }
 
     SmallCIntrinsic find(String name) {
@@ -179,7 +173,7 @@ class SmallCSemanticChecker : GeneratedVisitor {
     }
 
     bool isValue(String valueType) {
-        return isScalar(valueType) || valueType.equals("file")
+        return isScalar(valueType)
     }
 
     SmallCSymbol findGlobal(String name) {
@@ -318,6 +312,16 @@ class SmallCSemanticChecker : GeneratedVisitor {
             int a = 0
             while (a < arguments.children.length && problem.equals("")) {
                 AstNode argument = child(arguments, a)
+                if (argument.name.equals("STRING")) {
+                    String stringExpected = ""
+                    if (argumentCount < intrinsic.parameterTypes.length) {
+                        stringExpected = intrinsic.parameterTypes[argumentCount] as String
+                    }
+                    if (!stringExpected.equals("char[]")) {
+                        fail(argument, format("argument {} to '{}' cannot be a string literal", argumentCount + 1, intrinsic.name))
+                    }
+                    argumentCount += 1
+                }
                 if (argument.name.equals("assignment")) {
                     if (argumentCount >= intrinsic.parameterTypes.length) {
                         fail(argument, format("intrinsic '{}' called with too many arguments", intrinsic.name))
@@ -388,6 +392,9 @@ class SmallCSemanticChecker : GeneratedVisitor {
             int a = 0
             while (a < arguments.children.length && problem.equals("")) {
                 AstNode argument = child(arguments, a)
+                if (argument.name.equals("STRING")) {
+                    fail(argument, format("string literals may only be passed to compiler built-ins, not '{}'", function.name))
+                }
                 if (argument.name.equals("assignment")) {
                     String actual = expressionType(argument)
                     if (argumentCount >= function.parameterTypes.length) {
@@ -568,16 +575,6 @@ class SmallCSemanticChecker : GeneratedVisitor {
                 else {
                     if (declarator.children.length > 1 && child(declarator, 1).text.equals("=")) {
                         initializerIndex = 1
-                    }
-                }
-                if (base.equals("file")) {
-                    if (array) {
-                        fail(nameNode, format("array '{}' cannot have element type file", nameNode.text))
-                    }
-                    else {
-                        if (global) {
-                            fail(nameNode, format("file variable '{}' must be local or a parameter", nameNode.text))
-                        }
                     }
                 }
                 if (problem.equals("")) { addVariable(nameNode, valueType, global) }
