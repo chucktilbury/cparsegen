@@ -6,7 +6,9 @@ set(CWHIP_BIN_DIR "${PROJECT_SOURCE_DIR}/bin" CACHE PATH
 set(CWHIP_LIB_DIR "${PROJECT_SOURCE_DIR}/lib" CACHE PATH
     "Directory for project libraries and archives")
 set(CVM_PREFIX "" CACHE PATH
-    "Prefix containing installed CVM 1.0.0 packages and cvm-run")
+    "Optional installed CVM prefix searched for bin/cvm-as and bin/cvm-run")
+option(CPARSEGEN_REQUIRE_CVM_TOOLS
+    "Fail configuration when cvm-as or cvm-run cannot be found" OFF)
 get_filename_component(CWHIP_BIN_DIR "${CWHIP_BIN_DIR}" ABSOLUTE
     BASE_DIR "${PROJECT_SOURCE_DIR}")
 get_filename_component(CWHIP_LIB_DIR "${CWHIP_LIB_DIR}" ABSOLUTE
@@ -113,30 +115,36 @@ if(NOT Cwhip_APPLICATION_OUTPUT_DIRECTORIES)
         "Install an SDK that provides Cwhip_APPLICATION_OUTPUT_DIRECTORIES.")
 endif()
 
+# CVM is an independent toolchain: the SmallC compiler only writes assembly.
+# The tools below are used by the end-to-end tests, never by the compiler.
+set(cvm_tool_hints)
 if(NOT CVM_PREFIX STREQUAL "")
     get_filename_component(CVM_PREFIX "${CVM_PREFIX}" ABSOLUTE)
-    set(CVM_MODULE_ROOT "${CVM_PREFIX}/share/cwhip/modules")
-    set(CVM_RUNNER "${CVM_PREFIX}/bin/cvm-run")
-    set(smallc_cvm_work "${CMAKE_CURRENT_BINARY_DIR}/smallc-cvm")
-    set(smallc_cvm_executable "${CWHIP_BIN_DIR}/smallc-cvm")
-    set(smallc_cvm_module_overlay "${smallc_cvm_work}/modules")
-    foreach(required_file
-            "${CVM_MODULE_ROOT}/cvm/1.0.0/cwhip-package.toml"
-            "${CVM_MODULE_ROOT}/cvm/1.0.0/cvm.cw"
-            "${CVM_MODULE_ROOT}/cvmfile/1.0.0/cwhip-package.toml"
-            "${CVM_MODULE_ROOT}/cvmfile/1.0.0/cvmfile.cw"
-            "${Cwhip_MODULE_DIR}/system/0.1.0/system.cw"
-            "${CVM_RUNNER}")
-        if(NOT EXISTS "${required_file}")
-            message(FATAL_ERROR
-                "CVM_PREFIX does not contain the required installed CVM 1.0.0 "
-                "package or runner: ${required_file}")
-        endif()
-    endforeach()
-    set(cvm_test_environment
-        "CPARSEGEN_CVM_COMPILER=${smallc_cvm_executable}"
-        "CPARSEGEN_CVM_RUNNER=${CVM_RUNNER}")
+    set(cvm_tool_hints HINTS "${CVM_PREFIX}/bin")
 endif()
+find_program(CVM_AS NAMES cvm-as ${cvm_tool_hints} DOC "CVM assembler (cvm-as) used by tests")
+find_program(CVM_RUN NAMES cvm-run ${cvm_tool_hints} DOC "CVM runner (cvm-run) used by tests")
+set(cvm_test_environment)
+if(CVM_AS AND CVM_RUN)
+    message(STATUS "Using CVM assembler ${CVM_AS} and runner ${CVM_RUN}")
+    list(APPEND cvm_test_environment
+        "CPARSEGEN_CVM_ASSEMBLER=${CVM_AS}" "CPARSEGEN_CVM_RUNNER=${CVM_RUN}")
+elseif(CPARSEGEN_REQUIRE_CVM_TOOLS)
+    message(FATAL_ERROR
+        "cvm-as and cvm-run are required (CPARSEGEN_REQUIRE_CVM_TOOLS=ON) "
+        "but were not found. Install CVM and set -DCVM_PREFIX=/path/to/cvm "
+        "or -DCVM_AS=/path/to/cvm-as -DCVM_RUN=/path/to/cvm-run.")
+else()
+    message(STATUS
+        "cvm-as/cvm-run not found; SmallC assembler and execution tests will "
+        "be skipped. Set CVM_PREFIX, or CVM_AS and CVM_RUN, to enable them.")
+endif()
+if(CPARSEGEN_REQUIRE_CVM_TOOLS)
+    list(APPEND cvm_test_environment "CPARSEGEN_REQUIRE_CVM_TOOLS=1")
+endif()
+set(smallc_cvm_work "${CMAKE_CURRENT_BINARY_DIR}/smallc-cvm")
+set(smallc_cvm_executable "${CWHIP_BIN_DIR}/smallc-cvm")
+list(APPEND cvm_test_environment "CPARSEGEN_CVM_COMPILER=${smallc_cvm_executable}")
 
 add_library(cparsegen_paths OBJECT src/paths.c)
 target_include_directories(cparsegen_paths PRIVATE "${Cwhip_INCLUDE_DIR}")
@@ -235,85 +243,66 @@ endfunction()
 cparsegen_add_example(calculator calculator)
 cparsegen_add_example(smallc smallc-ast)
 
-if(NOT CVM_PREFIX STREQUAL "")
-    get_filename_component(cwhip_runtime_directory "${Cwhip_RUNTIME_LIBRARY}" DIRECTORY)
-    add_custom_command(
-        OUTPUT "${smallc_cvm_executable}"
-        COMMAND "${CMAKE_COMMAND}" -E make_directory
-            "${smallc_cvm_work}/home" "${smallc_cvm_work}/config"
-            "${smallc_cvm_work}/data" "${smallc_cvm_work}/cache"
-            "${smallc_cvm_work}/state" "${smallc_cvm_module_overlay}"
-            "${CWHIP_BIN_DIR}"
-        COMMAND "${CMAKE_COMMAND}" -E rm -f
-            "${smallc_cvm_module_overlay}/cvm"
-            "${smallc_cvm_module_overlay}/cvmfile"
-            "${smallc_cvm_module_overlay}/system"
-        COMMAND "${CMAKE_COMMAND}" -E create_symlink
-            "${CVM_MODULE_ROOT}/cvm" "${smallc_cvm_module_overlay}/cvm"
-        COMMAND "${CMAKE_COMMAND}" -E create_symlink
-            "${CVM_MODULE_ROOT}/cvmfile" "${smallc_cvm_module_overlay}/cvmfile"
-        COMMAND "${CMAKE_COMMAND}" -E create_symlink
-            "${Cwhip_MODULE_DIR}/system" "${smallc_cvm_module_overlay}/system"
-        COMMAND "${cparsegen_executable}" --library
-            "${PROJECT_SOURCE_DIR}/examples/smallc/smallc.cpg"
-            "${smallc_cvm_work}/parser.cw"
-            --dot "${smallc_cvm_work}/grammar.dot"
-        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-            "${PROJECT_SOURCE_DIR}/examples/smallc/smallc-cvm.cw"
-            "${PROJECT_SOURCE_DIR}/examples/smallc/smallc_frontend.cw"
-            "${PROJECT_SOURCE_DIR}/examples/smallc/smallc_backend.cw"
-            "${smallc_cvm_work}"
-        COMMAND "${CMAKE_COMMAND}" -E env
-            --unset=CWHIP_MODULE_DIR --unset=CWHIP_PACKAGE_PATH
-            --unset=CWHIP_MODULE_REGISTRY --unset=DESTDIR --unset=XDG_RUNTIME_DIR
-            "HOME=${smallc_cvm_work}/home"
-            "XDG_CONFIG_HOME=${smallc_cvm_work}/config"
-            "XDG_DATA_HOME=${smallc_cvm_work}/data"
-            "XDG_CACHE_HOME=${smallc_cvm_work}/cache"
-            "XDG_STATE_HOME=${smallc_cvm_work}/state"
-            "CWHIP_HOME=${Cwhip_PREFIX}" "CWHIP_INCLUDE_DIR=${Cwhip_INCLUDE_DIR}"
-            "CWHIP_RUNTIME_DIR=${cwhip_runtime_directory}"
-            "CWHIP_BUILTIN_DIR=${Cwhip_BUILTIN_DIR}"
-            "CWHIP_STDLIB_MODULE_DIR=${Cwhip_MODULE_DIR}"
-            "CC=${Cwhip_CLANG_EXECUTABLE}"
-            "${Cwhip_COMPILER}" "${smallc_cvm_work}/smallc-cvm.cw"
-            -M "${smallc_cvm_module_overlay}"
-            -o "${smallc_cvm_executable}"
-        DEPENDS cparsegen "${cparsegen_executable}"
-            "${PROJECT_SOURCE_DIR}/examples/smallc/smallc.cpg"
-            "${PROJECT_SOURCE_DIR}/examples/smallc/smallc-cvm.cw"
-            "${PROJECT_SOURCE_DIR}/examples/smallc/smallc_frontend.cw"
-            "${PROJECT_SOURCE_DIR}/examples/smallc/smallc_backend.cw"
-            "${Cwhip_COMPILER}" "${Cwhip_RUNTIME_LIBRARY}"
-            "${CVM_MODULE_ROOT}/cvm/1.0.0/cvm.cw"
-            "${CVM_MODULE_ROOT}/cvmfile/1.0.0/cvmfile.cw"
-            "${Cwhip_MODULE_DIR}/system/0.1.0/system.cw"
-        BYPRODUCTS "${smallc_cvm_work}/parser.cw"
-            "${smallc_cvm_work}/grammar.dot"
-            "${smallc_cvm_work}/smallc-cvm.cw"
-            "${smallc_cvm_work}/smallc_frontend.cw"
-            "${smallc_cvm_work}/smallc_backend.cw"
-        VERBATIM)
-    add_custom_target(smallc-cvm DEPENDS "${smallc_cvm_executable}")
+get_filename_component(cwhip_runtime_directory "${Cwhip_RUNTIME_LIBRARY}" DIRECTORY)
+set(smallc_cvm_sources
+    "${PROJECT_SOURCE_DIR}/examples/smallc/smallc-cvm.cw"
+    "${PROJECT_SOURCE_DIR}/examples/smallc/smallc_frontend.cw"
+    "${PROJECT_SOURCE_DIR}/examples/smallc/smallc_backend.cw")
+add_custom_command(
+    OUTPUT "${smallc_cvm_executable}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory
+        "${smallc_cvm_work}/home" "${smallc_cvm_work}/config"
+        "${smallc_cvm_work}/data" "${smallc_cvm_work}/cache"
+        "${smallc_cvm_work}/state" "${CWHIP_BIN_DIR}"
+    COMMAND "${cparsegen_executable}" --library
+        "${PROJECT_SOURCE_DIR}/examples/smallc/smallc.cpg"
+        "${smallc_cvm_work}/parser.cw"
+        --dot "${smallc_cvm_work}/grammar.dot"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        ${smallc_cvm_sources} "${smallc_cvm_work}"
+    COMMAND "${CMAKE_COMMAND}" -E env
+        --unset=CWHIP_MODULE_DIR --unset=CWHIP_PACKAGE_PATH
+        --unset=CWHIP_MODULE_REGISTRY --unset=DESTDIR --unset=XDG_RUNTIME_DIR
+        "HOME=${smallc_cvm_work}/home"
+        "XDG_CONFIG_HOME=${smallc_cvm_work}/config"
+        "XDG_DATA_HOME=${smallc_cvm_work}/data"
+        "XDG_CACHE_HOME=${smallc_cvm_work}/cache"
+        "XDG_STATE_HOME=${smallc_cvm_work}/state"
+        "CWHIP_HOME=${Cwhip_PREFIX}" "CWHIP_INCLUDE_DIR=${Cwhip_INCLUDE_DIR}"
+        "CWHIP_RUNTIME_DIR=${cwhip_runtime_directory}"
+        "CWHIP_BUILTIN_DIR=${Cwhip_BUILTIN_DIR}"
+        "CWHIP_STDLIB_MODULE_DIR=${Cwhip_MODULE_DIR}"
+        "CC=${Cwhip_CLANG_EXECUTABLE}"
+        "${Cwhip_COMPILER}" "${smallc_cvm_work}/smallc-cvm.cw"
+        -M "${Cwhip_MODULE_DIR}" -o "${smallc_cvm_executable}"
+    DEPENDS cparsegen "${cparsegen_executable}"
+        "${PROJECT_SOURCE_DIR}/examples/smallc/smallc.cpg"
+        ${smallc_cvm_sources}
+        "${Cwhip_COMPILER}" "${Cwhip_RUNTIME_LIBRARY}"
+    BYPRODUCTS "${smallc_cvm_work}/parser.cw"
+        "${smallc_cvm_work}/grammar.dot"
+        "${smallc_cvm_work}/smallc-cvm.cw"
+        "${smallc_cvm_work}/smallc_frontend.cw"
+        "${smallc_cvm_work}/smallc_backend.cw"
+    VERBATIM)
+add_custom_target(smallc-cvm DEPENDS "${smallc_cvm_executable}")
+add_dependencies(test smallc-cvm)
 
-    add_custom_target(test-smallc-cvm
-        COMMAND "${CMAKE_COMMAND}" -E make_directory
-            "${test_work}/home" "${test_work}/config" "${test_work}/data"
-            "${test_work}/cache" "${test_work}/state"
-        COMMAND "${CMAKE_COMMAND}" -E env
-            "HOME=${test_work}/home" "XDG_CONFIG_HOME=${test_work}/config"
-            "XDG_DATA_HOME=${test_work}/data" "XDG_CACHE_HOME=${test_work}/cache"
-            "XDG_STATE_HOME=${test_work}/state"
-            "CPARSEGEN_CVM_COMPILER=${smallc_cvm_executable}"
-            "CPARSEGEN_CVM_RUNNER=${CVM_RUNNER}"
-            "${Python3_EXECUTABLE}" -m unittest discover
-                -s "${PROJECT_SOURCE_DIR}/tests" -p test_smallc_cvm.py -v
-        DEPENDS smallc-cvm
-        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-        USES_TERMINAL
-        VERBATIM)
-    add_dependencies(test smallc-cvm)
-endif()
+add_custom_target(test-smallc-cvm
+    COMMAND "${CMAKE_COMMAND}" -E make_directory
+        "${test_work}/home" "${test_work}/config" "${test_work}/data"
+        "${test_work}/cache" "${test_work}/state"
+    COMMAND "${CMAKE_COMMAND}" -E env
+        "HOME=${test_work}/home" "XDG_CONFIG_HOME=${test_work}/config"
+        "XDG_DATA_HOME=${test_work}/data" "XDG_CACHE_HOME=${test_work}/cache"
+        "XDG_STATE_HOME=${test_work}/state"
+        ${cvm_test_environment}
+        "${Python3_EXECUTABLE}" -m unittest discover
+            -s "${PROJECT_SOURCE_DIR}/tests" -p test_smallc_cvm.py -v
+    DEPENDS smallc-cvm
+    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+    USES_TERMINAL
+    VERBATIM)
 
 function(cparsegen_add_c_example example)
     set(target "${example}-c")

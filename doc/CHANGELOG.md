@@ -2,9 +2,11 @@
 
 ## Unreleased
 
-- Add the optional SmallC-to-CVM v1 application backend. Reuse the parsed,
-  semantically checked AST, emit through the public CVM 1.0.0 builders and
-  validator, and exercise containers with the installed `cvm-run`. Cover
+- Add the optional SmallC-to-CVM v1 compiler. Reuse the parsed, semantically
+  checked AST and emit textual CVM assembly (`smallc-cvm INPUT.c OUTPUT.asm`);
+  the official `cvm-as` produces the binary and `cvm-run` executes it. The
+  compiler has no CVM package dependency. Add `print`, `open`, `read`, `write`
+  and `close` built-ins lowered to CVM services. Cover
   scalar/array state, functions, arithmetic, and structured control flow;
   report unsupported switch/label/goto constructs at their source locations.
   Preserve the syntax-only AST CLI and standalone C frontend.

@@ -173,8 +173,8 @@ make test
 
 The custom `test` target builds cparsegen before running Python unittest
 discovery, including the generated calculator and SmallC acceptance tests.
-When configured with `CVM_PREFIX`, it also builds `smallc-cvm` and runs the
-official CVM runner in the SmallC bytecode end-to-end tests.
+It also builds `smallc-cvm`, and the SmallC assembly tests run the installed
+`cvm-as` and `cvm-run` when they are found (see below).
 Unlike CTest's built-in target, it has a build dependency on the generator;
 no separate build step is required. A failing test fails the target.
 The target passes the configured generator executable (including a custom
@@ -263,38 +263,37 @@ parser backends, comparing full JSON ASTs and lexical/parser diagnostic
 locations, as well as table-driven semantic checks through the Cwhip app.
 Neither parser backend executes SmallC; standalone C remains syntax-only.
 
-## Build the SmallC CVM backend
+## Build the SmallC CVM assembly compiler
 
-The CVM backend is an optional Cwhip application that consumes installed
-public source packages; it has no source-tree dependency on the CVM project.
-Install CVM/CVMFile packages version 1.0.0 and the matching `cvm-run` 1.0.0
-under one prefix. The selected CWhip SDK must provide the public binary file
-APIs required by `cvmfile`. Configure with the complete CVM install prefix:
+`smallc-cvm` is a Cwhip application that needs only the Cwhip SDK. It emits
+**textual CVM assembly**; it does not import CVM packages, build containers or
+encode bytecode. The official CVM tools are a separate, independently
+installed toolchain: `cvm-as` (assembler, the only producer of the binary) and
+`cvm-run` (runner).
 
 ```sh
-cmake -S . -B build -DCVM_PREFIX=/path/to/cvm-install
 cmake --build build --target smallc-cvm
-./bin/smallc-cvm examples/smallc/valid/functions.c build/smallc/functions.cvm
-/path/to/cvm-install/bin/cvm-run build/smallc/functions.cvm
+./bin/smallc-cvm examples/smallc/valid/functions.c build/example.asm
+cvm-as build/example.asm -o build/example.cvm
+cvm-run build/example.cvm
 cmake --build build --target test-smallc-cvm
-cmake --build build --target test
 ```
 
-CMake requires the installed module paths
-`share/cwhip/modules/cvm/1.0.0` and
-`share/cwhip/modules/cvmfile/1.0.0`, plus `bin/cvm-run`; configuration fails
-if any is missing. The backend uses the package's checked instruction and
-container builders/validator and writes the standard CVM container through
-the public `cvmfile` API. The compiler does not invoke `cvm-as` or duplicate
-the CVM format. The executable follows `CWHIP_BIN_DIR`.
+The executable follows `CWHIP_BIN_DIR`. The tests locate the CVM tools at
+configure time: `-DCVM_PREFIX=/path/to/cvm-install` (searches `bin/`),
+`-DCVM_AS=/path/to/cvm-as -DCVM_RUN=/path/to/cvm-run`, or `PATH`. The tests
+read `CPARSEGEN_CVM_COMPILER`, `CPARSEGEN_CVM_ASSEMBLER` and
+`CPARSEGEN_CVM_RUNNER`, which CMake sets. Emitted-text and checker tests always
+run; assembler/runner tests are skipped with a message when the tools are
+missing, or when the installed `cvm-as` lacks the file-handle services. Pass
+`-DCPARSEGEN_REQUIRE_CVM_TOOLS=ON` to make missing tools a configuration
+error.
 
-`smallc-cvm INPUT.c OUTPUT.cvm` preserves the syntax-only and `--check` AST
+`smallc-cvm INPUT.c OUTPUT.asm` preserves the syntax-only and `--check` AST
 frontends and applies the existing semantic checker before lowering. See
 [SmallC](../examples/smallc/README.md#compile-and-run-with-cvm) for supported
-constructs, runtime behavior, explicit unsupported diagnostics, and test
-coverage. The dedicated test target compiles programs, validates them through
-the shared API, runs the resulting files with installed `cvm-run`, and
-compares supported samples with strict host-C execution.
+constructs, built-in I/O functions, runtime behavior and unsupported
+diagnostics.
 
 Optional host-C sanitizer validation, using the same test runner:
 

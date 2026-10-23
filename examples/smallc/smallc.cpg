@@ -43,7 +43,7 @@ additive : multiplicative (("+" | "-") multiplicative)* ;
 multiplicative : unary (("*" | "/" | "%") unary)* ;
 unary : ("+" | "-" | "!") unary | ("++" | "--") lvalue | primary ;
 primary : IDENT "(" arguments? ")" | lvalue ("++" | "--")? | INTEGER | CHAR | "(" expression ")" ;
-arguments : assignment ("," assignment)* ;
+arguments : (assignment | STRING) ("," (assignment | STRING))* ;
 lvalue : IDENT ("[" expression "]")? ;
 
 INTEGER = [0-9]+

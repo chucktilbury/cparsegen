@@ -1,4 +1,4 @@
-"""Compile checked SmallC programs to public CVM containers and execute them."""
+"""SmallC -> textual CVM assembly -> cvm-as -> cvm-run end-to-end tests."""
 
 import os
 from pathlib import Path
@@ -17,56 +17,101 @@ class SmallCCVMTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         compiler = os.environ.get("CPARSEGEN_CVM_COMPILER")
-        runner = os.environ.get("CPARSEGEN_CVM_RUNNER")
-        if not compiler or not runner:
+        if not compiler or not Path(compiler).is_file():
             raise unittest.SkipTest(
-                "configure CMake with CVM_PREFIX to run SmallC/CVM tests"
+                "build the smallc-cvm target (CPARSEGEN_CVM_COMPILER)"
             )
         cls.compiler = Path(compiler)
-        cls.runner = Path(runner)
-        if not cls.compiler.is_file():
-            raise FileNotFoundError(cls.compiler)
-        if not cls.runner.is_file():
-            raise FileNotFoundError(cls.runner)
+        assembler = os.environ.get("CPARSEGEN_CVM_ASSEMBLER")
+        runner = os.environ.get("CPARSEGEN_CVM_RUNNER")
+        cls.assembler = Path(assembler) if assembler else None
+        cls.runner = Path(runner) if runner else None
+        cls.have_tools = bool(
+            cls.assembler and cls.runner
+            and cls.assembler.is_file() and cls.runner.is_file()
+        )
+        if not cls.have_tools and os.environ.get("CPARSEGEN_REQUIRE_CVM_TOOLS"):
+            raise RuntimeError(
+                "cvm-as and cvm-run are required: set CVM_PREFIX or CVM_AS/CVM_RUN"
+            )
         cls.temporary = tempfile.TemporaryDirectory(prefix="smallc-cvm-test-")
         cls.addClassCleanup(cls.temporary.cleanup)
         cls.directory = Path(cls.temporary.name)
-        cls.environment = {
-            "PATH": "/usr/bin:/bin",
-            "HOME": str(cls.directory),
-        }
+        cls.environment = {"PATH": "/usr/bin:/bin", "HOME": str(cls.directory)}
+
+    def require_tools(self):
+        if not self.have_tools:
+            self.skipTest(
+                "cvm-as/cvm-run not available; set CVM_PREFIX or CVM_AS and CVM_RUN"
+            )
 
     def compile_source(self, source, name="input"):
         source_path = self.directory / f"{name}.c"
-        bytecode_path = self.directory / f"{name}.cvm"
+        assembly_path = self.directory / f"{name}.asm"
+        assembly_path.unlink(missing_ok=True)
         source_path.write_text(source)
         result = subprocess.run(
-            [str(self.compiler), str(source_path), str(bytecode_path)],
-            cwd=self.directory,
-            env=self.environment,
-            capture_output=True,
-            text=True,
-            timeout=30,
+            [str(self.compiler), str(source_path), str(assembly_path)],
+            cwd=self.directory, env=self.environment,
+            capture_output=True, text=True, timeout=30,
         )
-        return result, source_path, bytecode_path
+        return result, source_path, assembly_path
 
-    def run_cvm(self, bytecode_path):
-        return subprocess.run(
-            [str(self.runner), str(bytecode_path)],
-            cwd=self.directory,
-            env=self.environment,
-            capture_output=True,
-            timeout=30,
+    def assemble(self, assembly_path):
+        self.require_tools()
+        binary = assembly_path.with_suffix(".cvm")
+        binary.unlink(missing_ok=True)
+        result = subprocess.run(
+            [str(self.assembler), str(assembly_path), "-o", str(binary)],
+            cwd=self.directory, env=self.environment,
+            capture_output=True, text=True, timeout=30,
         )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(binary.is_file())
+        return binary
+
+    def run_cvm(self, assembly_path, stdin=b""):
+        binary = self.assemble(assembly_path)
+        return subprocess.run(
+            [str(self.runner), str(binary)],
+            cwd=self.directory, env=self.environment,
+            input=stdin, capture_output=True, timeout=30,
+        )
+
+    def require_handle_services(self):
+        self.require_tools()
+        probe = self.directory / "probe-handles.asm"
+        probe.write_text(
+            ".version 1.0\n.entry main\n.array p: u8[2] = \"x\"\n"
+            ".func main() -> i32\n    array p\n    array p\n"
+            "    sys file_open\n    ret.i32\n.end\n"
+        )
+        result = subprocess.run(
+            [str(self.assembler), str(probe), "-o", str(self.directory / "probe.cvm")],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode != 0:
+            self.skipTest(
+                "installed cvm-as lacks the file_open/file_*_handle services: "
+                + result.stderr.strip()
+            )
+
+    def compile_and_run(self, source, name, stdin=b""):
+        compiled, _, assembly_path = self.compile_source(source, name)
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        return self.run_cvm(assembly_path, stdin)
 
     def assert_matches_c(self, source, expected, name):
-        compiled, source_path, bytecode_path = self.compile_source(source, name)
+        compiled, source_path, assembly_path = self.compile_source(source, name)
         self.assertEqual(compiled.returncode, 0, compiled.stderr)
         self.assertEqual(compiled.stdout, "")
-        self.assertTrue(bytecode_path.is_file())
-        self.assertGreater(bytecode_path.stat().st_size, 0)
+        text = assembly_path.read_bytes()
+        self.assertNotIn(b"\0", text)
+        text.decode("ascii")
+        self.assertIn(b".version 1.0\n.entry main\n", text)
+        self.assertIn(b".func main() -> i32", text)
 
-        execution = self.run_cvm(bytecode_path)
+        execution = self.run_cvm(assembly_path)
         self.assertEqual(execution.returncode, 0, execution.stderr.decode())
         self.assertEqual(execution.stdout, f"result: {expected}\n".encode())
         self.assertEqual(execution.stderr, b"")
@@ -92,17 +137,7 @@ class SmallCCVMTests(unittest.TestCase):
         for name, expected in (("functions", 48), ("arrays", 6)):
             with self.subTest(sample=name):
                 source_path = EXAMPLE / "valid" / f"{name}.c"
-                bytecode_path = self.directory / f"{name}.cvm"
-                compiled = subprocess.run(
-                    [str(self.compiler), str(source_path), str(bytecode_path)],
-                    cwd=self.directory,
-                    env=self.environment,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-                self.assertEqual(compiled.returncode, 0, compiled.stderr)
-                execution = self.run_cvm(bytecode_path)
+                execution = self.compile_and_run(source_path.read_text(), name)
                 self.assertEqual(execution.returncode, 0, execution.stderr.decode())
                 self.assertEqual(execution.stdout, f"result: {expected}\n".encode())
 
@@ -156,9 +191,7 @@ int main() {
     return (-7 / 2) * 10 + (-7 % 2);
 }
 """
-        compiled, _, bytecode_path = self.compile_source(source, "signed")
-        self.assertEqual(compiled.returncode, 0, compiled.stderr)
-        execution = self.run_cvm(bytecode_path)
+        execution = self.compile_and_run(source, "signed")
         self.assertEqual(execution.returncode, 0, execution.stderr.decode())
         self.assertEqual(execution.stdout, b"result: -31\n")
 
@@ -182,9 +215,7 @@ int initial() { return 41; }
 int value = initial();
 int main() { return value + 1; }
 """
-        compiled, _, bytecode_path = self.compile_source(source, "global-init")
-        self.assertEqual(compiled.returncode, 0, compiled.stderr)
-        execution = self.run_cvm(bytecode_path)
+        execution = self.compile_and_run(source, "global-init")
         self.assertEqual(execution.returncode, 0, execution.stderr.decode())
         self.assertEqual(execution.stdout, b"result: 42\n")
 
@@ -197,20 +228,16 @@ int main() {
 }
 """
         self.assert_matches_c(source, 0, "char-scalar")
-        compiled, _, bytecode_path = self.compile_source(
+        execution = self.compile_and_run(
             "int main() { int values[1]; return values[1]; }\n", "bounds"
         )
-        self.assertEqual(compiled.returncode, 0, compiled.stderr)
-        execution = self.run_cvm(bytecode_path)
         self.assertEqual(execution.returncode, 1)
         self.assertIn(b"runtime trap", execution.stderr)
 
     def test_checked_overflow_traps_at_runtime(self):
-        compiled, _, bytecode_path = self.compile_source(
+        execution = self.compile_and_run(
             "int main() { return 2147483647 + 1; }\n", "overflow"
         )
-        self.assertEqual(compiled.returncode, 0, compiled.stderr)
-        execution = self.run_cvm(bytecode_path)
         self.assertEqual(execution.returncode, 1)
         self.assertIn(b"runtime trap", execution.stderr)
 
@@ -224,17 +251,14 @@ int main() {
              "CVM backend does not support labels or goto"),
         ):
             with self.subTest(diagnostic=diagnostic):
-                output = self.directory / "unsupported.cvm"
+                output = self.directory / "unsupported.asm"
                 output.write_bytes(b"preserve existing output")
                 source_path = self.directory / "unsupported.c"
                 source_path.write_text(source)
                 compiled = subprocess.run(
                     [str(self.compiler), str(source_path), str(output)],
-                    cwd=self.directory,
-                    env=self.environment,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
+                    cwd=self.directory, env=self.environment,
+                    capture_output=True, text=True, timeout=30,
                 )
                 self.assertEqual(compiled.returncode, 1)
                 self.assertIn(diagnostic, compiled.stderr)
@@ -243,11 +267,149 @@ int main() {
 
     def test_non_main_fallthrough_is_rejected_conservatively(self):
         source = "int maybe(int value) { while (value) return 1; }\nint main() { return 0; }\n"
-        compiled, _, bytecode_path = self.compile_source(source, "fallthrough")
+        compiled, _, assembly_path = self.compile_source(source, "fallthrough")
         self.assertEqual(compiled.returncode, 1)
         self.assertIn("may reach its end without returning", compiled.stderr)
         self.assertIn(":1:", compiled.stderr)
-        self.assertFalse(bytecode_path.exists())
+        self.assertFalse(assembly_path.exists())
+
+    def test_emitted_text_is_symbolic_assembly(self):
+        source = """\
+int fib(int n) { if (n < 2) return n; return fib(n - 1) + fib(n - 2); }
+int main() { int v[2] = {1, 2}; return fib(6) + v[1]; }
+"""
+        compiled, _, assembly_path = self.compile_source(source, "text")
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        text = assembly_path.read_text()
+        for expected in (
+            ".version 1.0", ".entry main", ".func sc_fib(p0_n:i32) -> i32",
+            "call sc_fib", "jz L0", "\nL0:\n", "lt.i32", "aset", ".end",
+        ):
+            self.assertIn(expected, text)
+        self.assert_matches_c(source, 10, "text-run")
+
+    def test_static_string_initializer_and_escapes_are_exact(self):
+        source = 'char s[5] = "a\\n\\"\\\\"; int main() { return s[1] + s[2] + s[3] + s[4]; }\n'
+        compiled, _, assembly_path = self.compile_source(source, "escapes")
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        self.assertIn(".array", assembly_path.read_text())
+        execution = self.run_cvm(assembly_path)
+        self.assertEqual(execution.stdout, f"result: {10 + 34 + 92}\n".encode())
+
+    def test_print_writes_bytes_up_to_nul(self):
+        execution = self.compile_and_run(
+            'int main() { char s[8] = "hi\\n"; print(s); return 0; }\n', "print"
+        )
+        self.assertEqual(execution.returncode, 0, execution.stderr.decode())
+        self.assertEqual(execution.stdout, b"hi\nresult: 0\n")
+
+    def test_assembler_rejects_nothing_for_every_valid_sample(self):
+        for path in sorted((EXAMPLE / "valid").glob("*.c")):
+            with self.subTest(sample=path.name):
+                output = self.directory / f"valid-{path.stem}.asm"
+                output.unlink(missing_ok=True)
+                compiled = subprocess.run(
+                    [str(self.compiler), str(path), str(output)],
+                    cwd=self.directory, env=self.environment,
+                    capture_output=True, text=True, timeout=30,
+                )
+                if compiled.returncode != 0:
+                    self.assertFalse(output.exists())
+                    continue
+                self.assemble(output)
+
+    def test_file_builtins_lower_to_handle_services(self):
+        source = """\
+int main() {
+    char buffer[8];
+    int out = open("data.bin", "w");
+    int written = write(out, 3, "abc");
+    close(out);
+    int in = open("data.bin", "r");
+    int count = read(in, 8, buffer);
+    close(in);
+    return written + count;
+}
+"""
+        compiled, _, assembly_path = self.compile_source(source, "file-text")
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        text = assembly_path.read_text()
+        for service in ("file_open", "file_write_handle", "file_read_handle",
+                        "file_close_handle"):
+            self.assertIn(f"sys {service}\n", text)
+        self.assertIn('.array s1_literal: u8[9] = "data.bin"', text)
+        self.assertNotIn("file_open_read", text)
+
+    def test_invalid_builtin_uses_are_rejected_without_output(self):
+        for source, diagnostic in (
+            ("int main() { print(1); return 0; }\n", "requires the name of a char array"),
+            ("int main() { char b[2]; return read(0, 2); }\n", "expects 3 arguments"),
+            ("int main() { char b[2]; int v = close(0); return v; }\n", "void intrinsic"),
+            ("int open(int x) { return x; }\nint main() { return 0; }\n", "reserved compiler intrinsic"),
+            ("int main() { int print = 1; return print; }\n", "reserved compiler intrinsic"),
+            ("int f(int s) { return 0; }\nint main() { return f(\"x\"); }\n", "string literals may only"),
+            ("int main() { return write(0, \"x\", \"y\"); }\n", "cannot be a string literal"),
+            ("int main() { return close(0) + 1; }\n", "integral scalar operands"),
+        ):
+            with self.subTest(source=source):
+                compiled, _, assembly_path = self.compile_source(source, "invalid")
+                self.assertEqual(compiled.returncode, 1, compiled.stdout)
+                self.assertIn(diagnostic, compiled.stderr)
+                self.assertFalse(assembly_path.exists())
+
+    def test_binary_copy_of_all_byte_values(self):
+        self.require_handle_services()
+        data = bytes(range(256))
+        (self.directory / "all256.in").write_bytes(data)
+        source = """\
+int main() {
+    char buffer[256];
+    int in = open("all256.in", "r");
+    int out = open("all256.out", "w");
+    int count = read(in, 256, buffer);
+    close(in);
+    int written = write(out, count, buffer);
+    close(out);
+    return written - count;
+}
+"""
+        execution = self.compile_and_run(source, "copy256")
+        self.assertEqual(execution.returncode, 0, execution.stderr.decode())
+        self.assertEqual(execution.stdout, b"result: 0\n")
+        self.assertEqual((self.directory / "all256.out").read_bytes(), data)
+
+    def test_open_modes_eof_and_failure(self):
+        self.require_handle_services()
+        (self.directory / "mode.txt").write_bytes(b"ab")
+        source = """\
+int main() {
+    char buffer[4];
+    int out = open("mode.txt", "a");
+    write(out, 1, "c");
+    close(out);
+    int in = open("mode.txt", "r");
+    int first = read(in, 4, buffer);
+    int second = read(in, 4, buffer);
+    int zero = read(in, 0, buffer);
+    close(in);
+    print(buffer);
+    return first * 100 + second * 10 + zero;
+}
+"""
+        execution = self.compile_and_run(source, "modes")
+        self.assertEqual(execution.returncode, 0, execution.stderr.decode())
+        self.assertEqual(execution.stdout, b"abcresult: 300\n")
+        self.assertEqual((self.directory / "mode.txt").read_bytes(), b"abc")
+        failure = self.compile_and_run(
+            'int main() { return open("missing-dir/none", "r"); }\n', "open-fail"
+        )
+        self.assertEqual(failure.returncode, 1)
+        self.assertIn(b"I/O error", failure.stderr)
+        oversized = self.compile_and_run(
+            "int main() { char b[2]; return read(0, 3, b); }\n", "oversized"
+        )
+        self.assertEqual(oversized.returncode, 1)
+        self.assertIn(b"runtime trap", oversized.stderr)
 
 
 if __name__ == "__main__":

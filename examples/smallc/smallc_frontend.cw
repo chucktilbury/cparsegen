@@ -46,7 +46,51 @@ class SmallCSymbol {
     }
 }
 
+// Compiler-recognized pseudo-functions. They have no definitions or
+// declarations in SmallC source; the checker validates calls against these
+// signatures and the CVM backend lowers each one to a single `sys` service.
+// "void" results may only be used as expression statements, "char[]" accepts
+// the bare name of a char array or a string literal, and "byte" accepts char or int.
+class SmallCIntrinsic {
+    String name
+    String resultType
+    list parameterTypes
+    String service
+
+    SmallCIntrinsic(String intrinsicName, String result, list parameters,
+            String serviceName) {
+        name = intrinsicName
+        resultType = result
+        parameterTypes = parameters
+        service = serviceName
+    }
+}
+
+class SmallCIntrinsics {
+    list entries
+
+    SmallCIntrinsics() {
+        entries = []
+        entries.append(SmallCIntrinsic("print", "void", ["char[]"], "stdout_write"))
+        entries.append(SmallCIntrinsic("open", "int", ["char[]", "char[]"], "file_open"))
+        entries.append(SmallCIntrinsic("read", "int", ["int", "int", "char[]"], "file_read_handle"))
+        entries.append(SmallCIntrinsic("write", "int", ["int", "int", "char[]"], "file_write_handle"))
+        entries.append(SmallCIntrinsic("close", "void", ["int"], "file_close_handle"))
+    }
+
+    SmallCIntrinsic find(String name) {
+        int i = 0
+        while (i < entries.length) {
+            SmallCIntrinsic entry = entries[i] as SmallCIntrinsic
+            if (entry.name.equals(name)) { return entry }
+            i += 1
+        }
+        return null
+    }
+}
+
 class SmallCSemanticChecker : GeneratedVisitor {
+    SmallCIntrinsics intrinsics
     list locations
     list globals
     SmallCScope currentScope
@@ -61,6 +105,7 @@ class SmallCSemanticChecker : GeneratedVisitor {
 
     SmallCSemanticChecker() {
         super GeneratedVisitor()
+        intrinsics = SmallCIntrinsics()
         locations = []
         globals = []
         currentScope = null
@@ -127,6 +172,10 @@ class SmallCSemanticChecker : GeneratedVisitor {
         return valueType.equals("int") || valueType.equals("char")
     }
 
+    bool isValue(String valueType) {
+        return isScalar(valueType)
+    }
+
     SmallCSymbol findGlobal(String name) {
         int i = 0
         while (i < globals.length) {
@@ -177,6 +226,10 @@ class SmallCSemanticChecker : GeneratedVisitor {
 
     void addVariable(AstNode nameNode, String valueType, bool global) {
         String name = nameNode.text
+        if (intrinsics.find(name) != null) {
+            fail(nameNode, format("'{}' is a reserved compiler intrinsic name", name))
+            return
+        }
         if (global) {
             if (findGlobal(name) != null) {
                 fail(nameNode, format("duplicate global declaration '{}'", name))
@@ -193,7 +246,11 @@ class SmallCSemanticChecker : GeneratedVisitor {
     }
 
     String exactType(String actual, String expected, AstNode node, String context) {
-        if (!isScalar(actual)) {
+        if (actual.equals("void")) {
+            fail(node, format("{} cannot use the result of a void intrinsic", context))
+            return ""
+        }
+        if (!isValue(actual)) {
             fail(node, format("{} requires a scalar value", context))
             return ""
         }
@@ -234,8 +291,85 @@ class SmallCSemanticChecker : GeneratedVisitor {
         return elementType(symbol.valueType)
     }
 
+    // Returns the lvalue naming a whole array when an argument is exactly
+    // that bare identifier, otherwise null.
+    AstNode arrayArgument(AstNode argument) {
+        AstNode current = argument
+        while (!current.name.equals("lvalue") && current.children.length == 1) {
+            current = child(current, 0)
+        }
+        if (current.name.equals("lvalue") && current.children.length == 1) { return current }
+        return null
+    }
+
+    String intrinsicCallType(AstNode node, SmallCIntrinsic intrinsic) {
+        AstNode nameNode = child(node, 0)
+        int argumentCount = 0
+        int i = 0
+        while (i < node.children.length && !child(node, i).name.equals("arguments")) { i += 1 }
+        if (i < node.children.length) {
+            AstNode arguments = child(node, i)
+            int a = 0
+            while (a < arguments.children.length && problem.equals("")) {
+                AstNode argument = child(arguments, a)
+                if (argument.name.equals("STRING")) {
+                    String stringExpected = ""
+                    if (argumentCount < intrinsic.parameterTypes.length) {
+                        stringExpected = intrinsic.parameterTypes[argumentCount] as String
+                    }
+                    if (!stringExpected.equals("char[]")) {
+                        fail(argument, format("argument {} to '{}' cannot be a string literal", argumentCount + 1, intrinsic.name))
+                    }
+                    argumentCount += 1
+                }
+                if (argument.name.equals("assignment")) {
+                    if (argumentCount >= intrinsic.parameterTypes.length) {
+                        fail(argument, format("intrinsic '{}' called with too many arguments", intrinsic.name))
+                    }
+                    else {
+                        String expected = intrinsic.parameterTypes[argumentCount] as String
+                        String context = format("argument {} to '{}'", argumentCount + 1, intrinsic.name)
+                        if (expected.equals("char[]")) {
+                            AstNode target = arrayArgument(argument)
+                            SmallCSymbol symbol = null
+                            if (target != null) { symbol = findVariable(child(target, 0).text) }
+                            if (symbol == null || !symbol.kind.equals("variable")
+                                    || !symbol.valueType.equals("char[]")) {
+                                fail(argument, format("{} requires the name of a char array", context))
+                            }
+                        }
+                        else {
+                            String actual = expressionType(argument)
+                            if (problem.equals("")) {
+                                if (expected.equals("byte") || expected.equals("int")) {
+                                    if (actual.equals("void")) {
+                                        fail(argument, format("{} cannot use the result of a void intrinsic", context))
+                                    }
+                                    else {
+                                        if (!isScalar(actual)) {
+                                            fail(argument, format("{} requires an integral scalar value", context))
+                                        }
+                                    }
+                                }
+                                else { exactType(actual, expected, argument, context) }
+                            }
+                        }
+                    }
+                    argumentCount += 1
+                }
+                a += 1
+            }
+        }
+        if (problem.equals("") && argumentCount != intrinsic.parameterTypes.length) {
+            fail(nameNode, format("intrinsic '{}' expects {} arguments, got {}", intrinsic.name, intrinsic.parameterTypes.length, argumentCount))
+        }
+        return intrinsic.resultType
+    }
+
     String callType(AstNode node) {
         AstNode nameNode = child(node, 0)
+        SmallCIntrinsic intrinsic = intrinsics.find(nameNode.text)
+        if (intrinsic != null) { return intrinsicCallType(node, intrinsic) }
         SmallCSymbol local = findScoped(nameNode.text)
         if (local != null) {
             fail(nameNode, format("'{}' names a variable, not a function", nameNode.text))
@@ -258,6 +392,9 @@ class SmallCSemanticChecker : GeneratedVisitor {
             int a = 0
             while (a < arguments.children.length && problem.equals("")) {
                 AstNode argument = child(arguments, a)
+                if (argument.name.equals("STRING")) {
+                    fail(argument, format("string literals may only be passed to compiler built-ins, not '{}'", function.name))
+                }
                 if (argument.name.equals("assignment")) {
                     String actual = expressionType(argument)
                     if (argumentCount >= function.parameterTypes.length) {
@@ -296,9 +433,14 @@ class SmallCSemanticChecker : GeneratedVisitor {
             String right = expressionType(child(node, 2))
             if (problem.equals("")) {
                 if (operation.equals("=")) {
-                    if (!isScalar(right)) { fail(child(node, 2), "assignment requires a scalar value") }
+                    if (right.equals("void")) {
+                        fail(child(node, 2), "assignment cannot use the result of a void intrinsic")
+                    }
                     else {
-                        if (!left.equals(right)) { fail(child(node, 0), format("assignment requires {}, got {}", left, right)) }
+                        if (!isValue(right)) { fail(child(node, 2), "assignment requires a scalar value") }
+                        else {
+                            if (!left.equals(right)) { fail(child(node, 0), format("assignment requires {}, got {}", left, right)) }
+                        }
                     }
                 }
                 else {
@@ -435,7 +577,7 @@ class SmallCSemanticChecker : GeneratedVisitor {
                         initializerIndex = 1
                     }
                 }
-                addVariable(nameNode, valueType, global)
+                if (problem.equals("")) { addVariable(nameNode, valueType, global) }
                 if (problem.equals("") && initializerIndex < declarator.children.length) {
                     checkInitializer(child(declarator, initializerIndex + 1), valueType, nameNode)
                 }
@@ -535,6 +677,10 @@ class SmallCSemanticChecker : GeneratedVisitor {
             if (part.name.equals("compoundStatement")) { body = part
 definition = true }
             i += 1
+        }
+        if (intrinsics.find(nameNode.text) != null) {
+            fail(nameNode, format("'{}' is a reserved compiler intrinsic name", nameNode.text))
+            return
         }
         list types = []
         if (parameters != null) { types = parameterTypes(parameters) }
@@ -734,11 +880,18 @@ definition = true }
         }
         if (loopScope) { pushScope() }
         if (loop) { loopDepth += 1 }
+        bool inUpdate = false
         int i = 0
         while (i < node.children.length && problem.equals("")) {
             AstNode part = child(node, i)
-            if (part.name.equals("expression")) { expressionType(part) }
+            if (part.name.equals("expression")) {
+                String conditionType = expressionType(part)
+                if (!(loopScope && inUpdate) && problem.equals("") && !isScalar(conditionType)) {
+                    fail(part, "condition must have integral scalar type")
+                }
+            }
             else {
+                if (part.text.equals(";") && loopScope) { inUpdate = true }
                 if (part.name.equals("forInitializer")) { checkForInitializer(part) }
                 else {
                     if (part.name.equals("compoundStatement")) { checkCompound(part, true) }

@@ -1,6 +1,3 @@
-import cvm as CVM
-import cvmfile as CVMFile
-
 include "smallc_frontend.cw"
 include "smallc_backend.cw"
 
@@ -14,12 +11,12 @@ class SmallCCVMApplication {
     int run() {
         Sys.Process process()
         if (process.argc() == 2 && process.arg(1).equals("--help")) {
-            io.writeLine("usage: smallc-cvm INPUT.c OUTPUT.cvm")
-            io.writeLine("Check SmallC and emit a validated CVM v1 binary.")
+            io.writeLine("usage: smallc-cvm INPUT.c OUTPUT.asm")
+            io.writeLine("Check SmallC and emit textual CVM v1 assembly; assemble it with cvm-as.")
             return 0
         }
         if (process.argc() != 3) {
-            io.writeErrorLine("usage: smallc-cvm INPUT.c OUTPUT.cvm")
+            io.writeErrorLine("usage: smallc-cvm INPUT.c OUTPUT.asm")
             return 2
         }
         String inputPath = process.arg(1)
@@ -39,16 +36,34 @@ class SmallCCVMApplication {
             frontend.report(inputPath, input, frontend.errorOffset, frontend.problem)
             return 1
         }
-        SmallCVMCompiler compiler()
-        buffer program = compiler.compile(root, frontend)
-        if (program == null) {
+        SmallCAssemblyCompiler compiler()
+        String assembly = compiler.compile(root, frontend)
+        if (assembly == null) {
             int offset = frontend.offsetOf(compiler.errorNode)
             frontend.report(inputPath, input, offset, compiler.problem)
             return 1
         }
-        CVMFile.Result written = CVMFile.Files().write(outputPath, program)
-        if (!written.ok()) {
-            io.writeErrorLine(format("{}: {}", outputPath, written.error()))
+        Sys.File output = null
+        try {
+            output = Sys.File(outputPath, "w")
+        } except(Exception) as error {
+            io.writeErrorLine(format("{}: {}", outputPath, error.message))
+            return 1
+        }
+        String failure = ""
+        try {
+            int count = output.write(assembly)
+            failure = Sys.System().lastError()
+            if (failure.equals("") && count != assembly.length) {
+                failure = "could not write the complete assembly file"
+            }
+        } finally {
+            output.close()
+            String closeError = Sys.System().lastError()
+            if (failure.equals("") && !closeError.equals("")) { failure = closeError }
+        }
+        if (!failure.equals("")) {
+            io.writeErrorLine(format("{}: {}", outputPath, failure))
             return 1
         }
         return 0
