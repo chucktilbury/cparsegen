@@ -1387,8 +1387,63 @@ class SmallCAssemblyCompiler {
         return child(current, 0)
     }
 
+    // print(char[]): writes the bytes before the first NUL (or the whole array
+    // when none), retrying short writes.
+    String emitPrint(AstNode argument) {
+        SmallCAsmVariable variable = findVariable(arrayArgumentName(argument).text)
+        String length = addTemporary("int")
+        String done = addTemporary("int")
+        String scan = code.newLabel()
+        String scanEnd = code.newLabel()
+        String send = code.newLabel()
+        String sendEnd = code.newLabel()
+        code.op("const.i32 0")
+        code.op1("stloc", length)
+        code.op("pop")
+        code.mark(scan)
+        code.op1("ldloc", length)
+        emitArrayReference(variable)
+        code.op("alen")
+        code.op("lt.i32")
+        code.op1("jz", scanEnd)
+        emitArrayReference(variable)
+        code.op1("ldloc", length)
+        code.op("aget")
+        if (elementType(variable.valueType).equals("char")) { code.op("to.i32") }
+        code.op1("jz", scanEnd)
+        code.op1("ldloc", length)
+        code.op("const.i32 1")
+        code.op("add.i32")
+        code.op1("stloc", length)
+        code.op("pop")
+        code.op1("jmp", scan)
+        code.mark(scanEnd)
+        code.op("const.i32 0")
+        code.op1("stloc", done)
+        code.op("pop")
+        code.mark(send)
+        code.op1("ldloc", done)
+        code.op1("ldloc", length)
+        code.op("lt.i32")
+        code.op1("jz", sendEnd)
+        emitArrayReference(variable)
+        code.op1("ldloc", done)
+        code.op1("ldloc", length)
+        code.op1("ldloc", done)
+        code.op("sub.i32")
+        code.op1("sys", "stdout_write")
+        code.op1("ldloc", done)
+        code.op("add.i32")
+        code.op1("stloc", done)
+        code.op("pop")
+        code.op1("jmp", send)
+        code.mark(sendEnd)
+        return "void"
+    }
+
     String emitIntrinsic(AstNode node, SmallCIntrinsic intrinsic) {
         list arguments = callArguments(node)
+        if (intrinsic.service.equals("stdout_write")) { return emitPrint(arguments[0] as AstNode) }
         int a = 0
         while (a < arguments.length && problem.equals("")) {
             AstNode argument = arguments[a] as AstNode

@@ -71,6 +71,7 @@ class SmallCIntrinsics {
 
     SmallCIntrinsics() {
         entries = []
+        entries.append(SmallCIntrinsic("print", "void", ["char[]"], "stdout_write"))
         entries.append(SmallCIntrinsic("cvm_print_int", "void", ["int"], "stdout_i32"))
         entries.append(SmallCIntrinsic("cvm_print_byte", "void", ["byte"], "stdout_byte"))
         entries.append(SmallCIntrinsic("cvm_read_byte", "int", [], "stdin_byte"))
