@@ -1,6 +1,6 @@
 translationUnit : externalDeclaration+ ;
 externalDeclaration : type IDENT "(" parameters? ")" (compoundStatement | ";") | declaration ;
-type : "int" | "char" ;
+type : "int" | "char" | "file" ;
 parameters : parameter ("," parameter)* ;
 parameter : type IDENT ;
 

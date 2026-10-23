@@ -1,281 +1,158 @@
-class SmallCVMInstruction {
-    int opcode
-    int operand
-    bool hasOperand
-    String target
+// Lowers a checked SmallC AST to textual CVM v1 assembly (see CVM's
+// doc/BYTECODE-ASSEMBLY.md). This backend never encodes CVM binary data: the
+// separately installed `cvm-as` assembler resolves symbols, branch offsets,
+// stack metadata and the container layout.
 
-    SmallCVMInstruction(int instructionOpcode, int instructionOperand,
-            bool operandPresent, String branchTarget) {
-        opcode = instructionOpcode
-        operand = instructionOperand
-        hasOperand = operandPresent
-        target = branchTarget
-    }
-}
-
-class SmallCVMLabel {
-    String name
-    int instructionIndex
-
-    SmallCVMLabel(String labelName, int index) {
-        name = labelName
-        instructionIndex = index
-    }
-}
-
-class SmallCVMCode {
-    list instructions
-    list labels
-    int stackDepth
-    int maximumStack
+class SmallCAsmCode {
+    String text
     int labelCounter
-    String problem
 
-    SmallCVMCode() {
-        instructions = []
-        labels = []
-        stackDepth = 0
-        maximumStack = 0
+    SmallCAsmCode() {
+        text = ""
         labelCounter = 0
-        problem = ""
     }
 
-    void setDepth(int depth) {
-        stackDepth = depth
+    void op(String instruction) {
+        text.append("    ")
+        text.append(instruction)
+        text.append("\n")
     }
 
-    void emit(int opcode, int operand, int delta) {
-        CVM.Opcode metadata = CVM.Opcode()
-        bool hasOperand = metadata.operandWidth(opcode) > 0
-        instructions.append(SmallCVMInstruction(opcode, operand, hasOperand, ""))
-        stackDepth += delta
-        if (stackDepth < 0 && problem.equals("")) {
-            problem = format("internal bytecode stack underflow at opcode {}", opcode)
-        }
-        if (stackDepth > maximumStack) { maximumStack = stackDepth }
-    }
-
-    void emitNoOperand(int opcode, int delta) {
-        instructions.append(SmallCVMInstruction(opcode, 0, false, ""))
-        stackDepth += delta
-        if (stackDepth < 0 && problem.equals("")) {
-            problem = format("internal bytecode stack underflow at opcode {}", opcode)
-        }
-        if (stackDepth > maximumStack) { maximumStack = stackDepth }
+    void op1(String mnemonic, String operand) {
+        op(format("{} {}", mnemonic, operand))
     }
 
     String newLabel() {
-        String result = format("_L{}", labelCounter)
+        String result = format("L{}", labelCounter)
         labelCounter += 1
         return result
     }
 
     void mark(String name) {
-        labels.append(SmallCVMLabel(name, instructions.length))
-    }
-
-    void jump(int opcode, String target, int delta) {
-        instructions.append(SmallCVMInstruction(opcode, 0, true, target))
-        stackDepth += delta
-        if (stackDepth < 0 && problem.equals("")) {
-            problem = format("internal bytecode stack underflow at opcode {}", opcode)
-        }
-        if (stackDepth > maximumStack) { maximumStack = stackDepth }
-    }
-
-    int labelIndex(String name) {
-        int i = 0
-        while (i < labels.length) {
-            SmallCVMLabel label = labels[i] as SmallCVMLabel
-            if (label.name.equals(name)) { return label.instructionIndex }
-            i += 1
-        }
-        return -1
-    }
-
-    int labelOffset(String name, list offsets) {
-        int index = labelIndex(name)
-        if (index < 0 || index >= offsets.length) { return -1 }
-        return offsets[index] as int
-    }
-
-    buffer encode() {
-        if (!problem.equals("")) { return null }
-        list offsets = []
-        int offset = 0
-        CVM.Opcode metadata = CVM.Opcode()
-        int i = 0
-        while (i < instructions.length) {
-            SmallCVMInstruction instruction = instructions[i] as SmallCVMInstruction
-            offsets.append(offset)
-            offset += 1
-            if (instruction.hasOperand) {
-                offset += metadata.operandWidth(instruction.opcode)
-            }
-            i += 1
-        }
-        CVM.InstructionBuilder builder = CVM.InstructionBuilder()
-        i = 0
-        while (i < instructions.length) {
-            SmallCVMInstruction instruction = instructions[i] as SmallCVMInstruction
-            bool ok = false
-            if (instruction.target.equals("")) {
-                if (instruction.hasOperand) {
-                    ok = builder.emit(instruction.opcode, instruction.operand)
-                }
-                else { ok = builder.emitNoOperand(instruction.opcode) }
-            }
-            else {
-                int target = labelOffset(instruction.target, offsets)
-                if (target < 0) {
-                    problem = format("internal bytecode label '{}' is unresolved", instruction.target)
-                    return null
-                }
-                ok = builder.emit(instruction.opcode, target)
-            }
-            if (!ok) {
-                problem = format("CVM instruction builder: {}", builder.errorMessage())
-                return null
-            }
-            i += 1
-        }
-        return builder.bytes()
+        text.append(name)
+        text.append(":\n")
     }
 }
 
-class SmallCVMVariable {
+class SmallCAsmVariable {
     String name
     String valueType
     bool global
     bool array
     int index
+    String asmName
 
-    SmallCVMVariable(String variableName, String variableType,
-            bool isGlobal, bool isArray, int tableIndex) {
+    SmallCAsmVariable(String variableName, String variableType,
+            bool isGlobal, bool isArray, int tableIndex, String symbol) {
         name = variableName
         valueType = variableType
         global = isGlobal
         array = isArray
         index = tableIndex
+        asmName = symbol
     }
 }
 
-class SmallCVMScope {
+class SmallCAsmScope {
     list variables
-    SmallCVMScope parent
+    SmallCAsmScope parent
 
-    SmallCVMScope(SmallCVMScope outer) {
+    SmallCAsmScope(SmallCAsmScope outer) {
         variables = []
         parent = outer
     }
 }
 
-class SmallCVMFunction {
+class SmallCAsmFunction {
     String name
+    String asmName
     String returnType
     AstNode declaration
     AstNode parameters
     AstNode body
     list parameterTypes
-    list localTypes
-    int index
+    list parameterSymbols
+    int localCount
+    list declarations
+    bool defined
 
-    SmallCVMFunction(String functionName, String resultType) {
+    SmallCAsmFunction(String functionName, String resultType) {
         name = functionName
+        asmName = format("sc_{}", functionName)
         returnType = resultType
         declaration = null
         parameters = null
         body = null
         parameterTypes = []
-        localTypes = []
-        index = -1
+        parameterSymbols = []
+        localCount = 0
+        declarations = []
+        defined = false
     }
 }
 
-class SmallCVMArray {
-    String name
+class SmallCAsmArray {
+    String asmName
     String elementType
-    int owner
     int length
-    AstNode initializer
+    String staticInitializer
+    bool isGlobal
 
-    SmallCVMArray(String arrayName, String valueType, int functionOwner,
-            int capacity, AstNode init) {
-        name = arrayName
+    SmallCAsmArray(String symbol, String valueType, int capacity) {
+        asmName = symbol
         elementType = valueType
-        owner = functionOwner
         length = capacity
-        initializer = init
+        staticInitializer = ""
+        isGlobal = false
     }
 }
 
-class SmallCVMLoop {
+class SmallCAsmLoop {
     String breakLabel
     String continueLabel
-    SmallCVMLoop parent
+    SmallCAsmLoop parent
 
-    SmallCVMLoop(String breakTarget, String continueTarget,
-            SmallCVMLoop outer) {
+    SmallCAsmLoop(String breakTarget, String continueTarget,
+            SmallCAsmLoop outer) {
         breakLabel = breakTarget
         continueLabel = continueTarget
         parent = outer
     }
 }
 
-class SmallCVMCompiledFunction {
-    String name
-    buffer codeBytes
-    buffer localTypes
-    int parameterCount
-    int localCount
-    int maximumStack
-    int returnType
-
-    SmallCVMCompiledFunction(String functionName, buffer body,
-            buffer types, int parameters, int locals, int stack, int result) {
-        name = functionName
-        codeBytes = body
-        localTypes = types
-        parameterCount = parameters
-        localCount = locals
-        maximumStack = stack
-        returnType = result
-    }
-}
-
-class SmallCVMCompiler {
-    SmallCVMFunction entryFunction
-    SmallCVMFunction initFunction
+class SmallCAssemblyCompiler {
+    SmallCAsmFunction entryFunction
     list functions
     list globals
     list arrays
     list globalInitializers
-    SmallCVMFunction currentFunction
-    SmallCVMCode code
-    SmallCVMScope scope
-    SmallCVMLoop loop
+    SmallCAsmFunction currentFunction
+    SmallCAsmCode code
+    SmallCAsmScope scope
+    SmallCAsmLoop loop
     SmallCFrontend frontend
+    SmallCIntrinsics intrinsics
     String problem
     AstNode errorNode
     int scalarGlobalCount
-    list compiledFunctions
+    String functionText
 
-    SmallCVMCompiler() {
+    SmallCAssemblyCompiler() {
         functions = []
         globals = []
         arrays = []
         globalInitializers = []
         entryFunction = null
-        initFunction = null
         currentFunction = null
         code = null
         scope = null
         loop = null
         frontend = null
+        intrinsics = SmallCIntrinsics()
         problem = ""
         errorNode = null
         scalarGlobalCount = 0
-        compiledFunctions = []
+        functionText = ""
     }
 
     AstNode child(AstNode node, int index) {
@@ -295,42 +172,39 @@ class SmallCVMCompiler {
         return valueType
     }
 
-    int cvmType(String valueType) {
-        if (valueType.equals("int")) { return 1 }
-        if (valueType.equals("char")) { return 2 }
-        return 0
+    String asmType(String valueType) {
+        if (valueType.equals("int") || valueType.equals("int[]")) { return "i32" }
+        if (valueType.equals("char") || valueType.equals("char[]")) { return "u8" }
+        if (valueType.equals("file")) { return "file" }
+        return "void"
     }
 
-    int returnType(String valueType) {
-        return cvmType(valueType)
-    }
-
-    SmallCVMFunction findFunction(String name) {
+    SmallCAsmFunction findFunction(String name) {
         int i = 0
         while (i < functions.length) {
-            SmallCVMFunction function = functions[i] as SmallCVMFunction
+            SmallCAsmFunction function = functions[i] as SmallCAsmFunction
             if (function.name.equals(name)) { return function }
             i += 1
         }
         return null
     }
 
-    SmallCVMVariable findGlobal(String name) {
+    SmallCAsmVariable findGlobal(String name) {
         int i = 0
         while (i < globals.length) {
-            SmallCVMVariable variable = globals[i] as SmallCVMVariable
+            SmallCAsmVariable variable = globals[i] as SmallCAsmVariable
             if (variable.name.equals(name)) { return variable }
             i += 1
         }
         return null
     }
 
-    SmallCVMVariable findVariable(String name) {
-        SmallCVMScope current = scope
+    SmallCAsmVariable findVariable(String name) {
+        SmallCAsmScope current = scope
         while (current != null) {
             int i = current.variables.length - 1
             while (i >= 0) {
-                SmallCVMVariable variable = current.variables[i] as SmallCVMVariable
+                SmallCAsmVariable variable = current.variables[i] as SmallCAsmVariable
                 if (variable.name.equals(name)) { return variable }
                 i -= 1
             }
@@ -340,18 +214,35 @@ class SmallCVMCompiler {
     }
 
     void pushScope() {
-        scope = SmallCVMScope(scope)
+        scope = SmallCAsmScope(scope)
     }
 
     void popScope() {
         if (scope != null) { scope = scope.parent }
     }
 
-    void addLocal(String name, String valueType, bool isArray, int index) {
-        scope.variables.append(SmallCVMVariable(name, valueType, false, isArray, index))
-        if (!isArray && index >= currentFunction.parameterTypes.length) {
-            currentFunction.localTypes.append(cvmType(valueType))
-        }
+    int slotCount() {
+        return currentFunction.parameterTypes.length + currentFunction.localCount
+    }
+
+    // Declares a scalar local in the current function and returns its symbol.
+    String declareLocal(String name, String valueType, String prefix) {
+        int slot = slotCount()
+        String symbol = format("{}{}", prefix, slot)
+        if (!name.equals("")) { symbol = format("{}{}_{}", prefix, slot, name) }
+        currentFunction.localCount += 1
+        currentFunction.declarations.append(
+            format("    .local {}: {}\n", symbol, asmType(valueType)))
+        return symbol
+    }
+
+    void addLocal(String name, String valueType) {
+        String symbol = declareLocal(name, valueType, "v")
+        scope.variables.append(SmallCAsmVariable(name, valueType, false, false, 0, symbol))
+    }
+
+    String addTemporary(String valueType) {
+        return declareLocal("", valueType, "t")
     }
 
     int integerValue(String spelling, int limit, AstNode node) {
@@ -405,6 +296,38 @@ class SmallCVMCompiler {
         return bytes
     }
 
+    String hexByte(int value) {
+        String digits = "0123456789abcdef"
+        return format("{}{}", digits.slice(value / 16, value / 16 + 1),
+            digits.slice(value % 16, value % 16 + 1))
+    }
+
+    // Quotes decoded bytes as a CVM assembly string literal. Everything except
+    // a conservative printable set is written as an exact \xHH escape, so
+    // quotes, backslashes, semicolons, NULs and non-ASCII bytes survive.
+    String assemblyString(buffer bytes) {
+        String safe = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 _-.,:/!?()[]{}+=<>*&%#@^~|"
+        String result = "\""
+        int i = 0
+        while (i < bytes.length) {
+            int value = int(bytes[i])
+            int s = 0
+            bool printable = false
+            while (s < safe.length && !printable) {
+                if (int(safe.byteAt(s)) == value) { printable = true }
+                else { s += 1 }
+            }
+            if (printable) { result.append(safe.slice(s, s + 1)) }
+            else {
+                result.append("\\x")
+                result.append(hexByte(value))
+            }
+            i += 1
+        }
+        result.append("\"")
+        return result
+    }
+
     int initializerCount(AstNode initializer) {
         if (initializer == null) { return 0 }
         if (initializer.children.length == 1
@@ -438,6 +361,80 @@ class SmallCVMCompiler {
         return initializerCount(initializer)
     }
 
+    // Decimal spelling of a plain (optionally signed) literal expression, or
+    // "" when the expression must be evaluated at run time.
+    String literalText(AstNode node, String valueType) {
+        AstNode current = node
+        bool negative = false
+        bool signSeen = false
+        while (!current.name.equals("")) {
+            if (current.name.equals("INTEGER")) {
+                if (!valueType.equals("int")) { return "" }
+                if (negative && isMinimumIntegerLiteral(current.text)) { return "-2147483648" }
+                int value = integerValue(current.text, 2147483647, current)
+                if (negative && value != 0) { return format("-{}", value) }
+                return format("{}", value)
+            }
+            if (current.name.equals("CHAR")) {
+                if (!valueType.equals("char") || signSeen) { return "" }
+                return format("{}", characterValue(current.text))
+            }
+            if (current.name.equals("unary") && current.children.length == 2
+                    && !signSeen
+                    && (child(current, 0).text.equals("-") || child(current, 0).text.equals("+"))) {
+                negative = child(current, 0).text.equals("-")
+                signSeen = true
+                current = child(current, 1)
+            }
+            else {
+                if (current.children.length == 1
+                        && !current.name.equals("lvalue")) {
+                    current = child(current, 0)
+                }
+                else { return "" }
+            }
+        }
+        return ""
+    }
+
+    // Returns an assembly array initializer for a global when every element
+    // is constant and fits, or "" to initialize with code before main runs.
+    String staticArrayInitializer(String arrayElementType, int length,
+            AstNode initializer, String name) {
+        if (initializer == null) { return "" }
+        if (initializer.children.length == 1
+                && child(initializer, 0).name.equals("STRING")) {
+            buffer bytes = stringBytes(child(initializer, 0).text)
+            if (bytes.length > length) {
+                fail(initializer, format("string initializer for '{}' exceeds array capacity {}",
+                    name, length))
+                return ""
+            }
+            if (bytes.length == length) { return "" }
+            return assemblyString(bytes)
+        }
+        if (initializerCount(initializer) > length) {
+            fail(initializer, format("too many elements in initializer for '{}'", name))
+            return ""
+        }
+        String result = "{"
+        int count = 0
+        int i = 0
+        while (i < initializer.children.length && problem.equals("")) {
+            AstNode value = child(initializer, i)
+            if (value.name.equals("assignment")) {
+                String literal = literalText(value, arrayElementType)
+                if (literal.equals("")) { return "" }
+                if (count > 0) { result.append(", ") }
+                result.append(literal)
+                count += 1
+            }
+            i += 1
+        }
+        result.append("}")
+        return result
+    }
+
     void collectGlobalDeclaration(AstNode declaration) {
         String baseType = child(child(declaration, 0), 0).text
         int i = 1
@@ -447,10 +444,8 @@ class SmallCVMCompiler {
                 AstNode nameNode = child(declarator, 0)
                 bool isArray = declarator.children.length > 1 && child(declarator, 1).text.equals("[")
                 AstNode initializer = declarationInitializer(declarator)
-                String valueType = baseType
+                bool needsCode = initializer != null
                 if (isArray) {
-                    valueType = "int[]"
-                    if (baseType.equals("char")) { valueType = "char[]" }
                     int length = declaredArrayLength(declarator, initializer)
                     if (length <= 0) {
                         fail(nameNode, format("array '{}' requires a positive fixed size or inferable initializer", nameNode.text))
@@ -462,21 +457,27 @@ class SmallCVMCompiler {
                             arrayElementType = "char"
                             arrayType = "char[]"
                         }
-                        SmallCVMArray array = SmallCVMArray(
-                            format("_cparsegen_array_{}", arrays.length),
-                            arrayElementType, 65535, length, initializer)
+                        SmallCAsmArray array = SmallCAsmArray(
+                            format("a{}_{}", arrays.length, nameNode.text),
+                            arrayElementType, length)
+                        array.staticInitializer = staticArrayInitializer(
+                            arrayElementType, length, initializer, nameNode.text)
+                        if (!array.staticInitializer.equals("")) { needsCode = false }
+                        array.isGlobal = true
                         arrays.append(array)
-                        globals.append(SmallCVMVariable(
-                            nameNode.text, arrayType, true, true, arrays.length - 1))
+                        globals.append(SmallCAsmVariable(
+                            nameNode.text, arrayType, true, true, arrays.length - 1,
+                            array.asmName))
                     }
                 }
                 else {
-                    SmallCVMVariable variable = SmallCVMVariable(
-                        nameNode.text, valueType, true, false, scalarGlobalCount)
+                    SmallCAsmVariable variable = SmallCAsmVariable(
+                        nameNode.text, baseType, true, false, scalarGlobalCount,
+                        format("g_{}", nameNode.text))
                     globals.append(variable)
                     scalarGlobalCount += 1
                 }
-                if (initializer != null) {
+                if (needsCode && problem.equals("")) {
                     globalInitializers.append([declarator, initializer])
                 }
             }
@@ -487,9 +488,9 @@ class SmallCVMCompiler {
     void collectFunction(AstNode external) {
         String resultType = child(child(external, 0), 0).text
         AstNode nameNode = child(external, 1)
-        SmallCVMFunction function = findFunction(nameNode.text)
+        SmallCAsmFunction function = findFunction(nameNode.text)
         if (function == null) {
-            function = SmallCVMFunction(nameNode.text, resultType)
+            function = SmallCAsmFunction(nameNode.text, resultType)
             functions.append(function)
         }
         function.parameterTypes = []
@@ -539,108 +540,79 @@ class SmallCVMCompiler {
             fail(entryFunction.declaration, "CVM entry point main must have type int main()")
             return false
         }
-        int nextIndex = 1
-        bool hasGlobalInitializers = globalInitializers.length > 0
-        if (hasGlobalInitializers) {
-            initFunction = SmallCVMFunction("_cparsegen_init", "void")
-            initFunction.index = nextIndex
-            nextIndex += 1
-        }
         int f = 0
         while (f < functions.length) {
-            SmallCVMFunction function = functions[f] as SmallCVMFunction
-            if (function.body != null) {
-                function.index = nextIndex
-                nextIndex += 1
-            }
+            SmallCAsmFunction function = functions[f] as SmallCAsmFunction
+            if (function.body != null) { function.defined = true }
             f += 1
         }
         return true
     }
 
-    buffer compile(AstNode root, SmallCFrontend frontendModel) {
+    // Returns the complete assembly source, or null with `problem` set.
+    String compile(AstNode root, SmallCFrontend frontendModel) {
         frontend = frontendModel
         problem = ""
         errorNode = root
+        functionText = ""
         if (!collectProgram(root)) { return null }
-        if (!compileFunctions()) { return null }
-        return encodeContainer()
-    }
-
-    bool compileFunctions() {
-        SmallCVMFunction wrapper = SmallCVMFunction("_cparsegen_entry", "int")
-        wrapper.index = 0
-        SmallCVMCompiledFunction entryCode = compileEntry(wrapper)
-        if (entryCode == null) { return false }
-        compiledFunctions.append(entryCode)
-        if (initFunction != null) {
-            SmallCVMCompiledFunction initCode = compileGlobalInitializers(initFunction)
-            if (initCode == null) { return false }
-            compiledFunctions.append(initCode)
-        }
+        String initText = compileGlobalInitializers()
+        if (!problem.equals("")) { return null }
         int i = 0
         while (i < functions.length && problem.equals("")) {
-            SmallCVMFunction function = functions[i] as SmallCVMFunction
-            if (function.body != null) {
-                SmallCVMCompiledFunction compiled = compileUserFunction(function)
-                if (compiled == null) { return false }
-                compiledFunctions.append(compiled)
+            SmallCAsmFunction function = functions[i] as SmallCAsmFunction
+            if (function.defined) { compileUserFunction(function) }
+            i += 1
+        }
+        if (!problem.equals("")) { return null }
+        return assemble(initText)
+    }
+
+    String assemble(String initText) {
+        String result = "; SmallC compiler output: CVM v1 assembly.\n"
+        result.append("; Assemble with: cvm-as INPUT.asm -o OUTPUT.cvm\n")
+        result.append(".version 1.0\n.entry main\n")
+        bool hasData = false
+        int i = 0
+        while (i < globals.length) {
+            SmallCAsmVariable variable = globals[i] as SmallCAsmVariable
+            if (!variable.array) {
+                if (!hasData) { result.append("\n") }
+                hasData = true
+                result.append(format(".global {}: {} = 0\n", variable.asmName,
+                    asmType(variable.valueType)))
             }
             i += 1
         }
-        return problem.equals("")
-    }
-
-    SmallCVMCompiledFunction finishFunction(String name, int parameterCount,
-            int returnCode) {
-        if (code == null || !code.problem.equals("")) {
-            if (code != null) { fail(errorNode, code.problem) }
-            return null
-        }
-        buffer encoded = code.encode()
-        if (encoded == null) {
-            fail(errorNode, code.problem)
-            return null
-        }
-        buffer types = buffer[]
-        int i = 0
-        while (i < currentFunction.parameterTypes.length) {
-            types.append(cvmType(currentFunction.parameterTypes[i] as String))
+        i = 0
+        while (i < arrays.length) {
+            SmallCAsmArray array = arrays[i] as SmallCAsmArray
+            if (!array.isGlobal) {
+                i += 1
+                continue
+            }
+            if (!hasData) { result.append("\n") }
+            hasData = true
+            result.append(format(".array {}: {}[{}]", array.asmName,
+                asmType(array.elementType), array.length))
+            if (!array.staticInitializer.equals("")) {
+                result.append(format(" = {}", array.staticInitializer))
+            }
+            result.append("\n")
             i += 1
         }
-        int localIndex = 0
-        while (localIndex < currentFunction.localTypes.length) {
-            types.append(currentFunction.localTypes[localIndex] as int)
-            localIndex += 1
-        }
-        int maximumStack = code.maximumStack
-        if (maximumStack < 1) { maximumStack = 1 }
-        return SmallCVMCompiledFunction(
-            name, encoded, types, parameterCount,
-            currentFunction.localTypes.length,
-            maximumStack, returnCode)
+        result.append("\n.func main() -> i32\n")
+        if (!initText.equals("")) { result.append("    call smallc_init_globals\n") }
+        result.append(format("    call {}\n    ret.i32\n.end\n", entryFunction.asmName))
+        if (!initText.equals("")) { result.append(initText) }
+        result.append(functionText)
+        return result
     }
 
-    SmallCVMCompiledFunction compileEntry(SmallCVMFunction wrapper) {
-        currentFunction = wrapper
-        currentFunction.parameterTypes = []
-        currentFunction.localTypes = []
-        code = SmallCVMCode()
-        scope = null
-        loop = null
-        if (initFunction != null) {
-            code.emit(CVM.Opcode.CALL, initFunction.index, 0)
-        }
-        code.emit(CVM.Opcode.CALL, entryFunction.index, 1)
-        code.emitNoOperand(CVM.Opcode.RET_I32, -1)
-        return finishFunction("main", 0, 1)
-    }
-
-    SmallCVMCompiledFunction compileGlobalInitializers(SmallCVMFunction function) {
-        currentFunction = function
-        currentFunction.parameterTypes = []
-        currentFunction.localTypes = []
-        code = SmallCVMCode()
+    String compileGlobalInitializers() {
+        if (globalInitializers.length == 0) { return "" }
+        currentFunction = SmallCAsmFunction("smallc_init_globals", "void")
+        code = SmallCAsmCode()
         scope = null
         loop = null
         int i = 0
@@ -648,59 +620,86 @@ class SmallCVMCompiler {
             list pair = globalInitializers[i] as list
             AstNode declarator = pair[0] as AstNode
             AstNode initializer = pair[1] as AstNode
-            SmallCVMVariable variable = findGlobal(child(declarator, 0).text)
+            SmallCAsmVariable variable = findGlobal(child(declarator, 0).text)
             if (variable != null && variable.array) {
                 emitArrayInitializer(variable, initializer)
             }
             else {
                 emitExpression(child(initializer, 0))
-                code.emit(CVM.Opcode.STGLOBAL, variable.index, 0)
-                code.emitNoOperand(CVM.Opcode.POP, -1)
+                emitStore(variable)
+                code.op("pop")
             }
             i += 1
         }
-        if (!problem.equals("")) { return null }
-        code.emitNoOperand(CVM.Opcode.RET, 0)
-        return finishFunction(function.name, 0, 0)
+        if (!problem.equals("")) { return "" }
+        code.op("ret")
+        String result = "\n.func smallc_init_globals() -> void\n"
+        result.append(declarationText())
+        result.append(code.text)
+        result.append(".end\n")
+        return result
     }
 
-    SmallCVMCompiledFunction compileUserFunction(SmallCVMFunction function) {
+    String declarationText() {
+        String result = ""
+        int i = 0
+        while (i < currentFunction.declarations.length) {
+            result.append(currentFunction.declarations[i] as String)
+            i += 1
+        }
+        return result
+    }
+
+    void compileUserFunction(SmallCAsmFunction function) {
         currentFunction = function
-        currentFunction.localTypes = []
-        code = SmallCVMCode()
-        scope = SmallCVMScope(null)
+        function.localCount = 0
+        function.declarations = []
+        function.parameterSymbols = []
+        code = SmallCAsmCode()
+        scope = SmallCAsmScope(null)
         loop = null
+        String header = format("\n.func {}(", function.asmName)
         int parameterIndex = 0
         if (function.parameters != null) {
             int i = 0
             while (i < function.parameters.children.length) {
                 AstNode parameter = child(function.parameters, i)
                 if (parameter.name.equals("parameter")) {
-                    addLocal(child(parameter, 1).text,
-                        function.parameterTypes[parameterIndex] as String,
-                        false, parameterIndex)
+                    String valueType = function.parameterTypes[parameterIndex] as String
+                    String symbol = format("p{}_{}", parameterIndex, child(parameter, 1).text)
+                    function.parameterSymbols.append(symbol)
+                    scope.variables.append(SmallCAsmVariable(child(parameter, 1).text,
+                        valueType, false, false, 0, symbol))
+                    if (parameterIndex > 0) { header.append(", ") }
+                    header.append(format("{}:{}", symbol, asmType(valueType)))
                     parameterIndex += 1
                 }
                 i += 1
             }
         }
+        header.append(format(") -> {}\n", asmType(function.returnType)))
         emitCompound(function.body, false)
-        if (!problem.equals("")) { return null }
+        if (!problem.equals("")) { return }
         if (!guaranteesReturn(function.body) && !function.name.equals("main")) {
             fail(function.declaration,
                 format("function '{}' may reach its end without returning", function.name))
-            return null
+            return
         }
         if (function.returnType.equals("char")) {
-            code.emit(CVM.Opcode.CONST_U8, 0, 1)
-            code.emitNoOperand(CVM.Opcode.RET_U8, -1)
+            code.op1("const.u8", "0")
+            code.op("ret.u8")
         }
         else {
-            code.emit(CVM.Opcode.CONST_I32, 0, 1)
-            code.emitNoOperand(CVM.Opcode.RET_I32, -1)
+            if (function.returnType.equals("file")) { code.op("ret.file") }
+            else {
+                code.op1("const.i32", "0")
+                code.op("ret.i32")
+            }
         }
-        String emittedName = format("_cparsegen_function_{}", function.index)
-        return finishFunction(emittedName, parameterIndex, returnType(function.returnType))
+        functionText.append(header)
+        functionText.append(declarationText())
+        functionText.append(code.text)
+        functionText.append(".end\n")
     }
 
     bool guaranteesReturn(AstNode node) {
@@ -771,57 +770,6 @@ class SmallCVMCompiler {
         return false
     }
 
-    buffer encodeContainer() {
-        CVM.ContainerBuilder builder = CVM.ContainerBuilder()
-        if (!builder.setEntry(0)) {
-            fail(errorNode, format("CVM container builder: {}", builder.errorMessage()))
-            return null
-        }
-        int i = 0
-        while (i < compiledFunctions.length && problem.equals("")) {
-            SmallCVMCompiledFunction function = compiledFunctions[i] as SmallCVMCompiledFunction
-            if (!builder.addFunction(function.name, function.codeBytes,
-                    function.localTypes, function.parameterCount,
-                    function.localCount, function.maximumStack,
-                    function.returnType)) {
-                fail(errorNode, format("CVM container builder: {}", builder.errorMessage()))
-            }
-            i += 1
-        }
-        i = 0
-        while (i < globals.length && problem.equals("")) {
-            SmallCVMVariable variable = globals[i] as SmallCVMVariable
-            if (!variable.array && !builder.addGlobal(
-                    format("_cparsegen_global_{}", variable.index),
-                    cvmType(variable.valueType), 0)) {
-                fail(errorNode, format("CVM container builder: {}", builder.errorMessage()))
-            }
-            i += 1
-        }
-        i = 0
-        while (i < arrays.length && problem.equals("")) {
-            SmallCVMArray array = arrays[i] as SmallCVMArray
-            if (!builder.addArray(array.name, array.owner,
-                    cvmType(array.elementType), array.length, buffer[])) {
-                fail(errorNode, format("CVM container builder: {}", builder.errorMessage()))
-            }
-            i += 1
-        }
-        if (!problem.equals("")) { return null }
-        CVM.BuildResult built = builder.encode()
-        if (!built.ok()) {
-            fail(errorNode, format("CVM container builder: {}", built.message()))
-            return null
-        }
-        CVM.ValidationResult validation = CVM.ContainerValidator().validate(built.bytes())
-        if (!validation.valid()) {
-            fail(errorNode, format("CVM validation failed in section {} at byte {}: {}",
-                validation.section(), validation.offset(), validation.message()))
-            return null
-        }
-        return built.bytes()
-    }
-
     bool isStatementNode(AstNode node) {
         return (node.name.equals("statement")
             || node.name.equals("matchedStatement")
@@ -843,57 +791,49 @@ class SmallCVMCompiler {
     }
 
     void emitInt(int value) {
-        code.emit(CVM.Opcode.CONST_I32, value, 1)
+        code.op1("const.i32", format("{}", value))
     }
 
     void emitByte(int value) {
-        code.emit(CVM.Opcode.CONST_U8, value, 1)
+        code.op1("const.u8", format("{}", value))
     }
 
     void promoteToInt(String valueType) {
-        if (valueType.equals("char")) {
-            code.emitNoOperand(CVM.Opcode.TO_I32, 0)
-        }
+        if (valueType.equals("char")) { code.op("to.i32") }
     }
 
-    int addTemporary(String valueType) {
-        int index = (currentFunction.parameterTypes.length
-            + currentFunction.localTypes.length)
-        currentFunction.localTypes.append(cvmType(valueType))
-        return index
+    // Discards an expression statement's value; void intrinsics push none.
+    void discard(String valueType) {
+        if (!valueType.equals("void")) { code.op("pop") }
     }
 
-    void emitLoad(SmallCVMVariable variable) {
+    void emitLoad(SmallCAsmVariable variable) {
         if (variable == null) { return }
         if (variable.array) {
             fail(errorNode, "internal attempt to load an array as a scalar")
             return
         }
-        if (variable.global) {
-            code.emit(CVM.Opcode.LDGLOBAL, variable.index, 1)
-        }
-        else { code.emit(CVM.Opcode.LDLOC, variable.index, 1) }
+        if (variable.global) { code.op1("ldglobal", variable.asmName) }
+        else { code.op1("ldloc", variable.asmName) }
     }
 
-    void emitStore(SmallCVMVariable variable) {
+    void emitStore(SmallCAsmVariable variable) {
         if (variable == null) { return }
-        if (variable.global) {
-            code.emit(CVM.Opcode.STGLOBAL, variable.index, 0)
-        }
-        else { code.emit(CVM.Opcode.STLOC, variable.index, 0) }
+        if (variable.global) { code.op1("stglobal", variable.asmName) }
+        else { code.op1("stloc", variable.asmName) }
     }
 
-    void emitArrayReference(SmallCVMVariable variable) {
+    void emitArrayReference(SmallCAsmVariable variable) {
         if (variable == null || !variable.array) {
             fail(errorNode, "internal attempt to index a scalar")
             return
         }
-        code.emit(CVM.Opcode.ARRAY, variable.index, 1)
+        code.op1("array", variable.asmName)
     }
 
-    void emitArrayInitializer(SmallCVMVariable variable, AstNode initializer) {
+    void emitArrayInitializer(SmallCAsmVariable variable, AstNode initializer) {
         if (initializer == null || variable == null) { return }
-        SmallCVMArray array = arrays[variable.index] as SmallCVMArray
+        SmallCAsmArray array = arrays[variable.index] as SmallCAsmArray
         if (initializer.children.length == 1
                 && child(initializer, 0).name.equals("STRING")) {
             buffer bytes = stringBytes(child(initializer, 0).text)
@@ -907,16 +847,16 @@ class SmallCVMCompiler {
                 emitArrayReference(variable)
                 emitInt(i)
                 emitByte(int(bytes[i]))
-                code.emitNoOperand(CVM.Opcode.ASET, -2)
-                code.emitNoOperand(CVM.Opcode.POP, -1)
+                code.op("aset")
+                code.op("pop")
                 i += 1
             }
             if (bytes.length < array.length && problem.equals("")) {
                 emitArrayReference(variable)
                 emitInt(bytes.length)
                 emitByte(0)
-                code.emitNoOperand(CVM.Opcode.ASET, -2)
-                code.emitNoOperand(CVM.Opcode.POP, -1)
+                code.op("aset")
+                code.op("pop")
             }
             return
         }
@@ -937,8 +877,8 @@ class SmallCVMCompiler {
                         variable.name, array.elementType, actual))
                     return
                 }
-                code.emitNoOperand(CVM.Opcode.ASET, -2)
-                code.emitNoOperand(CVM.Opcode.POP, -1)
+                code.op("aset")
+                code.op("pop")
                 element += 1
             }
             i += 1
@@ -967,20 +907,21 @@ class SmallCVMCompiler {
                             arrayElementType = "char"
                             arrayType = "char[]"
                         }
-                        SmallCVMArray array = SmallCVMArray(
-                            format("_cparsegen_array_{}", index), arrayElementType,
-                            currentFunction.index, length, initializer)
+                        SmallCAsmArray array = SmallCAsmArray(
+                            format("a{}_{}", index, nameNode.text), arrayElementType, length)
                         arrays.append(array)
-                        addLocal(nameNode.text, arrayType, true, index)
-                        SmallCVMVariable variable = scope.variables[scope.variables.length - 1] as SmallCVMVariable
+                        currentFunction.declarations.append(
+                            format("    .array {}: {}[{}]\n", array.asmName,
+                                asmType(arrayElementType), length))
+                        SmallCAsmVariable variable = SmallCAsmVariable(
+                            nameNode.text, arrayType, false, true, index, array.asmName)
+                        scope.variables.append(variable)
                         emitArrayInitializer(variable, initializer)
                     }
                 }
                 else {
-                    int index = (currentFunction.parameterTypes.length
-                        + currentFunction.localTypes.length)
-                    addLocal(nameNode.text, baseType, false, index)
-                    SmallCVMVariable variable = scope.variables[scope.variables.length - 1] as SmallCVMVariable
+                    addLocal(nameNode.text, baseType)
+                    SmallCAsmVariable variable = scope.variables[scope.variables.length - 1] as SmallCAsmVariable
                     if (initializer != null && initializer.children.length > 0) {
                         String actual = emitExpression(child(initializer, 0))
                         if (!actual.equals(baseType)) {
@@ -988,7 +929,7 @@ class SmallCVMCompiler {
                                 nameNode.text, baseType, actual))
                         }
                         emitStore(variable)
-                        code.emitNoOperand(CVM.Opcode.POP, -1)
+                        code.op("pop")
                     }
                 }
             }
@@ -1086,7 +1027,7 @@ class SmallCVMCompiler {
                 fail(first, "CVM backend does not support break outside a loop")
                 return
             }
-            code.jump(CVM.Opcode.JMP, loop.breakLabel, 0)
+            code.op1("jmp", loop.breakLabel)
             return
         }
         if (first.text.equals("continue")) {
@@ -1094,7 +1035,7 @@ class SmallCVMCompiler {
                 fail(first, "CVM backend does not support continue outside a loop")
                 return
             }
-            code.jump(CVM.Opcode.JMP, loop.continueLabel, 0)
+            code.op1("jmp", loop.continueLabel)
             return
         }
         if (first.text.equals("return")) {
@@ -1111,19 +1052,18 @@ class SmallCVMCompiler {
                 return
             }
             String actual = emitExpression(expression)
-            if (actual.equals("char")) {
-                code.emitNoOperand(CVM.Opcode.RET_U8, -1)
+            if (actual.equals("char")) { code.op("ret.u8") }
+            else {
+                if (actual.equals("file")) { code.op("ret.file") }
+                else { code.op("ret.i32") }
             }
-            else { code.emitNoOperand(CVM.Opcode.RET_I32, -1) }
-            code.setDepth(0)
             return
         }
         int i = 0
         while (i < node.children.length && problem.equals("")) {
             AstNode part = child(node, i)
             if (part.name.equals("expression")) {
-                emitExpression(part)
-                code.emitNoOperand(CVM.Opcode.POP, -1)
+                discard(emitExpression(part))
             }
             if (part.name.equals("compoundStatement")) { emitCompound(part, true) }
             if (part.name.equals("switchStatement")) {
@@ -1147,21 +1087,17 @@ class SmallCVMCompiler {
         }
         String otherwise = code.newLabel()
         String end = code.newLabel()
-        int baseDepth = code.stackDepth
         String conditionType = emitExpression(condition)
         promoteToInt(conditionType)
-        code.jump(CVM.Opcode.JZ, otherwise, -1)
-        code.setDepth(baseDepth)
+        code.op1("jz", otherwise)
         emitStatement(statements[0] as AstNode)
         if (statements.length > 1) {
-            code.jump(CVM.Opcode.JMP, end, 0)
+            code.op1("jmp", end)
             code.mark(otherwise)
-            code.setDepth(baseDepth)
             emitStatement(statements[1] as AstNode)
             code.mark(end)
         }
         else { code.mark(otherwise) }
-        code.setDepth(baseDepth)
     }
 
     void emitWhile(AstNode node) {
@@ -1178,19 +1114,15 @@ class SmallCVMCompiler {
         }
         String loopStart = code.newLabel()
         String end = code.newLabel()
-        int baseDepth = code.stackDepth
         code.mark(loopStart)
         String conditionType = emitExpression(condition)
         promoteToInt(conditionType)
-        code.jump(CVM.Opcode.JZ, end, -1)
-        code.setDepth(baseDepth)
-        loop = SmallCVMLoop(end, loopStart, loop)
+        code.op1("jz", end)
+        loop = SmallCAsmLoop(end, loopStart, loop)
         emitStatement(statements[0] as AstNode)
         loop = loop.parent
-        code.setDepth(baseDepth)
-        code.jump(CVM.Opcode.JMP, loopStart, 0)
+        code.op1("jmp", loopStart)
         code.mark(end)
-        code.setDepth(baseDepth)
     }
 
     void emitFor(AstNode node) {
@@ -1227,26 +1159,19 @@ class SmallCVMCompiler {
         String loopStart = code.newLabel()
         String updateLabel = code.newLabel()
         String end = code.newLabel()
-        int baseDepth = code.stackDepth
         code.mark(loopStart)
         if (condition != null) {
             String conditionType = emitExpression(condition)
             promoteToInt(conditionType)
-            code.jump(CVM.Opcode.JZ, end, -1)
-            code.setDepth(baseDepth)
+            code.op1("jz", end)
         }
-        loop = SmallCVMLoop(end, updateLabel, loop)
+        loop = SmallCAsmLoop(end, updateLabel, loop)
         emitStatement(statements[0] as AstNode)
         loop = loop.parent
-        code.setDepth(baseDepth)
         code.mark(updateLabel)
-        if (update != null) {
-            emitExpression(update)
-            code.emitNoOperand(CVM.Opcode.POP, -1)
-        }
-        code.jump(CVM.Opcode.JMP, loopStart, 0)
+        if (update != null) { discard(emitExpression(update)) }
+        code.op1("jmp", loopStart)
         code.mark(end)
-        code.setDepth(baseDepth)
         popScope()
     }
 
@@ -1256,10 +1181,7 @@ class SmallCVMCompiler {
             AstNode part = child(node, i)
             if (part.name.equals("declaration")) { emitDeclaration(part) }
             else {
-                if (part.name.equals("expression")) {
-                    emitExpression(part)
-                    code.emitNoOperand(CVM.Opcode.POP, -1)
-                }
+                if (part.name.equals("expression")) { discard(emitExpression(part)) }
             }
             i += 1
         }
@@ -1288,15 +1210,29 @@ class SmallCVMCompiler {
         if (node.name.equals("primary")) { return emitPrimary(node) }
         if (node.name.equals("lvalue")) { return emitLvalue(node) }
         if (node.name.equals("INTEGER")) {
-            int value = integerValue(node.text, 2147483647, node)
-            code.emit(CVM.Opcode.CONST_I32, value, 1)
+            emitInt(integerValue(node.text, 2147483647, node))
             return "int"
         }
         if (node.name.equals("CHAR")) {
-            code.emit(CVM.Opcode.CONST_U8, characterValue(node.text), 1)
+            emitByte(characterValue(node.text))
             return "char"
         }
         fail(node, format("CVM backend does not support expression node '{}'", node.name))
+        return ""
+    }
+
+    String binaryMnemonic(String operation) {
+        if (operation.equals("+")) { return "add.i32" }
+        if (operation.equals("-")) { return "sub.i32" }
+        if (operation.equals("*")) { return "mul.i32" }
+        if (operation.equals("/")) { return "div.i32" }
+        if (operation.equals("%")) { return "rem.i32" }
+        if (operation.equals("==")) { return "eq.i32" }
+        if (operation.equals("!=")) { return "ne.i32" }
+        if (operation.equals("<")) { return "lt.i32" }
+        if (operation.equals("<=")) { return "le.i32" }
+        if (operation.equals(">")) { return "gt.i32" }
+        if (operation.equals(">=")) { return "ge.i32" }
         return ""
     }
 
@@ -1308,22 +1244,11 @@ class SmallCVMCompiler {
             promoteToInt(resultType)
             String rightType = emitExpression(child(node, i + 1))
             promoteToInt(rightType)
-            int opcode = 0
-            if (operation.equals("+")) { opcode = CVM.Opcode.ADD_I32 }
-            if (operation.equals("-")) { opcode = CVM.Opcode.SUB_I32 }
-            if (operation.equals("*")) { opcode = CVM.Opcode.MUL_I32 }
-            if (operation.equals("/")) { opcode = CVM.Opcode.DIV_I32 }
-            if (operation.equals("%")) { opcode = CVM.Opcode.REM_I32 }
-            if (operation.equals("==")) { opcode = CVM.Opcode.EQ_I32 }
-            if (operation.equals("!=")) { opcode = CVM.Opcode.NE_I32 }
-            if (operation.equals("<")) { opcode = CVM.Opcode.LT_I32 }
-            if (operation.equals("<=")) { opcode = CVM.Opcode.LE_I32 }
-            if (operation.equals(">")) { opcode = CVM.Opcode.GT_I32 }
-            if (operation.equals(">=")) { opcode = CVM.Opcode.GE_I32 }
-            if (opcode == 0) {
+            String mnemonic = binaryMnemonic(operation)
+            if (mnemonic.equals("")) {
                 fail(child(node, i), format("CVM backend does not support operator '{}'", operation))
             }
-            if (opcode != 0) { code.emitNoOperand(opcode, -1) }
+            else { code.op(mnemonic) }
             resultType = "int"
             i += 2
         }
@@ -1334,25 +1259,19 @@ class SmallCVMCompiler {
         if (node.children.length == 1) { return emitExpression(child(node, 0)) }
         String end = code.newLabel()
         String shortCircuit = code.newLabel()
-        int baseDepth = code.stackDepth
         int i = 0
         while (i < node.children.length && problem.equals("")) {
             AstNode part = child(node, i)
             if (part.name.equals("logicalAnd") || part.name.equals("equality")) {
                 String valueType = emitExpression(part)
                 promoteToInt(valueType)
-                if (conjunction) {
-                    code.jump(CVM.Opcode.JZ, shortCircuit, -1)
-                    code.setDepth(baseDepth)
-                }
+                if (conjunction) { code.op1("jz", shortCircuit) }
                 else {
                     String next = code.newLabel()
-                    code.jump(CVM.Opcode.JZ, next, -1)
-                    code.setDepth(baseDepth)
+                    code.op1("jz", next)
                     emitInt(1)
-                    code.jump(CVM.Opcode.JMP, end, 0)
+                    code.op1("jmp", end)
                     code.mark(next)
-                    code.setDepth(baseDepth)
                 }
             }
             if (part.text.equals("&&") || part.text.equals("||")) {
@@ -1364,14 +1283,12 @@ class SmallCVMCompiler {
         }
         if (conjunction) {
             emitInt(1)
-            code.jump(CVM.Opcode.JMP, end, 0)
+            code.op1("jmp", end)
             code.mark(shortCircuit)
-            code.setDepth(baseDepth)
             emitInt(0)
         }
         else { emitInt(0) }
         code.mark(end)
-        code.setDepth(baseDepth + 1)
         return "int"
     }
 
@@ -1384,7 +1301,7 @@ class SmallCVMCompiler {
         }
         if (operation.equals("-") && operand.name.equals("INTEGER")
                 && isMinimumIntegerLiteral(operand.text)) {
-            code.emit(CVM.Opcode.CONST_I32, -2147483648, 1)
+            emitInt(-2147483648)
             return "int"
         }
         String valueType = emitExpression(operand)
@@ -1394,13 +1311,13 @@ class SmallCVMCompiler {
         }
         if (operation.equals("-")) {
             promoteToInt(valueType)
-            code.emitNoOperand(CVM.Opcode.NEG_I32, 0)
+            code.op("neg.i32")
             return "int"
         }
         if (operation.equals("!")) {
             promoteToInt(valueType)
             emitInt(0)
-            code.emitNoOperand(CVM.Opcode.EQ_I32, -1)
+            code.op("eq.i32")
             return "int"
         }
         fail(child(node, 0), format("CVM backend does not support unary operator '{}'", operation))
@@ -1425,40 +1342,75 @@ class SmallCVMCompiler {
         return emitExpression(child(node, 0))
     }
 
-    String emitCall(AstNode node) {
-        AstNode nameNode = child(node, 0)
-        SmallCVMFunction function = findFunction(nameNode.text)
-        if (function == null || function.body == null) {
-            fail(nameNode, format("CVM backend has no definition for function '{}'", nameNode.text))
-            return ""
-        }
+    list callArguments(AstNode node) {
+        list result = []
         int i = 0
-        while (i < node.children.length && problem.equals("")) {
+        while (i < node.children.length) {
             AstNode part = child(node, i)
             if (part.name.equals("arguments")) {
                 int a = 0
-                while (a < part.children.length && problem.equals("")) {
+                while (a < part.children.length) {
                     AstNode argument = child(part, a)
-                    if (argument.name.equals("assignment")) {
-                        emitExpression(argument)
-                    }
+                    if (argument.name.equals("assignment")) { result.append(argument) }
                     a += 1
                 }
             }
             i += 1
         }
-        int delta = 0
-        if (function.returnType.equals("int") || function.returnType.equals("char")) {
-            delta = 1
+        return result
+    }
+
+    String emitCall(AstNode node) {
+        AstNode nameNode = child(node, 0)
+        SmallCIntrinsic intrinsic = intrinsics.find(nameNode.text)
+        if (intrinsic != null) { return emitIntrinsic(node, intrinsic) }
+        SmallCAsmFunction function = findFunction(nameNode.text)
+        if (function == null || !function.defined) {
+            fail(nameNode, format("CVM backend has no definition for function '{}'", nameNode.text))
+            return ""
         }
-        delta -= function.parameterTypes.length
-        code.emit(CVM.Opcode.CALL, function.index, delta)
+        list arguments = callArguments(node)
+        int a = 0
+        while (a < arguments.length && problem.equals("")) {
+            emitExpression(arguments[a] as AstNode)
+            a += 1
+        }
+        code.op1("call", function.asmName)
         return function.returnType
+    }
+
+    AstNode arrayArgumentName(AstNode argument) {
+        AstNode current = argument
+        while (!current.name.equals("lvalue") && current.children.length == 1) {
+            current = child(current, 0)
+        }
+        return child(current, 0)
+    }
+
+    String emitIntrinsic(AstNode node, SmallCIntrinsic intrinsic) {
+        list arguments = callArguments(node)
+        int a = 0
+        while (a < arguments.length && problem.equals("")) {
+            AstNode argument = arguments[a] as AstNode
+            String expected = intrinsic.parameterTypes[a] as String
+            if (expected.equals("char[]")) {
+                AstNode nameNode = arrayArgumentName(argument)
+                emitArrayReference(findVariable(nameNode.text))
+            }
+            else {
+                String actual = emitExpression(argument)
+                if (expected.equals("int")) { promoteToInt(actual) }
+                if (expected.equals("byte") && actual.equals("int")) { code.op("to.u8") }
+            }
+            a += 1
+        }
+        if (problem.equals("")) { code.op1("sys", intrinsic.service) }
+        return intrinsic.resultType
     }
 
     String emitLvalue(AstNode node) {
         AstNode nameNode = child(node, 0)
-        SmallCVMVariable variable = findVariable(nameNode.text)
+        SmallCAsmVariable variable = findVariable(nameNode.text)
         if (variable == null) {
             fail(nameNode, format("undeclared variable '{}'", nameNode.text))
             return ""
@@ -1478,16 +1430,16 @@ class SmallCVMCompiler {
         emitArrayReference(variable)
         String indexType = emitExpression(child(node, 2))
         promoteToInt(indexType)
-        code.emitNoOperand(CVM.Opcode.AGET, -1)
+        code.op("aget")
         return elementType(variable.valueType)
     }
 
-    int evaluateIndex(AstNode lvalue) {
+    String evaluateIndex(AstNode lvalue) {
         String indexType = emitExpression(child(lvalue, 2))
         promoteToInt(indexType)
-        int slot = addTemporary("int")
-        code.emit(CVM.Opcode.STLOC, slot, 0)
-        code.emitNoOperand(CVM.Opcode.POP, -1)
+        String slot = addTemporary("int")
+        code.op1("stloc", slot)
+        code.op("pop")
         return slot
     }
 
@@ -1496,7 +1448,7 @@ class SmallCVMCompiler {
         String operation = child(node, 1).text
         AstNode right = child(node, 2)
         AstNode nameNode = child(lvalue, 0)
-        SmallCVMVariable variable = findVariable(nameNode.text)
+        SmallCAsmVariable variable = findVariable(nameNode.text)
         if (variable == null) {
             fail(nameNode, format("undeclared variable '{}'", nameNode.text))
             return ""
@@ -1514,100 +1466,96 @@ class SmallCVMCompiler {
             emitStore(variable)
             return "int"
         }
-        int indexSlot = evaluateIndex(lvalue)
+        String indexSlot = evaluateIndex(lvalue)
         if (operation.equals("=")) {
             String valueType = emitExpression(right)
-            int valueSlot = addTemporary(valueType)
-            code.emit(CVM.Opcode.STLOC, valueSlot, 0)
-            code.emitNoOperand(CVM.Opcode.POP, -1)
+            String valueSlot = addTemporary(valueType)
+            code.op1("stloc", valueSlot)
+            code.op("pop")
             emitArrayReference(variable)
-            code.emit(CVM.Opcode.LDLOC, indexSlot, 1)
-            code.emit(CVM.Opcode.LDLOC, valueSlot, 1)
-            code.emitNoOperand(CVM.Opcode.ASET, -2)
+            code.op1("ldloc", indexSlot)
+            code.op1("ldloc", valueSlot)
+            code.op("aset")
             return valueType
         }
         emitArrayReference(variable)
-        code.emit(CVM.Opcode.LDLOC, indexSlot, 1)
-        code.emitNoOperand(CVM.Opcode.AGET, -1)
+        code.op1("ldloc", indexSlot)
+        code.op("aget")
         String rightType = emitExpression(right)
         promoteToInt(rightType)
         emitCompoundOperation(operation, child(node, 1))
-        int resultSlot = addTemporary("int")
-        code.emit(CVM.Opcode.STLOC, resultSlot, 0)
-        code.emitNoOperand(CVM.Opcode.POP, -1)
+        String resultSlot = addTemporary("int")
+        code.op1("stloc", resultSlot)
+        code.op("pop")
         emitArrayReference(variable)
-        code.emit(CVM.Opcode.LDLOC, indexSlot, 1)
-        code.emit(CVM.Opcode.LDLOC, resultSlot, 1)
-        code.emitNoOperand(CVM.Opcode.ASET, -2)
+        code.op1("ldloc", indexSlot)
+        code.op1("ldloc", resultSlot)
+        code.op("aset")
         return "int"
     }
 
     void emitCompoundOperation(String operation, AstNode operator) {
-        int opcode = 0
-        if (operation.equals("+=")) { opcode = CVM.Opcode.ADD_I32 }
-        if (operation.equals("-=")) { opcode = CVM.Opcode.SUB_I32 }
-        if (operation.equals("*=")) { opcode = CVM.Opcode.MUL_I32 }
-        if (operation.equals("/=")) { opcode = CVM.Opcode.DIV_I32 }
-        if (operation.equals("%=")) { opcode = CVM.Opcode.REM_I32 }
-        if (opcode == 0) { fail(operator, format("CVM backend does not support operator '{}'", operation)) }
-        if (opcode != 0) { code.emitNoOperand(opcode, -1) }
+        String mnemonic = ""
+        if (operation.equals("+=")) { mnemonic = "add.i32" }
+        if (operation.equals("-=")) { mnemonic = "sub.i32" }
+        if (operation.equals("*=")) { mnemonic = "mul.i32" }
+        if (operation.equals("/=")) { mnemonic = "div.i32" }
+        if (operation.equals("%=")) { mnemonic = "rem.i32" }
+        if (mnemonic.equals("")) {
+            fail(operator, format("CVM backend does not support operator '{}'", operation))
+        }
+        else { code.op(mnemonic) }
     }
 
     String emitIncrement(AstNode lvalue, bool postfix, bool increment) {
         AstNode nameNode = child(lvalue, 0)
-        SmallCVMVariable variable = findVariable(nameNode.text)
+        SmallCAsmVariable variable = findVariable(nameNode.text)
         if (variable == null) {
             fail(nameNode, format("undeclared variable '{}'", nameNode.text))
             return ""
         }
         String valueType = elementType(variable.valueType)
+        String step = "sub.i32"
+        if (increment) { step = "add.i32" }
         if (!variable.array) {
-            int oldSlot = addTemporary(valueType)
+            String oldSlot = addTemporary(valueType)
             emitLoad(variable)
-            code.emit(CVM.Opcode.STLOC, oldSlot, 0)
-            code.emitNoOperand(CVM.Opcode.POP, -1)
+            code.op1("stloc", oldSlot)
+            code.op("pop")
             emitLoad(variable)
             promoteToInt(valueType)
             emitInt(1)
-            int opcode = CVM.Opcode.SUB_I32
-            if (increment) { opcode = CVM.Opcode.ADD_I32 }
-            code.emitNoOperand(opcode, -1)
-            if (valueType.equals("char")) {
-                code.emitNoOperand(CVM.Opcode.TO_U8, 0)
-            }
+            code.op(step)
+            if (valueType.equals("char")) { code.op("to.u8") }
             emitStore(variable)
             if (postfix) {
-                code.emitNoOperand(CVM.Opcode.POP, -1)
-                code.emit(CVM.Opcode.LDLOC, oldSlot, 1)
+                code.op("pop")
+                code.op1("ldloc", oldSlot)
             }
             return valueType
         }
-        int indexSlot = evaluateIndex(lvalue)
+        String indexSlot = evaluateIndex(lvalue)
         emitArrayReference(variable)
-        code.emit(CVM.Opcode.LDLOC, indexSlot, 1)
-        code.emitNoOperand(CVM.Opcode.AGET, -1)
-        int oldSlot = addTemporary(valueType)
-        code.emit(CVM.Opcode.STLOC, oldSlot, 0)
-        code.emitNoOperand(CVM.Opcode.POP, -1)
-        code.emit(CVM.Opcode.LDLOC, oldSlot, 1)
+        code.op1("ldloc", indexSlot)
+        code.op("aget")
+        String oldSlot = addTemporary(valueType)
+        code.op1("stloc", oldSlot)
+        code.op("pop")
+        code.op1("ldloc", oldSlot)
         promoteToInt(valueType)
         emitInt(1)
-        int opcode = CVM.Opcode.SUB_I32
-        if (increment) { opcode = CVM.Opcode.ADD_I32 }
-        code.emitNoOperand(opcode, -1)
-        if (valueType.equals("char")) {
-            code.emitNoOperand(CVM.Opcode.TO_U8, 0)
-        }
-        int newSlot = addTemporary(valueType)
-        code.emit(CVM.Opcode.STLOC, newSlot, 0)
-        code.emitNoOperand(CVM.Opcode.POP, -1)
+        code.op(step)
+        if (valueType.equals("char")) { code.op("to.u8") }
+        String newSlot = addTemporary(valueType)
+        code.op1("stloc", newSlot)
+        code.op("pop")
         emitArrayReference(variable)
-        code.emit(CVM.Opcode.LDLOC, indexSlot, 1)
-        code.emit(CVM.Opcode.LDLOC, newSlot, 1)
-        code.emitNoOperand(CVM.Opcode.ASET, -2)
+        code.op1("ldloc", indexSlot)
+        code.op1("ldloc", newSlot)
+        code.op("aset")
         if (postfix) {
-            code.emitNoOperand(CVM.Opcode.POP, -1)
-            code.emit(CVM.Opcode.LDLOC, oldSlot, 1)
+            code.op("pop")
+            code.op1("ldloc", oldSlot)
         }
         return valueType
     }
