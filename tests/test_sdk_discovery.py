@@ -41,8 +41,17 @@ class SdkDiscoveryTests(unittest.TestCase):
         self.env = os.environ.copy()
         for name in ("CWHIP_SDK", "CMAKE_PREFIX_PATH", "Cwhip_DIR", "XDG_CONFIG_HOME"):
             self.env.pop(name, None)
+        self.env.pop("CMAKE_INSTALL_PREFIX", None)
+        self.env.pop("CMAKE_BUILD_TYPE", None)
         self.env["HOME"] = str(self.home)
-        self.env["CMAKE_PREFIX_PATH"] = str(self.make_sdk("fallback"))
+        fallback_sdk = self.make_sdk("fallback")
+        self.env["CMAKE_PREFIX_PATH"] = str(fallback_sdk)
+        self.env["CPARSEGEN_TEST_REGISTERED_SDK_PREFIX"] = str(fallback_sdk)
+        self.env["CPARSEGEN_TEST_APPLICATION_INSTALL_PREFIX"] = str(
+            self.root / "sdk-application-prefix"
+        )
+        self.env["CPARSEGEN_TEST_APPLICATION_BUILD_TYPE"] = "RelWithDebInfo"
+        self.env.pop("DESTDIR", None)
 
     def make_sdk(self, name):
         prefix = self.root / name
@@ -50,12 +59,46 @@ class SdkDiscoveryTests(unittest.TestCase):
         package.mkdir(parents=True)
         (package / "CwhipConfig.cmake").write_text(
             'get_filename_component(prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)\n'
+            'set(Cwhip_PREFIX "${prefix}")\n'
             'file(WRITE "${CMAKE_BINARY_DIR}/selected-sdk.txt" "${prefix}")\n'
             'set(Cwhip_APPLICATION_OUTPUT_DIRECTORIES TRUE)\n'
+            'include("${CMAKE_CURRENT_LIST_DIR}/CwhipApplicationDefaults.cmake")\n'
             'function(cwhip_add_program name)\n'
             '  add_custom_target("${name}")\n'
             '  set_target_properties("${name}" PROPERTIES CWHIP_EXECUTABLE "${CMAKE_BINARY_DIR}/app")\n'
             'endfunction()\n'
+        )
+        (package / "CwhipApplicationDefaults.cmake").write_text(
+            "function(cwhip_apply_application_defaults)\n"
+            '  get_filename_component(selected_prefix "${Cwhip_PREFIX}" REALPATH)\n'
+            '  get_filename_component(registered_prefix "$ENV{CPARSEGEN_TEST_REGISTERED_SDK_PREFIX}" REALPATH)\n'
+            "  if(NOT selected_prefix STREQUAL registered_prefix)\n"
+            "    return()\n"
+            "  endif()\n"
+            "  get_property(install_prefix_cached CACHE CMAKE_INSTALL_PREFIX "
+            "PROPERTY TYPE SET)\n"
+            "  if(NOT install_prefix_cached)\n"
+            '    if(NOT "$ENV{CMAKE_INSTALL_PREFIX}" STREQUAL "")\n'
+            '      set(CMAKE_INSTALL_PREFIX "$ENV{CMAKE_INSTALL_PREFIX}" '
+            "CACHE PATH \"Install path prefix\" FORCE)\n"
+            "    else()\n"
+            '      set(CMAKE_INSTALL_PREFIX "$ENV{CPARSEGEN_TEST_APPLICATION_INSTALL_PREFIX}" '
+            "CACHE PATH \"Install path prefix\" FORCE)\n"
+            "    endif()\n"
+            "  endif()\n"
+            "  get_property(build_type_cached CACHE CMAKE_BUILD_TYPE "
+            "PROPERTY TYPE SET)\n"
+            "  if(NOT build_type_cached AND NOT CMAKE_CONFIGURATION_TYPES AND "
+            '(NOT DEFINED CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL ""))\n'
+            '    if(DEFINED ENV{CMAKE_BUILD_TYPE})\n'
+            '      set(build_type_default "$ENV{CMAKE_BUILD_TYPE}")\n'
+            "    else()\n"
+            '      set(build_type_default "$ENV{CPARSEGEN_TEST_APPLICATION_BUILD_TYPE}")\n'
+            "    endif()\n"
+            '    set(CMAKE_BUILD_TYPE "${build_type_default}" '
+            "CACHE STRING \"Build type\" FORCE)\n"
+            "  endif()\n"
+            "endfunction()\n"
         )
         (package / "CwhipConfigVersion.cmake").write_text(
             'set(PACKAGE_VERSION "0.0.1")\n'
@@ -68,6 +111,8 @@ class SdkDiscoveryTests(unittest.TestCase):
         settings = settings or self.sdk_settings
         settings.parent.mkdir(parents=True, exist_ok=True)
         settings.write_text(f"sdk_prefix = {json.dumps(str(prefix))}\n")
+        if settings == self.sdk_settings:
+            self.env["CPARSEGEN_TEST_REGISTERED_SDK_PREFIX"] = str(prefix)
 
     def configure(self, success=True, extra=()):
         result = subprocess.run(
@@ -84,6 +129,14 @@ class SdkDiscoveryTests(unittest.TestCase):
             return (self.build / "selected-sdk.txt").read_text()
         self.assertNotEqual(result.returncode, 0, output)
         return output
+
+    def cache_value(self, name):
+        cache = (self.build / "CMakeCache.txt").read_text().splitlines()
+        prefix = f"{name}:"
+        for line in cache:
+            if line.startswith(prefix):
+                return line.split("=", 1)[1]
+        self.fail(f"{name} is missing from CMakeCache.txt")
 
     def test_registered_sdk_precedes_normal_discovery_and_stale_cache(self):
         selected = self.make_sdk("registered")
@@ -118,6 +171,114 @@ class SdkDiscoveryTests(unittest.TestCase):
         self.select(selected)
         self.env.pop("CMAKE_PREFIX_PATH")
         self.assertEqual(self.configure(), str(selected))
+
+    def test_sdk_application_defaults_seed_install_prefix_and_build_type(self):
+        self.assertEqual(self.configure(), str(self.root / "fallback"))
+        self.assertEqual(
+            self.cache_value("CMAKE_INSTALL_PREFIX"),
+            self.env["CPARSEGEN_TEST_APPLICATION_INSTALL_PREFIX"],
+        )
+        self.assertEqual(
+            self.cache_value("CMAKE_BUILD_TYPE"),
+            self.env["CPARSEGEN_TEST_APPLICATION_BUILD_TYPE"],
+        )
+
+    def test_explicit_cmake_settings_override_sdk_application_defaults(self):
+        self.assertEqual(
+            self.configure(extra=[
+                f"-DCMAKE_INSTALL_PREFIX={self.root / 'explicit-prefix'}",
+                "-DCMAKE_BUILD_TYPE=Release",
+            ]),
+            str(self.root / "fallback"),
+        )
+        self.assertEqual(
+            self.cache_value("CMAKE_INSTALL_PREFIX"),
+            str(self.root / "explicit-prefix"),
+        )
+        self.assertEqual(self.cache_value("CMAKE_BUILD_TYPE"), "Release")
+
+    def test_explicit_empty_build_type_overrides_sdk_application_default(self):
+        self.assertEqual(
+            self.configure(extra=["-DCMAKE_BUILD_TYPE="]),
+            str(self.root / "fallback"),
+        )
+        self.assertEqual(self.cache_value("CMAKE_BUILD_TYPE"), "")
+        self.env["CPARSEGEN_TEST_APPLICATION_BUILD_TYPE"] = "Release"
+        self.assertEqual(self.configure(), str(self.root / "fallback"))
+        self.assertEqual(self.cache_value("CMAKE_BUILD_TYPE"), "")
+
+    def test_install_prefix_environment_overrides_sdk_application_default(self):
+        selected_prefix = self.root / "environment-prefix"
+        self.env["CMAKE_INSTALL_PREFIX"] = str(selected_prefix)
+        self.assertEqual(self.configure(), str(self.root / "fallback"))
+        self.assertEqual(self.cache_value("CMAKE_INSTALL_PREFIX"), str(selected_prefix))
+
+    def test_build_type_environment_overrides_sdk_application_default(self):
+        self.env["CMAKE_BUILD_TYPE"] = "Release"
+        self.assertEqual(self.configure(), str(self.root / "fallback"))
+        self.assertEqual(self.cache_value("CMAKE_BUILD_TYPE"), "Release")
+
+    def test_existing_cache_values_override_changed_sdk_application_defaults(self):
+        self.assertEqual(self.configure(), str(self.root / "fallback"))
+        install_prefix = self.cache_value("CMAKE_INSTALL_PREFIX")
+        build_type = self.cache_value("CMAKE_BUILD_TYPE")
+        self.env["CPARSEGEN_TEST_APPLICATION_INSTALL_PREFIX"] = str(
+            self.root / "changed-sdk-prefix"
+        )
+        self.env["CPARSEGEN_TEST_APPLICATION_BUILD_TYPE"] = "Release"
+        self.assertEqual(self.configure(), str(self.root / "fallback"))
+        self.assertEqual(self.cache_value("CMAKE_INSTALL_PREFIX"), install_prefix)
+        self.assertEqual(self.cache_value("CMAKE_BUILD_TYPE"), build_type)
+
+    def test_sdk_defaults_do_not_apply_when_registered_sdk_differs(self):
+        selected = self.make_sdk("explicit")
+        registered = self.make_sdk("registered")
+        self.select(registered)
+        self.env["CWHIP_SDK"] = str(selected)
+        self.assertEqual(self.configure(), str(selected))
+        self.assertNotEqual(
+            self.cache_value("CMAKE_INSTALL_PREFIX"),
+            self.env["CPARSEGEN_TEST_APPLICATION_INSTALL_PREFIX"],
+        )
+        self.assertEqual(self.cache_value("CMAKE_BUILD_TYPE"), "")
+
+    def test_staged_application_install_does_not_modify_sdk_registration(self):
+        selected = self.make_sdk("registered")
+        self.sdk_settings.parent.mkdir(parents=True, exist_ok=True)
+        registration = (
+            f"sdk_prefix = {json.dumps(str(selected))}\n\n"
+            "[applications]\n"
+            f"install_prefix = {json.dumps(str(self.root / 'registered-app-prefix'))}\n"
+            'build_type = "Debug"\n'
+        )
+        self.sdk_settings.write_text(registration)
+        self.env["CPARSEGEN_TEST_REGISTERED_SDK_PREFIX"] = str(selected)
+        self.env["CPARSEGEN_TEST_APPLICATION_INSTALL_PREFIX"] = str(
+            self.root / "registered-app-prefix"
+        )
+        self.env["CPARSEGEN_TEST_APPLICATION_BUILD_TYPE"] = "Debug"
+        staging = self.root / "staging"
+        self.env["DESTDIR"] = str(staging)
+        self.assertEqual(self.configure(), str(selected))
+        executable = self.build / "app"
+        executable.write_text("test application\n")
+        executable.chmod(0o755)
+        result = subprocess.run(
+            ["cmake", "--install", str(self.build)],
+            cwd=self.root,
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        staged_executable = (
+            staging
+            / str(self.root / "registered-app-prefix").lstrip("/")
+            / "bin/app"
+        )
+        self.assertEqual(staged_executable.read_text(), "test application\n")
+        self.assertEqual(self.sdk_settings.read_text(), registration)
 
     def test_sdk_settings_without_prefix_uses_normal_discovery_not_legacy(self):
         self.settings.parent.mkdir(parents=True)
@@ -259,7 +420,7 @@ class SdkDiscoveryTests(unittest.TestCase):
         self.assertIn("config home", output)
         self.assertIn("not absolute", output)
 
-    def run_setup(self):
+    def run_setup(self, *args):
         tools = self.root / "tools"
         tools.mkdir()
         record = self.root / "shell-path.txt"
@@ -273,7 +434,7 @@ class SdkDiscoveryTests(unittest.TestCase):
         self.env["PATH"] = f"{tools}:{self.env['PATH']}"
         self.env["SHELL_RECORD"] = str(record)
         return subprocess.run(
-            ["/bin/bash", str(self.project / "scripts/setup")],
+            ["/bin/bash", str(self.project / "scripts/setup"), *args],
             cwd=self.root,
             env=self.env,
             capture_output=True,
@@ -287,11 +448,38 @@ class SdkDiscoveryTests(unittest.TestCase):
         result = self.run_setup()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual((self.build / "selected-sdk.txt").read_text(), str(prefix))
+        self.assertEqual(
+            self.cache_value("CMAKE_BUILD_TYPE"),
+            self.env["CPARSEGEN_TEST_APPLICATION_BUILD_TYPE"],
+        )
         self.assertEqual((self.root / "shell-path.txt").read_text().split(":")[:3], [
             str(self.project / "bin"),
             str(self.project / "scripts"),
             str(prefix / "bin"),
         ])
+
+    def test_setup_explicit_build_type_overrides_sdk_default(self):
+        prefix = self.make_sdk("registered")
+        self.select(prefix)
+        self.assertEqual(
+            self.configure(extra=["-DCMAKE_BUILD_TYPE=Debug"]),
+            str(prefix),
+        )
+        result = self.run_setup("release")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.cache_value("CMAKE_BUILD_TYPE"), "Release")
+
+    def test_setup_without_mode_preserves_existing_build_type_cache(self):
+        prefix = self.make_sdk("registered")
+        self.select(prefix)
+        self.assertEqual(
+            self.configure(extra=["-DCMAKE_BUILD_TYPE=Release"]),
+            str(prefix),
+        )
+        self.env["CPARSEGEN_TEST_APPLICATION_BUILD_TYPE"] = "Debug"
+        result = self.run_setup()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.cache_value("CMAKE_BUILD_TYPE"), "Release")
 
     def test_setup_explicit_sdk_bypasses_invalid_registration(self):
         self.sdk_settings.parent.mkdir(parents=True)
@@ -326,9 +514,19 @@ class InstalledSdkTests(unittest.TestCase):
             root = Path(directory)
             settings = root / "config/cwhip/sdk.toml"
             settings.parent.mkdir(parents=True)
-            settings.write_text(f"sdk_prefix = {json.dumps(prefix)}\n")
+            application_prefix = root / "application-prefix"
+            registration = (
+                f"sdk_prefix = {json.dumps(prefix)}\n\n"
+                "[applications]\n"
+                f"install_prefix = {json.dumps(str(application_prefix))}\n"
+                'build_type = "Debug"\n'
+            )
+            settings.write_text(registration)
             env = os.environ.copy()
-            for name in ("CWHIP_SDK", "CMAKE_PREFIX_PATH", "Cwhip_DIR", "Cwhip_ROOT"):
+            for name in (
+                "CWHIP_SDK", "CMAKE_PREFIX_PATH", "Cwhip_DIR", "Cwhip_ROOT",
+                "CMAKE_INSTALL_PREFIX", "CMAKE_BUILD_TYPE",
+            ):
                 env.pop(name, None)
             home = root / "home"
             home.mkdir()
@@ -342,6 +540,97 @@ class InstalledSdkTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn(f"Using Cwhip SDK prefix: {prefix}", result.stdout)
+            cache = (root / "build/CMakeCache.txt").read_text()
+            self.assertIn(
+                f"CMAKE_INSTALL_PREFIX:PATH={application_prefix}",
+                cache,
+            )
+            self.assertIn("CMAKE_BUILD_TYPE:STRING=Debug", cache)
+
+            environment_prefix = root / "environment-prefix"
+            environment_env = env.copy()
+            environment_env["CMAKE_INSTALL_PREFIX"] = str(environment_prefix)
+            environment_build = root / "environment-prefix-build"
+            result = subprocess.run(
+                ["cmake", "-S", str(ROOT), "-B", str(environment_build),
+                 f"-DCWHIP_BIN_DIR={root / 'environment-bin'}",
+                 f"-DCWHIP_LIB_DIR={root / 'environment-lib'}"],
+                env=environment_env, capture_output=True, text=True, timeout=60,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            environment_cache = (environment_build / "CMakeCache.txt").read_text()
+            self.assertIn(
+                f"CMAKE_INSTALL_PREFIX:PATH={environment_prefix}",
+                environment_cache,
+            )
+
+            environment_build_type = root / "environment-build-type-build"
+            build_type_env = env.copy()
+            build_type_env["CMAKE_BUILD_TYPE"] = "Release"
+            result = subprocess.run(
+                ["cmake", "-S", str(ROOT), "-B", str(environment_build_type),
+                 f"-DCWHIP_BIN_DIR={root / 'environment-type-bin'}",
+                 f"-DCWHIP_LIB_DIR={root / 'environment-type-lib'}"],
+                env=build_type_env, capture_output=True, text=True, timeout=60,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            build_type_cache = (
+                environment_build_type / "CMakeCache.txt"
+            ).read_text()
+            self.assertIn("CMAKE_BUILD_TYPE:STRING=Release", build_type_cache)
+
+            explicit_build = root / "explicit-empty-build"
+            result = subprocess.run(
+                ["cmake", "-S", str(ROOT), "-B", str(explicit_build),
+                 f"-DCWHIP_BIN_DIR={root / 'explicit-bin'}",
+                 f"-DCWHIP_LIB_DIR={root / 'explicit-lib'}",
+                 f"-DCMAKE_INSTALL_PREFIX={root / 'explicit-prefix'}",
+                 "-DCMAKE_BUILD_TYPE="],
+                env=env, capture_output=True, text=True, timeout=60,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            explicit_cache = (explicit_build / "CMakeCache.txt").read_text()
+            self.assertIn(
+                f"CMAKE_INSTALL_PREFIX:PATH={root / 'explicit-prefix'}",
+                explicit_cache,
+            )
+            self.assertIn("CMAKE_BUILD_TYPE:STRING=\n", explicit_cache)
+            result = subprocess.run(
+                ["cmake", "-S", str(ROOT), "-B", str(explicit_build),
+                 f"-DCWHIP_BIN_DIR={root / 'explicit-bin'}",
+                 f"-DCWHIP_LIB_DIR={root / 'explicit-lib'}"],
+                env=env, capture_output=True, text=True, timeout=60,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            explicit_cache = (explicit_build / "CMakeCache.txt").read_text()
+            self.assertIn("CMAKE_BUILD_TYPE:STRING=\n", explicit_cache)
+
+            mismatch_xdg = root / "mismatch-xdg"
+            mismatch_settings = mismatch_xdg / "cwhip/sdk.toml"
+            mismatch_settings.parent.mkdir(parents=True)
+            mismatch_settings.write_text(
+                f"sdk_prefix = {json.dumps(str(root / 'other-sdk'))}\n\n"
+                "[applications]\n"
+                f"install_prefix = {json.dumps(str(root / 'wrong-app-prefix'))}\n"
+                'build_type = "Debug"\n'
+            )
+            mismatch_env = env.copy()
+            mismatch_env["CWHIP_SDK"] = prefix
+            mismatch_env["XDG_CONFIG_HOME"] = str(mismatch_xdg)
+            mismatch_build = root / "mismatch-build"
+            result = subprocess.run(
+                ["cmake", "-S", str(ROOT), "-B", str(mismatch_build),
+                 f"-DCWHIP_BIN_DIR={root / 'mismatch-bin'}",
+                 f"-DCWHIP_LIB_DIR={root / 'mismatch-lib'}"],
+                env=mismatch_env, capture_output=True, text=True, timeout=60,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            mismatch_cache = (mismatch_build / "CMakeCache.txt").read_text()
+            self.assertNotIn(
+                f"CMAKE_INSTALL_PREFIX:PATH={root / 'wrong-app-prefix'}",
+                mismatch_cache,
+            )
+            self.assertNotIn("CMAKE_BUILD_TYPE:STRING=Debug", mismatch_cache)
             result = subprocess.run(
                 ["cmake", "--build", str(root / "build"),
                  "--target", "calculator", "smallc", "--parallel", "4"],
@@ -362,6 +651,25 @@ class InstalledSdkTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(json.loads(result.stdout)["name"], "translationUnit")
+            staging = root / "staging"
+            staged_env = env.copy()
+            staged_env["DESTDIR"] = str(staging)
+            result = subprocess.run(
+                ["cmake", "--install", str(root / "build")],
+                env=staged_env,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            staged_executable = (
+                staging / str(application_prefix).lstrip("/") / "bin/cparsegen"
+            )
+            self.assertEqual(
+                staged_executable.read_bytes(),
+                (root / "bin/cparsegen").read_bytes(),
+            )
+            self.assertEqual(settings.read_text(), registration)
             install = root / "install"
             result = subprocess.run(
                 ["cmake", "--install", str(root / "build"), "--prefix", str(install)],

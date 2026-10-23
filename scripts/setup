@@ -13,23 +13,26 @@ if (( $# > 1 )); then
     exit 2
 fi
 
-build_type="${1:-debug}"
-case "$build_type" in
-    debug)
-        cmake_build_type=Debug
-        ;;
-    release)
-        cmake_build_type=Release
-        ;;
-    profile)
-        cmake_build_type=RelWithDebInfo
-        ;;
-    *)
-        printf 'Unknown build type: %s\nUsage: %s [debug|release|profile]\n' \
-            "$build_type" "$0" >&2
-        exit 2
-        ;;
-esac
+build_type="${1:-}"
+cmake_build_type=""
+if [[ -n "$build_type" ]]; then
+    case "$build_type" in
+        debug)
+            cmake_build_type=Debug
+            ;;
+        release)
+            cmake_build_type=Release
+            ;;
+        profile)
+            cmake_build_type=RelWithDebInfo
+            ;;
+        *)
+            printf 'Unknown build type: %s\nUsage: %s [debug|release|profile]\n' \
+                "$build_type" "$0" >&2
+            exit 2
+            ;;
+    esac
+fi
 
 project_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 build_dir="$project_root/build"
@@ -46,13 +49,27 @@ fi
 
 export _PROJECT_LOC="$project_root"
 export _PROJECT_NAME="$(basename -- "$project_root")"
-export _BUILD_TYPE="$build_type"
-export CWHIP_BUILD_TYPE="$cmake_build_type"
 
-if ! cmake -S "$project_root" -B "$build_dir" \
-    -DCMAKE_BUILD_TYPE="$cmake_build_type"; then
+cmake_args=(-S "$project_root" -B "$build_dir")
+if [[ -n "$cmake_build_type" ]]; then
+    cmake_args+=("-DCMAKE_BUILD_TYPE=$cmake_build_type")
+fi
+if ! cmake "${cmake_args[@]}"; then
     printf 'CMake configuration failed; project shell was not started.\n' >&2
     exit 1
 fi
+
+cmake_build_type="$(
+    sed -n 's/^CMAKE_BUILD_TYPE:[^=]*=//p' "$build_dir/CMakeCache.txt"
+)"
+case "$cmake_build_type" in
+    Debug) build_type=debug ;;
+    Release) build_type=release ;;
+    RelWithDebInfo) build_type=profile ;;
+    "") build_type=default ;;
+    *) build_type="${cmake_build_type,,}" ;;
+esac
+export _BUILD_TYPE="$build_type"
+export CWHIP_BUILD_TYPE="$cmake_build_type"
 
 bash --rcfile "$project_root/.project_env" -i

@@ -3,7 +3,10 @@
 Run `scripts/setup [debug|release|profile]` from any working directory to
 configure this project and start its interactive Bash shell. The script
 locates the project relative to itself, so it does not depend on the caller's
-current directory. The default build type is `debug`.
+current directory. With no mode argument, the CMake build type inherits the
+SDK's registered application default or retains an existing cache value.
+Without either, CMake's build-type default is empty. A supplied mode explicitly
+overrides the SDK and cache value.
 
 The setup script configures before starting the shell. If configuration
 fails, it reports the error and exits without opening a project shell.
@@ -28,8 +31,8 @@ The shell exports:
 | --- | --- |
 | `_PROJECT_NAME` | Project directory name |
 | `_PROJECT_LOC` | Absolute project root |
-| `_BUILD_TYPE` | Selected lowercase type: `debug`, `release`, or `profile` |
-| `CWHIP_BUILD_TYPE` | Corresponding CMake type: `Debug`, `Release`, or `RelWithDebInfo` |
+| `_BUILD_TYPE` | Effective build type in lowercase (`debug`, `release`, `profile`, or `default` when empty) |
+| `CWHIP_BUILD_TYPE` | Effective CMake build type (`Debug`, `Release`, `RelWithDebInfo`, or empty) |
 
 Convenience commands operate on the project repository:
 

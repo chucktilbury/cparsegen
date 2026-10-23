@@ -29,8 +29,9 @@ printf '123+456' > generated/input.txt
 generated/shortest-parser generated/input.txt
 ```
 
-The default build type is `debug`. Choose `release` or `profile` with
-`./scripts/setup release` or `./scripts/setup profile`.
+The setup script inherits the SDK's registered application build type unless
+one is already cached. Choose an explicit type with `./scripts/setup debug`,
+`./scripts/setup release`, or `./scripts/setup profile`.
 
 Grammars can share declarations with `@include "parts/tokens.cpg";`. Includes
 expand depth-first, once per resolved path, starting relative to the including
@@ -246,6 +247,12 @@ the registered top-level `sdk_prefix` in
 `CMAKE_PREFIX_PATH`. The legacy `settings.toml` is read only when `sdk.toml`
 does not exist, keeping SDK selection separate from editor preferences. See
 [Building](doc/BUILDING.md) for override and troubleshooting details.
+
+After selecting the SDK, CMake applies its registered
+`[applications].install_prefix` and `[applications].build_type` as defaults.
+Explicit CMake values, existing cache entries, and the
+`CMAKE_INSTALL_PREFIX` and `CMAKE_BUILD_TYPE` environment variables take
+precedence.
 
 See [Building](doc/BUILDING.md) for SDK installation, selection, and
 output-directory customization, and [Project shell](doc/PROJECT-SHELL.md) for
