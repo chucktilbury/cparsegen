@@ -88,10 +88,21 @@ if(NOT Cwhip_FOUND)
 endif()
 
 if(NOT COMMAND cwhip_apply_application_defaults)
+    set(cwhip_sdk_location "${Cwhip_PREFIX}")
+    if(cwhip_sdk_location STREQUAL "")
+        set(cwhip_sdk_location "${cwhip_sdk_prefix}")
+    endif()
+    if(cwhip_sdk_location STREQUAL "")
+        set(cwhip_sdk_location "package directory ${Cwhip_DIR}")
+    endif()
     message(FATAL_ERROR
-        "The selected Cwhip SDK does not provide "
-        "cwhip_apply_application_defaults(). Install an SDK with application "
-        "defaults support.")
+        "The selected Cwhip SDK at '${cwhip_sdk_location}' is missing the "
+        "application-defaults capability (cwhip_apply_application_defaults).\n"
+        "Rebuild and reinstall the updated Cwhip SDK into that prefix, or "
+        "select an updated installed SDK with CWHIP_SDK. The installed "
+        "CwhipConfig.cmake must include CwhipApplicationDefaults.cmake and "
+        "provide cwhip_apply_application_defaults(). No fallback SDK was used. "
+        "See doc/BUILDING.md.")
 endif()
 cwhip_apply_application_defaults()
 
