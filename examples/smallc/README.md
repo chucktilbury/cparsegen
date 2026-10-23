@@ -1,11 +1,12 @@
-# SmallC syntax frontend
+# SmallC frontend and CVM compiler
 
-This milestone provides a **generated parser, JSON AST, and opt-in semantic
-checker**, not a C compiler or interpreter. There is no bytecode output yet.
-The Cwhip scanner/parser and AST nodes are generated from
-[smallc.cpg](smallc.cpg); [smallc.cw](smallc.cw) supplies the file CLI,
-source-located diagnostics, JSON serialization, and an AST-based semantic
-pass. The checker does not reparse source or alter the generated parser.
+SmallC provides a generated parser, JSON AST, opt-in semantic checker, and an
+optional compiler to CVM v1 bytecode. The Cwhip scanner/parser and AST nodes
+are generated from [smallc.cpg](smallc.cpg); the shared
+[smallc_frontend.cw](smallc_frontend.cw) provides parser integration and the
+semantic pass. [smallc.cw](smallc.cw) preserves the AST CLI, while
+[smallc-cvm.cw](smallc-cvm.cw) and [smallc_backend.cw](smallc_backend.cw)
+compile the same checked AST. Code generation does not reparse source.
 
 ## Build and run
 
@@ -69,7 +70,8 @@ Syntax errors in either mode, and semantic errors in `--check` mode, go to
 stderr as `file:line:column: diagnostic` (one-based, byte-oriented columns),
 with exit status `1` and no partial AST. Usage errors return `2`; `--help`
 describes the command. Syntax-only mode intentionally accepts programs with
-semantic errors. No mode executes programs.
+semantic errors. These AST modes do not execute programs; the optional
+`smallc-cvm` backend is documented below.
 
 ## Supported subset
 
@@ -107,6 +109,49 @@ excluded because C-style array parameters imply pointers. Strings are
 initializer syntax, not general pointer-valued expressions. String
 concatenation, hex/octal constants, and hex/octal escapes are also deferred.
 `main()` is a convention in the samples, not a parser-enforced entry point.
+
+## Compile and run with CVM
+
+The optional backend consumes the installed public CVM CWhip packages; it
+does not vendor CVM source or define a second bytecode encoder. Install
+`cvm` 1.0.0 and `cvmfile` 1.0.0, plus the matching official `cvm-run` 1.0.0,
+under one prefix. The selected CWhip SDK must support the public binary file
+APIs used by `cvmfile`. Configure with that prefix:
+
+```sh
+cmake -S . -B build -DCVM_PREFIX=/path/to/cvm-install
+cmake --build build --target smallc-cvm
+./bin/smallc-cvm examples/smallc/valid/functions.c build/smallc/functions.cvm
+/path/to/cvm-install/bin/cvm-run build/smallc/functions.cvm
+cmake --build build --target test-smallc-cvm
+```
+
+`smallc-cvm INPUT.c OUTPUT.cvm` runs the existing semantic checker, lowers
+its AST with the public CVM instruction/container builders, validates the
+container, and writes it only after successful compilation. `CVM_PREFIX` must
+contain `share/cwhip/modules/cvm/1.0.0`,
+`share/cwhip/modules/cvmfile/1.0.0`, and `bin/cvm-run`; CMake fails
+configuration if any is absent. These paths pin the compiler interface to
+CVM/CVMFile 1.0.0. The output is a normal CVM container and can be run outside
+the cparsegen checkout with the installed official runner.
+
+The compiler supports checked signed i32 and unsigned u8 scalars, globals and
+locals, defined functions/prototypes/calls/recursion, one-dimensional
+fixed/inferred arrays with brace and string initializers, arithmetic,
+comparisons, short-circuit logic, assignments, increments, `if`/`else`,
+`for`, `while`, `break`, `continue`, and `return`. The entry must be
+`int main()`; called prototypes need a definition. Character reads
+zero-extend for integer operations, and narrowing is checked. Arithmetic
+overflow, division by zero, invalid signed division, array bounds violations,
+and checked narrowing trap at runtime.
+
+`switch`, `case`, `default`, labels, and `goto` parse and may pass `--check`,
+but code generation rejects them with source-located diagnostics. Other
+constructs outside the listed subset are likewise rejected explicitly. Array
+extents and brace initializer counts are checked during code generation;
+global initializer expressions run before `main`, and local initializer
+expressions run when their declarations execute. The C and AST frontends
+remain unchanged and do not gain bytecode output.
 
 ## Samples
 
@@ -202,8 +247,9 @@ individual statements only: proving every path returns, detecting a function
 that can fall off its end (including an empty body), and reachability are
 explicitly deferred. There is no CFG/guaranteed-return analysis or jump
 restriction across declarations/initializations.
-The language is not executed. Integer/character widths, signedness, overflow,
-storage layout, and runtime behavior remain unspecified.
+The syntax frontend and semantic checker do not execute programs or define
+runtime widths, signedness, overflow, storage layout, or behavior. Those
+runtime rules are specified only for the optional CVM backend below.
 
 The generated matcher remains bounded: 256 nested **parser-rule** calls,
 100,000 matcher calls per parse, 4,096 candidates per intermediate set, and
@@ -217,13 +263,6 @@ and cumulative arena data to 64 MiB. Exhaustion is explicit; these C-specific
 bounds can reject larger inputs accepted by Cwhip. The tested sample corpus is
 within both runtimes' budgets.
 
-## Future bytecode backend
-
-A stack-based VM remains a suitable next target after broadening semantic
-checks. Keep its emitter separate from the grammar: AST -> source-order
-binding/type checks -> instructions. A first instruction set would need integer/character
-constants, local/global loads and stores, bounds-aware array operations,
-arithmetic/comparisons, conditional/unconditional branches, calls, and
-returns. Function frames, parameter/result conventions, memory layout, and
-branch/call/label fixups must be specified before bytecode is emitted; this
-milestone does not select an encoding or implement a VM.
+The backend does not add pointers, array parameters, structs, or OOP features.
+Its runtime widths and checked arithmetic apply only to generated CVM programs;
+the syntax AST and standalone C parser retain their previous contracts.

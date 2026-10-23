@@ -248,7 +248,7 @@ sequence can match, chooses the shortest successful prefix, and keeps source
 order on equal-length ties. Whole-input mode requires a complete candidate
 instead of discarding trailing tokens.
 
-## SmallC syntax frontend
+## SmallC frontend and CVM compiler
 
 [SmallC](smallc/README.md) expands the examples to a C subset: `int`/`char`,
 arrays and initializers, functions, prototypes, calls, arithmetic/comparisons,
@@ -264,6 +264,15 @@ Output is a complete-input **JSON syntax AST**, not bytecode or an executed
 program. `--check` runs the Cwhip app's source-order semantic checker on the
 AST; the default command remains syntax-only. See the SmallC documentation
 for checked rules and deferred control-flow, array-bound, and runtime checks.
+
+An optional `smallc-cvm` target compiles the same checked AST to CVM v1 using
+the installed public CVM 1.0.0 packages. Configure CMake with `-DCVM_PREFIX`
+pointing to an installation containing `cvm`, `cvmfile`, and `cvm-run`, then
+build the target and run the resulting `.cvm` with that installation's
+`cvm-run`. The backend supports a checked scalar/array/function and structured
+control-flow subset; `switch`, labels, and `goto` are diagnosed explicitly.
+See [SmallC](smallc/README.md#compile-and-run-with-cvm) for setup, exact
+coverage, and end-to-end tests.
 
 For a standalone C99 version of the same syntax frontend:
 

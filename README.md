@@ -103,7 +103,8 @@ parser, the grammar files, and current limits.
 
 The SmallC example generates a syntax AST for a C subset with `int`/`char`,
 arrays and initializers, functions/prototypes/calls, comments, and control
-flow. Its Cwhip app also offers an opt-in AST-based semantic check:
+flow. Its Cwhip app also offers an opt-in AST-based semantic check and an
+optional checked-AST-to-CVM backend:
 
 ```sh
 cmake --build build --target smallc
@@ -112,8 +113,18 @@ cmake --build build --target smallc
 ```
 
 See [SmallC](examples/smallc/README.md) for the supported syntax and JSON
-format, checked/deferred semantic rules, and type-conversion policy. It is not
-a bytecode compiler or VM; the default CLI remains syntax-only.
+format, checked/deferred semantic rules, CVM runtime model, and the backend's
+explicitly supported subset. The AST CLI remains syntax-only by default; the
+standalone C parser remains a syntax frontend.
+
+With an installed CVM 1.0.0 package prefix, compile and run a SmallC sample:
+
+```sh
+cmake -S . -B build -DCVM_PREFIX=/path/to/cvm-install
+cmake --build build --target smallc-cvm
+./bin/smallc-cvm examples/smallc/valid/functions.c build/smallc/functions.cvm
+/path/to/cvm-install/bin/cvm-run build/smallc/functions.cvm
+```
 
 ## Standalone C target
 

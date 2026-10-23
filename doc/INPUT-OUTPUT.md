@@ -1189,6 +1189,7 @@ by the default generator target. With the default `build/` and `bin/`:
 | --- | --- | --- |
 | `calculator` | `build/calculator/parser.cw`, `grammar.dot` | `bin/calculator`: evaluated numeric results; interactive variables/commands in handwritten Cwhip |
 | `smallc` | `build/smallc/parser.cw`, `grammar.dot` | `bin/smallc-ast`: complete-input JSON; optional handwritten `--check` semantic pass |
+| `smallc-cvm` | `build/smallc-cvm/parser.cw`, `grammar.dot`, copied app sources | `bin/smallc-cvm`: checked SmallC AST to CVM v1 container; optional, requires installed CVM 1.0.0/CVMFile packages and `cvm-run` |
 | `calculator-c` | `build/calculator-c/parser.c`, `grammar.dot` | `bin/calculator-c`: syntax tree/JSON, **not** calculator evaluation |
 | `smallc-c` | `build/smallc-c/parser.c`, `grammar.dot` | `bin/smallc-c`: syntax tree/JSON, **no** SmallC semantic checker |
 | `visitor-c` | `build/visitor-c/parser.c`, `grammar.dot` | `bin/visitor-c`: handwritten name counter/policy demo |
@@ -1222,14 +1223,16 @@ The calculator and compiled expression program each print `20`; the compiled
 statement sample prints `20`, `56`, and `28` on separate lines. The compiler
 executables themselves print **C source**, not those runtime results.
 
-SmallC is a C-subset syntax/checker demonstration, not a complete C compiler,
-bytecode generator, or VM. `--check` belongs to its handwritten Cwhip
-frontend; successful checking preserves the JSON syntax tree and failed
-checking prints a located stderr diagnostic with no tree. The statement
-demonstration is limited to variables, control flow, definite assignment,
-`int`/`bool` typed functions, and checked int32 arithmetic in its own
-grammar/visitor/runtime code; it has no classes, objects, or inheritance, and
-none of this is a built-in cparsegen language feature.
+SmallC is a C-subset syntax/checker demonstration with an optional CVM v1
+bytecode backend, not a complete C compiler or VM. `--check` belongs to its
+handwritten Cwhip frontend; successful checking preserves the JSON syntax tree
+and failed checking prints a located stderr diagnostic with no tree. The
+separate `smallc-cvm` app consumes the checked AST and installed public CVM
+builders/validator; it does not change the parser generator or standalone C
+target. The statement demonstration is limited to variables, control flow,
+definite assignment, `int`/`bool` typed functions, and checked int32 arithmetic
+in its own grammar/visitor/runtime code; it has no classes, objects, or
+inheritance, and none of this is a built-in cparsegen language feature.
 
 Use the dedicated guides for application-specific language/checking limits:
 [Examples](../examples/README.md), [SmallC](../examples/smallc/README.md),
