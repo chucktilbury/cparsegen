@@ -1,28 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
-project(cparsegen LANGUAGES C)
 
-set(CWHIP_BIN_DIR "${PROJECT_SOURCE_DIR}/bin" CACHE PATH
-    "Directory for project executables")
-set(CWHIP_LIB_DIR "${PROJECT_SOURCE_DIR}/lib" CACHE PATH
-    "Directory for project libraries and archives")
-set(CVM_PREFIX "" CACHE PATH
-    "Optional installed CVM prefix searched for bin/cvm-as and bin/cvm-run")
-option(CPARSEGEN_REQUIRE_CVM_TOOLS
-    "Fail configuration when cvm-as or cvm-run cannot be found" OFF)
-get_filename_component(CWHIP_BIN_DIR "${CWHIP_BIN_DIR}" ABSOLUTE
-    BASE_DIR "${PROJECT_SOURCE_DIR}")
-get_filename_component(CWHIP_LIB_DIR "${CWHIP_LIB_DIR}" ABSOLUTE
-    BASE_DIR "${PROJECT_SOURCE_DIR}")
-
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CWHIP_BIN_DIR}")
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CWHIP_LIB_DIR}")
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CWHIP_LIB_DIR}")
-foreach(configuration DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
-    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${configuration} "${CWHIP_BIN_DIR}")
-    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${configuration} "${CWHIP_LIB_DIR}")
-    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${configuration} "${CWHIP_LIB_DIR}")
-endforeach()
-
+# Apply SDK defaults before project() initializes language and install settings.
 set(cwhip_sdk_prefix "$ENV{CWHIP_SDK}")
 set(cwhip_sdk_selection "CWHIP_SDK")
 if(cwhip_sdk_prefix STREQUAL "")
@@ -54,7 +32,7 @@ if(cwhip_sdk_prefix STREQUAL "")
             find_package(Python3 3.11 REQUIRED COMPONENTS Interpreter)
             execute_process(
                 COMMAND "${Python3_EXECUTABLE}"
-                    "${PROJECT_SOURCE_DIR}/scripts/sdk-prefix.py"
+                    "${CMAKE_CURRENT_LIST_DIR}/scripts/sdk-prefix.py"
                     "${cwhip_registration_file}"
                 RESULT_VARIABLE cwhip_settings_result
                 OUTPUT_VARIABLE cwhip_sdk_prefix
@@ -108,6 +86,38 @@ if(NOT Cwhip_FOUND)
         "the SDK first; cparsegen does not download it. See doc/BUILDING.md.\n"
         "${Cwhip_NOT_FOUND_MESSAGE}")
 endif()
+
+if(NOT COMMAND cwhip_apply_application_defaults)
+    message(FATAL_ERROR
+        "The selected Cwhip SDK does not provide "
+        "cwhip_apply_application_defaults(). Install an SDK with application "
+        "defaults support.")
+endif()
+cwhip_apply_application_defaults()
+
+project(cparsegen LANGUAGES C)
+
+set(CWHIP_BIN_DIR "${PROJECT_SOURCE_DIR}/bin" CACHE PATH
+    "Directory for project executables")
+set(CWHIP_LIB_DIR "${PROJECT_SOURCE_DIR}/lib" CACHE PATH
+    "Directory for project libraries and archives")
+set(CVM_PREFIX "" CACHE PATH
+    "Optional installed CVM prefix searched for bin/cvm-as and bin/cvm-run")
+option(CPARSEGEN_REQUIRE_CVM_TOOLS
+    "Fail configuration when cvm-as or cvm-run cannot be found" OFF)
+get_filename_component(CWHIP_BIN_DIR "${CWHIP_BIN_DIR}" ABSOLUTE
+    BASE_DIR "${PROJECT_SOURCE_DIR}")
+get_filename_component(CWHIP_LIB_DIR "${CWHIP_LIB_DIR}" ABSOLUTE
+    BASE_DIR "${PROJECT_SOURCE_DIR}")
+
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CWHIP_BIN_DIR}")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CWHIP_LIB_DIR}")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CWHIP_LIB_DIR}")
+foreach(configuration DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${configuration} "${CWHIP_BIN_DIR}")
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${configuration} "${CWHIP_LIB_DIR}")
+    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${configuration} "${CWHIP_LIB_DIR}")
+endforeach()
 
 if(NOT Cwhip_APPLICATION_OUTPUT_DIRECTORIES)
     message(FATAL_ERROR

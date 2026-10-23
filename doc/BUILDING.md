@@ -50,6 +50,19 @@ top-level `sdk_prefix`, cparsegen proceeds to normal CMake discovery and does
 not consult `settings.toml`. Discovery is read-only; it does not create or
 modify either configuration file.
 
+After SDK discovery, cparsegen calls the SDK's
+`cwhip_apply_application_defaults()` helper. The helper applies the registered
+`[applications].install_prefix` and `[applications].build_type` as CMake
+defaults only when the selected SDK's canonical install prefix matches the
+registered `sdk_prefix`. Explicit `-D` values, existing CMake cache entries,
+and the `CMAKE_INSTALL_PREFIX` and `CMAKE_BUILD_TYPE` environment variables
+win. The setup script leaves the build type unspecified when no mode argument
+is given, allowing the SDK default or an existing cache value to take effect;
+`scripts/setup debug|release|profile` explicitly overrides it.
+`cmake --install build` uses the inherited install prefix; pass `--prefix` or
+set `DESTDIR` when installing elsewhere or staging a package. Staging does not
+change the registered SDK settings.
+
 To select an SDK explicitly, point `CWHIP_SDK` at its whole installed prefix:
 
 ```sh
