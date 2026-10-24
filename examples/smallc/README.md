@@ -164,7 +164,7 @@ each lowers to one `sys` service. A `char[]` argument is a char-array name or
 | --- | --- |
 | `void print(char[] text)` | `stdout_write`: bytes up to the first NUL (or the whole array); the compiler loops over short writes |
 | `int open(char[] path, char[] mode)` | `file_open`; mode is exactly `"r"`, `"w"` or `"a"`; returns an int handle |
-| `int read(int handle, int length, char[] buffer)` | `file_read_handle`; reads into `buffer` from index 0; returns bytes read, 0 only at EOF |
+| `int read(int handle, int length, char[] buffer)` | `file_read_handle`; reads into `buffer` from index 0; returns bytes read, 0 at EOF for a positive request; a validated zero-length request returns 0 without consuming input |
 | `int write(int handle, int length, char[] buffer)` | `file_write_handle`; writes from index 0; returns bytes actually written, which may be short |
 | `void close(int handle)` | `file_close_handle` |
 

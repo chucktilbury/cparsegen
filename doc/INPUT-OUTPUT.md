@@ -60,9 +60,11 @@ CWHIP_SDK=/absolute/path/to/cwhip-sdk cmake -S . -B build
 repository-root `bin/` and `lib/`. Examples here assume the former default.
 Put the selected SDK's `bin/` on `PATH` for direct `cwhip` commands.
 Alternatively, `./scripts/setup` configures `build/` and opens a project
-shell there; its optional argument is `debug` (default), `release`, or
-`profile`. Commands in that shell need paths relative to `build/`, not the
-root-relative paths used here.
+shell there; its optional argument is `debug`, `release`, or `profile`.
+Omitting it preserves an existing build type or lets CMake/SDK defaults apply.
+With no cache value, environment override, or registered SDK application
+default, the build type is empty. Commands in that shell need paths relative
+to `build/`, not the root-relative paths used here.
 
 ### End-to-end Cwhip example: prefix versus complete input
 
@@ -930,7 +932,7 @@ serialize their borrowed tree themselves if needed.
 Generated Cwhip objects expose:
 
 ```text
-LexToken: String kind, String text, int offset
+LexToken: String kind, String text, int64 offset
 AstNode:  String name, String text, list children
 ```
 
