@@ -151,7 +151,7 @@ includes it, and subclasses `GeneratedVisitor`. For example, its corresponding
 single-node and walker hooks are:
 
 ```cwhip
-int on_token_IDENT(AstNode node) {
+int64 on_token_IDENT(AstNode node) {
     if (node.lexeme().equals("forbidden")) {
         problem = "identifier 'forbidden' is not allowed"
         return VISIT_ERROR
@@ -160,7 +160,7 @@ int on_token_IDENT(AstNode node) {
     if (first) { return VISIT_STOP }
     return VISIT_CONTINUE
 }
-int enter_token_IDENT(AstNode node) {
+int64 enter_token_IDENT(AstNode node) {
     return on_token_IDENT(node)
 }
 ```

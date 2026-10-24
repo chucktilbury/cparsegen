@@ -2,9 +2,9 @@ include "parser.cw"
 
 class Variable {
     String name
-    float value
+    fp64 value
 
-    Variable(String variableName, float number) {
+    Variable(String variableName, fp64 number) {
         name = variableName
         value = number
     }
@@ -23,12 +23,12 @@ class Calculator {
         endOfInput = false
     }
 
-    AstNode child(AstNode node, int index) {
+    AstNode child(AstNode node, int64 index) {
         return node.children[index] as AstNode
     }
 
     Variable findVariable(String name) {
-        int i = 0
+        int64 i = 0
         while (i < variables.length) {
             Variable variable = variables[i] as Variable
             if (variable.name.equals(name)) { return variable }
@@ -37,16 +37,16 @@ class Calculator {
         return null
     }
 
-    float evaluate(AstNode node) {
+    fp64 evaluate(AstNode node) {
         if (!problem.equals("")) { return 0.0 }
         if (node.name.equals("number")) {
             String spelling = ""
-            int i = 0
+            int64 i = 0
             while (i < node.children.length) {
                 spelling.append(child(node, i).text)
                 i += 1
             }
-            return spelling.toFloat()
+            return spelling.toFp64()
         }
         if (node.name.equals("IDENT")) {
             Variable variable = findVariable(node.text)
@@ -62,16 +62,16 @@ class Calculator {
         }
         if (node.name.equals("unary")) {
             if (node.children.length == 1) { return evaluate(child(node, 0)) }
-            float value = evaluate(child(node, 1))
+            fp64 value = evaluate(child(node, 1))
             if (child(node, 0).text.equals("-")) { return -value }
             return value
         }
         if (node.name.equals("expression") || node.name.equals("product")) {
-            float result = evaluate(child(node, 0))
-            int i = 1
+            fp64 result = evaluate(child(node, 0))
+            int64 i = 1
             while (i < node.children.length && problem.equals("")) {
                 String operation = child(node, i).text
-                float value = evaluate(child(node, i + 1))
+                fp64 value = evaluate(child(node, i + 1))
                 if (!problem.equals("")) { return 0.0 }
                 if (operation.equals("+")) { result += value }
                 else {
@@ -109,9 +109,9 @@ class Calculator {
             return false
         }
         bool assignment = statement.children.length == 3
-        int expressionIndex = 0
+        int64 expressionIndex = 0
         if (assignment) { expressionIndex = 2 }
-        float value = evaluate(child(statement, expressionIndex))
+        fp64 value = evaluate(child(statement, expressionIndex))
         if (!problem.equals("")) { return false }
         if (assignment) {
             String name = child(statement, 0).text
@@ -125,7 +125,7 @@ class Calculator {
     }
 
     void listVariables() {
-        int i = 0
+        int64 i = 0
         while (i < variables.length) {
             Variable variable = variables[i] as Variable
             io.writeLine(format("{} = {}", variable.name, variable.value))
@@ -148,7 +148,7 @@ class Calculator {
         return line
     }
 
-    int run() {
+    int64 run() {
         Sys.Process process()
         if (process.argc() == 3 && process.arg(1).equals("-e")) {
             if (execute(process.arg(2))) { return 0 }
@@ -166,7 +166,7 @@ class Calculator {
             return 2
         }
         if (!batch) { io.writeLine("Calculator: :help for help, :quit to exit.") }
-        int status = 0
+        int64 status = 0
         while (true) {
             if (!batch) { io.write("calc> ") }
             String input = readInputLine()

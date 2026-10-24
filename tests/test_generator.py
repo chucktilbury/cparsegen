@@ -14,6 +14,8 @@ class GeneratorTests(GeneratorTestCase):
         generated = self.generated.read_text()
         self.assertIn("pre_sum(AstNode node)", generated)
         self.assertIn("post_sum(AstNode node)", generated)
+        self.assertIn("int64 offset", generated)
+        self.assertIn("AstNode childAt(int64 index)", generated)
         graph = self.graph.read_text()
         self.assertIn("sum -> INTEGER", graph)
         self.assertIn('label="+"', graph)

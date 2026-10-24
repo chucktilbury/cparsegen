@@ -33,8 +33,9 @@ only; it does not incorporate uncommitted demonstration extensions.
 ## Usage: build, generate, compile, and run
 
 All commands below start in the repository root and use default output
-directories. The generator requires an installed Cwhip SDK **0.0.1**, including
-its CMake integration and application-output-directory support. It does not
+directories. The generator requires an installed Cwhip SDK **0.0.2** with the
+`numeric-v2` ABI, including its CMake integration and
+application-output-directory support. It does not
 download or build that SDK. See [Building](BUILDING.md) for installation and
 host prerequisites.
 
@@ -501,7 +502,7 @@ directive. The C backend explicitly rejects directives outside the table.
 };
 @insert cwhip visitor_post {
 class MyVisitor : GeneratedVisitor {
-    int enter_token_WORD(AstNode node) { return VISIT_CONTINUE }
+    int64 enter_token_WORD(AstNode node) { return VISIT_CONTINUE }
 }
 };
 ```
@@ -1133,7 +1134,7 @@ like literal kinds, change when collection order changes.
 | Operation | C | Cwhip |
 | --- | --- | --- |
 | Interface | Zero-initialized `CpgVisitor` callback table | Subclass `GeneratedVisitor` |
-| Callback | `CpgVisit (*CpgHook)(const Node *, void *)` | Method returning `int`, taking `AstNode` |
+| Callback | `CpgVisit (*CpgHook)(const Node *, void *)` | Method returning `int64`, taking `AstNode` |
 | Single-node dispatch | `cpg_dispatch(root, &visitor, user)` | `visitor.dispatch(root)` |
 | Depth-first walk | `cpg_walk(root, &visitor, user)` | `visitor.walk(root)` |
 | Generic dispatch | `on_node` | `onNode(node)` |

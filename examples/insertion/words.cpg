@@ -35,14 +35,14 @@ int inserted_word_count(const unsigned char *input, size_t length) {
 
 @insert cwhip visitor_post {
 class InsertedWordCounter : GeneratedVisitor {
-    int count
+    int64 count
     InsertedWordCounter() { super GeneratedVisitor()
 count = 0 }
-    int enter_token_WORD(AstNode node) { count += 1
+    int64 enter_token_WORD(AstNode node) { count += 1
 return VISIT_CONTINUE }
 }
 class InsertedWords {
-    int count(String input) {
+    int64 count(String input) {
         InputScanner scanner(input)
         if (!scanner.scan()) { return -1 }
         GeneratedParser parser(scanner.tokens)

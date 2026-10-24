@@ -186,9 +186,9 @@ strategies, but cannot change grammar meaning or add parser actions.
 
 ## Cwhip implementation constraints
 
-The repository's application build targets the installed Cwhip SDK `0.0.1`
-exactly and uses its CMake `cwhip_add_program` integration; it is not a native
-C/C++ build of the generator. The published Cwhip standard `system` package
+The repository's application build targets the installed Cwhip SDK `0.0.2`
+with the `numeric-v2` ABI and uses its CMake `cwhip_add_program` integration;
+it is not a native C/C++ build of the generator. The published Cwhip standard `system` package
 provides file and path APIs, so the initial source stack can use that API
 rather than embed native file-I/O code. Cwhip collections are dynamically
 tagged, ordered lists; typed model objects and explicit checked extraction

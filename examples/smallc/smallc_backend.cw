@@ -5,7 +5,7 @@
 
 class SmallCAsmCode {
     String text
-    int labelCounter
+    int64 labelCounter
 
     SmallCAsmCode() {
         text = ""
@@ -39,11 +39,11 @@ class SmallCAsmVariable {
     String valueType
     bool global
     bool array
-    int index
+    int64 index
     String asmName
 
     SmallCAsmVariable(String variableName, String variableType,
-            bool isGlobal, bool isArray, int tableIndex, String symbol) {
+            bool isGlobal, bool isArray, int64 tableIndex, String symbol) {
         name = variableName
         valueType = variableType
         global = isGlobal
@@ -72,7 +72,7 @@ class SmallCAsmFunction {
     AstNode body
     list parameterTypes
     list parameterSymbols
-    int localCount
+    int64 localCount
     list declarations
     bool defined
 
@@ -94,11 +94,11 @@ class SmallCAsmFunction {
 class SmallCAsmArray {
     String asmName
     String elementType
-    int length
+    int64 length
     String staticInitializer
     bool isGlobal
 
-    SmallCAsmArray(String symbol, String valueType, int capacity) {
+    SmallCAsmArray(String symbol, String valueType, int64 capacity) {
         asmName = symbol
         elementType = valueType
         length = capacity
@@ -134,7 +134,7 @@ class SmallCAssemblyCompiler {
     SmallCIntrinsics intrinsics
     String problem
     AstNode errorNode
-    int scalarGlobalCount
+    int64 scalarGlobalCount
     String functionText
 
     SmallCAssemblyCompiler() {
@@ -155,7 +155,7 @@ class SmallCAssemblyCompiler {
         functionText = ""
     }
 
-    AstNode child(AstNode node, int index) {
+    AstNode child(AstNode node, int64 index) {
         return node.children[index] as AstNode
     }
 
@@ -179,7 +179,7 @@ class SmallCAssemblyCompiler {
     }
 
     SmallCAsmFunction findFunction(String name) {
-        int i = 0
+        int64 i = 0
         while (i < functions.length) {
             SmallCAsmFunction function = functions[i] as SmallCAsmFunction
             if (function.name.equals(name)) { return function }
@@ -189,7 +189,7 @@ class SmallCAssemblyCompiler {
     }
 
     SmallCAsmVariable findGlobal(String name) {
-        int i = 0
+        int64 i = 0
         while (i < globals.length) {
             SmallCAsmVariable variable = globals[i] as SmallCAsmVariable
             if (variable.name.equals(name)) { return variable }
@@ -201,7 +201,7 @@ class SmallCAssemblyCompiler {
     SmallCAsmVariable findVariable(String name) {
         SmallCAsmScope current = scope
         while (current != null) {
-            int i = current.variables.length - 1
+            int64 i = current.variables.length - 1
             while (i >= 0) {
                 SmallCAsmVariable variable = current.variables[i] as SmallCAsmVariable
                 if (variable.name.equals(name)) { return variable }
@@ -220,13 +220,13 @@ class SmallCAssemblyCompiler {
         if (scope != null) { scope = scope.parent }
     }
 
-    int slotCount() {
+    int64 slotCount() {
         return currentFunction.parameterTypes.length + currentFunction.localCount
     }
 
     // Declares a scalar local in the current function and returns its symbol.
     String declareLocal(String name, String valueType, String prefix) {
-        int slot = slotCount()
+        int64 slot = slotCount()
         String symbol = format("{}{}", prefix, slot)
         if (!name.equals("")) { symbol = format("{}{}_{}", prefix, slot, name) }
         currentFunction.localCount += 1
@@ -244,11 +244,11 @@ class SmallCAssemblyCompiler {
         return declareLocal("", valueType, "t")
     }
 
-    int integerValue(String spelling, int limit, AstNode node) {
-        int value = 0
-        int i = 0
+    int64 integerValue(String spelling, int64 limit, AstNode node) {
+        int64 value = 0
+        int64 i = 0
         while (i < spelling.length && problem.equals("")) {
-            int digit = int(spelling.byteAt(i)) - 48
+            int64 digit = int64(spelling.byteAt(i)) - 48
             if (digit < 0 || digit > 9 || value > (limit - digit) / 10) {
                 fail(node, format("integer literal '{}' is outside the CVM i32 range", spelling))
                 return 0
@@ -260,13 +260,13 @@ class SmallCAssemblyCompiler {
     }
 
     bool isMinimumIntegerLiteral(String spelling) {
-        int first = 0
+        int64 first = 0
         while (first + 1 < spelling.length
-                && int(spelling.byteAt(first)) == 48) { first += 1 }
+                && int64(spelling.byteAt(first)) == 48) { first += 1 }
         return spelling.slice(first, spelling.length).equals("2147483648")
     }
 
-    int decodeEscape(int value) {
+    int64 decodeEscape(int64 value) {
         if (value == 110) { return 10 }
         if (value == 114) { return 13 }
         if (value == 116) { return 9 }
@@ -274,20 +274,20 @@ class SmallCAssemblyCompiler {
         return value
     }
 
-    int characterValue(String spelling) {
-        int value = int(spelling.byteAt(1))
-        if (value == 92) { value = decodeEscape(int(spelling.byteAt(2))) }
+    int64 characterValue(String spelling) {
+        int64 value = int64(spelling.byteAt(1))
+        if (value == 92) { value = decodeEscape(int64(spelling.byteAt(2))) }
         return value
     }
 
     buffer stringBytes(String spelling) {
         buffer bytes = buffer[]
-        int i = 1
+        int64 i = 1
         while (i + 1 < spelling.length) {
-            int value = int(spelling.byteAt(i))
+            int64 value = int64(spelling.byteAt(i))
             if (value == 92) {
                 i += 1
-                value = decodeEscape(int(spelling.byteAt(i)))
+                value = decodeEscape(int64(spelling.byteAt(i)))
             }
             bytes.append(value)
             i += 1
@@ -295,7 +295,7 @@ class SmallCAssemblyCompiler {
         return bytes
     }
 
-    String hexByte(int value) {
+    String hexByte(int64 value) {
         String digits = "0123456789abcdef"
         return format("{}{}", digits.slice(value / 16, value / 16 + 1),
             digits.slice(value % 16, value % 16 + 1))
@@ -307,13 +307,13 @@ class SmallCAssemblyCompiler {
     String assemblyString(buffer bytes) {
         String safe = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 _-.,:/!?()[]{}+=<>*&%#@^~|"
         String result = "\""
-        int i = 0
+        int64 i = 0
         while (i < bytes.length) {
-            int value = int(bytes[i])
-            int s = 0
+            int64 value = int64(bytes[i])
+            int64 s = 0
             bool printable = false
             while (s < safe.length && !printable) {
-                if (int(safe.byteAt(s)) == value) { printable = true }
+                if (int64(safe.byteAt(s)) == value) { printable = true }
                 else { s += 1 }
             }
             if (printable) { result.append(safe.slice(s, s + 1)) }
@@ -327,14 +327,14 @@ class SmallCAssemblyCompiler {
         return result
     }
 
-    int initializerCount(AstNode initializer) {
+    int64 initializerCount(AstNode initializer) {
         if (initializer == null) { return 0 }
         if (initializer.children.length == 1
                 && child(initializer, 0).name.equals("STRING")) {
             return stringBytes(child(initializer, 0).text).length + 1
         }
-        int count = 0
-        int i = 0
+        int64 count = 0
+        int64 i = 0
         while (i < initializer.children.length) {
             if (child(initializer, i).name.equals("assignment")) { count += 1 }
             i += 1
@@ -343,7 +343,7 @@ class SmallCAssemblyCompiler {
     }
 
     AstNode declarationInitializer(AstNode declarator) {
-        int i = 1
+        int64 i = 1
         while (i < declarator.children.length
                 && !child(declarator, i).text.equals("=")) { i += 1 }
         if (i < declarator.children.length && i + 1 < declarator.children.length) {
@@ -352,7 +352,7 @@ class SmallCAssemblyCompiler {
         return null
     }
 
-    int declaredArrayLength(AstNode declarator, AstNode initializer) {
+    int64 declaredArrayLength(AstNode declarator, AstNode initializer) {
         if (declarator.children.length > 2
                 && child(declarator, 2).name.equals("INTEGER")) {
             return integerValue(child(declarator, 2).text, 2147483647, child(declarator, 2))
@@ -370,7 +370,7 @@ class SmallCAssemblyCompiler {
             if (current.name.equals("INTEGER")) {
                 if (!valueType.equals("int")) { return "" }
                 if (negative && isMinimumIntegerLiteral(current.text)) { return "-2147483648" }
-                int value = integerValue(current.text, 2147483647, current)
+                int64 value = integerValue(current.text, 2147483647, current)
                 if (negative && value != 0) { return format("-{}", value) }
                 return format("{}", value)
             }
@@ -398,7 +398,7 @@ class SmallCAssemblyCompiler {
 
     // Returns an assembly array initializer for a global when every element
     // is constant and fits, or "" to initialize with code before main runs.
-    String staticArrayInitializer(String arrayElementType, int length,
+    String staticArrayInitializer(String arrayElementType, int64 length,
             AstNode initializer, String name) {
         if (initializer == null) { return "" }
         if (initializer.children.length == 1
@@ -417,8 +417,8 @@ class SmallCAssemblyCompiler {
             return ""
         }
         String result = "{"
-        int count = 0
-        int i = 0
+        int64 count = 0
+        int64 i = 0
         while (i < initializer.children.length && problem.equals("")) {
             AstNode value = child(initializer, i)
             if (value.name.equals("assignment")) {
@@ -436,7 +436,7 @@ class SmallCAssemblyCompiler {
 
     void collectGlobalDeclaration(AstNode declaration) {
         String baseType = child(child(declaration, 0), 0).text
-        int i = 1
+        int64 i = 1
         while (i < declaration.children.length && problem.equals("")) {
             AstNode declarator = child(declaration, i)
             if (declarator.name.equals("declarator")) {
@@ -445,7 +445,7 @@ class SmallCAssemblyCompiler {
                 AstNode initializer = declarationInitializer(declarator)
                 bool needsCode = initializer != null
                 if (isArray) {
-                    int length = declaredArrayLength(declarator, initializer)
+                    int64 length = declaredArrayLength(declarator, initializer)
                     if (length <= 0) {
                         fail(nameNode, format("array '{}' requires a positive fixed size or inferable initializer", nameNode.text))
                     }
@@ -495,12 +495,12 @@ class SmallCAssemblyCompiler {
         function.parameterTypes = []
         function.parameters = null
         function.declaration = nameNode
-        int i = 0
+        int64 i = 0
         while (i < external.children.length) {
             AstNode part = child(external, i)
             if (part.name.equals("parameters")) {
                 function.parameters = part
-                int p = 0
+                int64 p = 0
                 while (p < part.children.length) {
                     AstNode parameter = child(part, p)
                     if (parameter.name.equals("parameter")) {
@@ -516,7 +516,7 @@ class SmallCAssemblyCompiler {
     }
 
     bool collectProgram(AstNode root) {
-        int i = 0
+        int64 i = 0
         while (i < root.children.length && problem.equals("")) {
             AstNode external = child(root, i)
             if (external.children.length > 0) {
@@ -539,7 +539,7 @@ class SmallCAssemblyCompiler {
             fail(entryFunction.declaration, "CVM entry point main must have type int main()")
             return false
         }
-        int f = 0
+        int64 f = 0
         while (f < functions.length) {
             SmallCAsmFunction function = functions[f] as SmallCAsmFunction
             if (function.body != null) { function.defined = true }
@@ -557,7 +557,7 @@ class SmallCAssemblyCompiler {
         if (!collectProgram(root)) { return null }
         String initText = compileGlobalInitializers()
         if (!problem.equals("")) { return null }
-        int i = 0
+        int64 i = 0
         while (i < functions.length && problem.equals("")) {
             SmallCAsmFunction function = functions[i] as SmallCAsmFunction
             if (function.defined) { compileUserFunction(function) }
@@ -572,7 +572,7 @@ class SmallCAssemblyCompiler {
         result.append("; Assemble with: cvm-as INPUT.asm -o OUTPUT.cvm\n")
         result.append(".version 1.0\n.entry main\n")
         bool hasData = false
-        int i = 0
+        int64 i = 0
         while (i < globals.length) {
             SmallCAsmVariable variable = globals[i] as SmallCAsmVariable
             if (!variable.array) {
@@ -614,7 +614,7 @@ class SmallCAssemblyCompiler {
         code = SmallCAsmCode()
         scope = null
         loop = null
-        int i = 0
+        int64 i = 0
         while (i < globalInitializers.length && problem.equals("")) {
             list pair = globalInitializers[i] as list
             AstNode declarator = pair[0] as AstNode
@@ -641,7 +641,7 @@ class SmallCAssemblyCompiler {
 
     String declarationText() {
         String result = ""
-        int i = 0
+        int64 i = 0
         while (i < currentFunction.declarations.length) {
             result.append(currentFunction.declarations[i] as String)
             i += 1
@@ -658,9 +658,9 @@ class SmallCAssemblyCompiler {
         scope = SmallCAsmScope(null)
         loop = null
         String header = format("\n.func {}(", function.asmName)
-        int parameterIndex = 0
+        int64 parameterIndex = 0
         if (function.parameters != null) {
-            int i = 0
+            int64 i = 0
             while (i < function.parameters.children.length) {
                 AstNode parameter = child(function.parameters, i)
                 if (parameter.name.equals("parameter")) {
@@ -704,7 +704,7 @@ class SmallCAssemblyCompiler {
             if (node.children.length > 0 && child(node, 0).text.equals("return")) {
                 return true
             }
-            int i = 0
+            int64 i = 0
             while (i < node.children.length) {
                 if (child(node, i).name.equals("compoundStatement")) {
                     return guaranteesReturn(child(node, i))
@@ -714,7 +714,7 @@ class SmallCAssemblyCompiler {
             return false
         }
         if (node.name.equals("statement")) {
-            int i = 0
+            int64 i = 0
             while (i < node.children.length) {
                 if (guaranteesReturn(child(node, i))) { return true }
                 i += 1
@@ -722,11 +722,11 @@ class SmallCAssemblyCompiler {
             return false
         }
         if (node.name.equals("compoundStatement")) {
-            int i = 0
+            int64 i = 0
             while (i < node.children.length) {
                 AstNode item = child(node, i)
                 if (item.name.equals("blockItem")) {
-                    int j = 0
+                    int64 j = 0
                     while (j < item.children.length) {
                         AstNode part = child(item, j)
                         if (part.name.equals("statement") && guaranteesReturn(part)) {
@@ -777,7 +777,7 @@ class SmallCAssemblyCompiler {
 
     list statementChildren(AstNode node) {
         list result = []
-        int i = 0
+        int64 i = 0
         while (i < node.children.length) {
             AstNode part = child(node, i)
             if (isStatementNode(part)) { result.append(part) }
@@ -786,11 +786,11 @@ class SmallCAssemblyCompiler {
         return result
     }
 
-    void emitInt(int value) {
+    void emitInt(int64 value) {
         code.op1("const.i32", format("{}", value))
     }
 
-    void emitByte(int value) {
+    void emitByte(int64 value) {
         code.op1("const.u8", format("{}", value))
     }
 
@@ -838,11 +838,11 @@ class SmallCAssemblyCompiler {
                     variable.name, array.length))
                 return
             }
-            int i = 0
+            int64 i = 0
             while (i < bytes.length && problem.equals("")) {
                 emitArrayReference(variable)
                 emitInt(i)
-                emitByte(int(bytes[i]))
+                emitByte(int64(bytes[i]))
                 code.op("aset")
                 code.op("pop")
                 i += 1
@@ -856,8 +856,8 @@ class SmallCAssemblyCompiler {
             }
             return
         }
-        int element = 0
-        int i = 0
+        int64 element = 0
+        int64 i = 0
         while (i < initializer.children.length && problem.equals("")) {
             AstNode value = child(initializer, i)
             if (value.name.equals("assignment")) {
@@ -883,7 +883,7 @@ class SmallCAssemblyCompiler {
 
     void emitDeclaration(AstNode declaration) {
         String baseType = child(child(declaration, 0), 0).text
-        int i = 1
+        int64 i = 1
         while (i < declaration.children.length && problem.equals("")) {
             AstNode declarator = child(declaration, i)
             if (declarator.name.equals("declarator")) {
@@ -891,12 +891,12 @@ class SmallCAssemblyCompiler {
                 bool isArray = declarator.children.length > 1 && child(declarator, 1).text.equals("[")
                 AstNode initializer = declarationInitializer(declarator)
                 if (isArray) {
-                    int length = declaredArrayLength(declarator, initializer)
+                    int64 length = declaredArrayLength(declarator, initializer)
                     if (length <= 0) {
                         fail(nameNode, format("array '{}' requires a positive fixed size or inferable initializer", nameNode.text))
                     }
                     else {
-                        int index = arrays.length
+                        int64 index = arrays.length
                         String arrayElementType = "int"
                         String arrayType = "int[]"
                         if (baseType.equals("char")) {
@@ -935,7 +935,7 @@ class SmallCAssemblyCompiler {
 
     void emitCompound(AstNode node, bool nested) {
         if (nested) { pushScope() }
-        int i = 0
+        int64 i = 0
         while (i < node.children.length && problem.equals("")) {
             AstNode item = child(node, i)
             if (item.name.equals("blockItem")) { emitBlockItem(item) }
@@ -945,7 +945,7 @@ class SmallCAssemblyCompiler {
     }
 
     void emitBlockItem(AstNode node) {
-        int i = 0
+        int64 i = 0
         while (i < node.children.length && problem.equals("")) {
             AstNode part = child(node, i)
             if (part.name.equals("declaration")) { emitDeclaration(part) }
@@ -986,7 +986,7 @@ class SmallCAssemblyCompiler {
                 fail(child(node, 0), "CVM backend does not support labels or goto")
                 return
             }
-            int i = 0
+            int64 i = 0
             while (i < node.children.length && problem.equals("")) {
                 AstNode part = child(node, i)
                 if (part.name.equals("statement")
@@ -1036,7 +1036,7 @@ class SmallCAssemblyCompiler {
         }
         if (first.text.equals("return")) {
             AstNode expression = null
-            int i = 1
+            int64 i = 1
             while (i < node.children.length) {
                 if (child(node, i).name.equals("expression")) {
                     expression = child(node, i)
@@ -1052,7 +1052,7 @@ class SmallCAssemblyCompiler {
             else { code.op("ret.i32") }
             return
         }
-        int i = 0
+        int64 i = 0
         while (i < node.children.length && problem.equals("")) {
             AstNode part = child(node, i)
             if (part.name.equals("expression")) {
@@ -1069,7 +1069,7 @@ class SmallCAssemblyCompiler {
     void emitIf(AstNode node) {
         AstNode condition = null
         list statements = statementChildren(node)
-        int i = 0
+        int64 i = 0
         while (i < node.children.length) {
             if (child(node, i).name.equals("expression")) { condition = child(node, i) }
             i += 1
@@ -1096,7 +1096,7 @@ class SmallCAssemblyCompiler {
     void emitWhile(AstNode node) {
         AstNode condition = null
         list statements = statementChildren(node)
-        int i = 0
+        int64 i = 0
         while (i < node.children.length) {
             if (child(node, i).name.equals("expression")) { condition = child(node, i) }
             i += 1
@@ -1125,7 +1125,7 @@ class SmallCAssemblyCompiler {
         list statements = statementChildren(node)
         bool afterInitializer = false
         bool afterCondition = false
-        int i = 0
+        int64 i = 0
         while (i < node.children.length) {
             AstNode part = child(node, i)
             if (part.name.equals("forInitializer")) {
@@ -1169,7 +1169,7 @@ class SmallCAssemblyCompiler {
     }
 
     void emitForInitializer(AstNode node) {
-        int i = 0
+        int64 i = 0
         while (i < node.children.length && problem.equals("")) {
             AstNode part = child(node, i)
             if (part.name.equals("declaration")) { emitDeclaration(part) }
@@ -1231,7 +1231,7 @@ class SmallCAssemblyCompiler {
 
     String emitBinaryChain(AstNode node) {
         String resultType = emitExpression(child(node, 0))
-        int i = 1
+        int64 i = 1
         while (i + 1 < node.children.length && problem.equals("")) {
             String operation = child(node, i).text
             promoteToInt(resultType)
@@ -1252,7 +1252,7 @@ class SmallCAssemblyCompiler {
         if (node.children.length == 1) { return emitExpression(child(node, 0)) }
         String end = code.newLabel()
         String shortCircuit = code.newLabel()
-        int i = 0
+        int64 i = 0
         while (i < node.children.length && problem.equals("")) {
             AstNode part = child(node, i)
             if (part.name.equals("logicalAnd") || part.name.equals("equality")) {
@@ -1337,11 +1337,11 @@ class SmallCAssemblyCompiler {
 
     list callArguments(AstNode node) {
         list result = []
-        int i = 0
+        int64 i = 0
         while (i < node.children.length) {
             AstNode part = child(node, i)
             if (part.name.equals("arguments")) {
-                int a = 0
+                int64 a = 0
                 while (a < part.children.length) {
                     AstNode argument = child(part, a)
                     if (argument.name.equals("assignment") || argument.name.equals("STRING")) { result.append(argument) }
@@ -1363,7 +1363,7 @@ class SmallCAssemblyCompiler {
             return ""
         }
         list arguments = callArguments(node)
-        int a = 0
+        int64 a = 0
         while (a < arguments.length && problem.equals("")) {
             emitExpression(arguments[a] as AstNode)
             a += 1
@@ -1479,7 +1479,7 @@ class SmallCAssemblyCompiler {
             code.op1("ldloc", lengthSlot)
         }
         else {
-            int a = 0
+            int64 a = 0
             while (a < arguments.length && problem.equals("")) {
                 AstNode argument = arguments[a] as AstNode
                 String expected = intrinsic.parameterTypes[a] as String
