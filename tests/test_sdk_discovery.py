@@ -318,6 +318,37 @@ class SdkDiscoveryTests(unittest.TestCase):
         self.assertIn('export CWHIP_SDK=', output)
         self.assertIn("install the SDK first", output)
 
+    def test_legacy_sdk_without_application_defaults_has_actionable_diagnostic(self):
+        selected = self.make_sdk("legacy SDK")
+        package = selected / "lib/cmake/Cwhip"
+        config = package / "CwhipConfig.cmake"
+        config.write_text(config.read_text().replace(
+            'include("${CMAKE_CURRENT_LIST_DIR}/CwhipApplicationDefaults.cmake")\n',
+            "",
+        ))
+        (package / "CwhipApplicationDefaults.cmake").unlink()
+        for selection in ("normal", "registered", "explicit"):
+            with self.subTest(selection=selection):
+                if selection == "normal":
+                    self.env["CMAKE_PREFIX_PATH"] = str(selected)
+                elif selection == "registered":
+                    self.select(selected)
+                else:
+                    self.env["CWHIP_SDK"] = str(selected)
+                output = " ".join(self.configure(success=False).split())
+                self.assertIn(str(selected), output)
+                self.assertIn("missing the application-defaults capability", output)
+                self.assertIn("cwhip_apply_application_defaults", output)
+                self.assertIn("Rebuild and reinstall the updated Cwhip SDK", output)
+                self.assertIn("CwhipApplicationDefaults.cmake", output)
+                self.assertIn("CWHIP_SDK", output)
+                self.assertIn("No fallback SDK was used", output)
+                self.assertIn("doc/BUILDING.md", output)
+                self.assertNotIn("Unknown CMake command", output)
+                self.assertEqual(
+                    (self.build / "selected-sdk.txt").read_text(), str(selected)
+                )
+
     def test_lowercase_package_config_filename(self):
         selected = self.make_sdk("lowercase")
         package = selected / "lib/cmake/Cwhip"

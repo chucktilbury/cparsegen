@@ -22,7 +22,9 @@ cmake --install "$HOME/Src/cwhip-build"
 Install the host prerequisites listed in the [Cwhip SDK installation
 guide](https://github.com/chucktilbury/cwhip/blob/master/doc/GETTING_STARTED.md#host-prerequisites)
 first. This project requires the exact Cwhip SDK version `0.0.1` and an
-installation that supports configurable application output directories.
+installation that supports configurable application output directories and
+the `cwhip_apply_application_defaults()` CMake helper. Older SDK installations
+may report the same version without providing this required capability.
 Keep the complete SDK prefix; do not point the project at just its `bin/`
 directory. The installer registers the prefix in the dedicated
 `sdk.toml`; cparsegen only reads this configuration and never edits user
@@ -83,6 +85,16 @@ If CMake reports that it cannot find `CwhipConfig.cmake` or
 cparsegen generates. The SDK normally installs
 `lib/cmake/Cwhip/CwhipConfig.cmake` beneath its prefix. A compiler on `PATH`
 alone is not enough for CMake discovery.
+
+If configuration reports a missing application-defaults capability, the
+selected SDK is too old even if its version is `0.0.1`. Rebuild and reinstall
+the updated Cwhip SDK into the prefix named in the error, following the
+installation sequence above, or select an updated installed SDK with
+`CWHIP_SDK`. Its `CwhipConfig.cmake` must include the installed
+`CwhipApplicationDefaults.cmake` and provide
+`cwhip_apply_application_defaults()`. Updating source alone does not update an
+installed SDK. cparsegen fails rather than silently skipping defaults or
+selecting a different SDK.
 
 For an SDK already installed at a known prefix, select it explicitly:
 
