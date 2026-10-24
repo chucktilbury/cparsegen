@@ -146,7 +146,8 @@ project shell there. Its build type argument is optional:
 
 | Argument | CMake build type |
 | --- | --- |
-| `debug` (default) | `Debug` |
+| Omitted | Existing cache value, environment override, SDK application default, or empty |
+| `debug` | `Debug` |
 | `release` | `Release` |
 | `profile` | `RelWithDebInfo` |
 

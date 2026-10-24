@@ -154,15 +154,18 @@ boundary; they do not independently prove the analyzer's internal call count.
 
 ## Audit reproduction and recorded outcomes
 
-Audit base: `952777921b60e21f80c2bdcc8d9d35686bbadf3a` (main after optional
-DOT/default CLI). Build the baseline from a separate archived source copy,
-not the edited sources. Both baseline trees can live in ignored `build/`:
+Current numeric-v2 comparison baseline:
+`e3c30f7a64d75acc423bf0ee1adb2eb90a57ff1c` (main after SDK 0.0.2 migration).
+Build the baseline from a separate archived source copy, not the edited
+sources, using the same SDK 0.0.2/numeric-v2 installation as the current tree.
+Both baseline trees can live in ignored `build/`; use fresh directories
+rather than reusing a baseline from another SDK generation:
 
 ```sh
 cmake -S . -B build
 cmake --build build
 mkdir -p build/audit-baseline-source
-git archive 952777921b60e21f80c2bdcc8d9d35686bbadf3a | tar -x -C build/audit-baseline-source
+git archive e3c30f7a64d75acc423bf0ee1adb2eb90a57ff1c | tar -x -C build/audit-baseline-source
 cmake -S build/audit-baseline-source -B build/audit-baseline \
   -DCWHIP_BIN_DIR="$PWD/build/audit-baseline/bin" \
   -DCWHIP_LIB_DIR="$PWD/build/audit-baseline/lib"
@@ -187,9 +190,13 @@ statement-demo C-emission bug: parenthesized equality conditions triggered
 that compilation failure without changing evaluation. Only that handwritten
 consumer's emitted C changes; generated parser source and DOT bytes stay unchanged.
 
-Historical full audit recorded on 2026-10-22, before the numeric-v2 migration,
-using Linux, CMake 3.31.6, Python 3.13.5, GCC 14.2.0, Clang 22.1.8, and
-Cwhip SDK 0.0.1:
+Historical full audit recorded on 2026-10-22 used baseline
+`952777921b60e21f80c2bdcc8d9d35686bbadf3a` (main after optional DOT/default
+CLI), before the numeric-v2 migration, using Linux, CMake 3.31.6, Python 3.13.5,
+GCC 14.2.0, Clang 22.1.8, and Cwhip SDK 0.0.1. Reproducing that historical
+baseline requires SDK 0.0.1: its exact-version CMake check rejects SDK 0.0.2.
+Generated Cwhip interfaces intentionally changed with numeric-v2; cross-SDK
+byte equality is not a compatibility guarantee.
 
 | Validation | Outcome |
 | --- | --- |
@@ -276,6 +283,7 @@ cvm-as build/example.asm -o build/example.cvm
 cvm-run build/example.cvm
 ```
 
+```sh
 dot -Tsvg build/audit-install/grammar.dot -o build/audit-install/grammar.svg
 ```
 

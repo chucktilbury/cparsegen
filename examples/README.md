@@ -104,8 +104,9 @@ The calculator supports decimal numbers with digits on both sides of `.`,
 case-sensitive identifiers, assignments, unary `+`/`-`, `+`, `-`, `*`, `/`,
 parentheses, and whitespace. Multiplication/division bind more tightly than
 addition/subtraction; both binary levels associate left. Arithmetic uses
-Cwhip `float`, including fractional division. Exponents, functions, chained
-assignments, and implicit multiplication are not supported.
+Cwhip `fp64` (64-bit floating point), including fractional division.
+Exponents, functions, chained assignments, and implicit multiplication are
+not supported.
 
 Variables persist for one CLI session, not across invocations. `:help`,
 `:vars`, and `:quit` are CLI commands; evaluation and variable storage are in
