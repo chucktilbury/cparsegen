@@ -1,7 +1,7 @@
 include "parser.cw"
 
 class Names : GeneratedVisitor {
-    int count
+    int64 count
     bool first
     String problem
 
@@ -12,7 +12,7 @@ class Names : GeneratedVisitor {
         problem = ""
     }
 
-    int on_token_IDENT(AstNode node) {
+    int64 on_token_IDENT(AstNode node) {
         if (node.lexeme().equals("forbidden")) {
             problem = "identifier 'forbidden' is not allowed"
             return VISIT_ERROR
@@ -22,14 +22,14 @@ class Names : GeneratedVisitor {
         return VISIT_CONTINUE
     }
 
-    int enter_token_IDENT(AstNode node) {
+    int64 enter_token_IDENT(AstNode node) {
         return on_token_IDENT(node)
     }
 
-    int on_rule_words(AstNode node) {
-        int i = 0
+    int64 on_rule_words(AstNode node) {
+        int64 i = 0
         while (i < node.childCount()) {
-            int result = dispatch(node.childAt(i))
+            int64 result = dispatch(node.childAt(i))
             if (result != VISIT_CONTINUE) { return result }
             i += 1
         }
@@ -46,7 +46,7 @@ start {
         io.writeErrorLine("usage: words-visitor [--first | --dispatch] TEXT")
         process.exit(2)
     }
-    int argument = 1
+    int64 argument = 1
     if (first || manual) { argument = 2 }
     InputScanner scanner(process.arg(argument))
     if (!scanner.scan()) {
@@ -60,7 +60,7 @@ start {
         process.exit(1)
     }
     Names names(first)
-    int result = names.VISIT_CONTINUE
+    int64 result = names.VISIT_CONTINUE
     if (manual) { result = names.dispatch(root) }
     else { result = names.walk(root) }
     if (result == names.VISIT_CONTINUE || (first && result == names.VISIT_STOP)) {

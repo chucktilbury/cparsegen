@@ -1,14 +1,14 @@
 class SourceLocation {
     String path
     String displayPath
-    int offset
-    int line
-    int column
-    int logicalLine
+    int64 offset
+    int64 line
+    int64 column
+    int64 logicalLine
     SourceLocation includedFrom
 
-    SourceLocation(String sourcePath, String shownPath, int byteOffset, int sourceLine,
-                   int sourceColumn, int grammarLine, SourceLocation parent) {
+    SourceLocation(String sourcePath, String shownPath, int64 byteOffset, int64 sourceLine,
+                   int64 sourceColumn, int64 grammarLine, SourceLocation parent) {
         path = sourcePath
         displayPath = shownPath
         offset = byteOffset
@@ -38,9 +38,9 @@ class GrammarDiagnostic {
     GrammarDiagnostic(String text, SourceSpan location, SourceSpan relatedLocation) {
         message = text
         if (text.startsWith("line ")) {
-            int end = 5
-            while (end < text.length && int(text.byteAt(end)) >= 48 &&
-                   int(text.byteAt(end)) <= 57) { end += 1 }
+            int64 end = 5
+            while (end < text.length && int64(text.byteAt(end)) >= 48 &&
+                   int64(text.byteAt(end)) <= 57) { end += 1 }
             if (end + 1 < text.length) { message = text.slice(end + 2, text.length) }
         }
         span = location
@@ -49,17 +49,17 @@ class GrammarDiagnostic {
 }
 
 class GrammarToken {
-    int kind
+    int64 kind
     String text
     String name
-    int line
+    int64 line
     String target
     String boundary
     SourceSpan span
     SourceSpan targetSpan
     SourceSpan boundarySpan
 
-    GrammarToken(int tokenKind, String tokenText, String tokenName, int tokenLine) {
+    GrammarToken(int64 tokenKind, String tokenText, String tokenName, int64 tokenLine) {
         kind = tokenKind
         text = tokenText
         name = tokenName
@@ -76,17 +76,17 @@ class GrammarScanner {
     String source
     String sourcePath
     String displayPath
-    int offset
-    int line
-    int sourceLine
-    int column
+    int64 offset
+    int64 line
+    int64 sourceLine
+    int64 column
     bool previousCR
     SourceLocation includedFrom
     SourceSpan lastWordSpan
     String problem
     SourceSpan problemSpan
 
-    GrammarScanner(String text, String path, String shownPath, int firstLine,
+    GrammarScanner(String text, String path, String shownPath, int64 firstLine,
                    SourceLocation parent) {
         source = text
         sourcePath = path
@@ -102,18 +102,18 @@ class GrammarScanner {
         problemSpan = null
     }
 
-    int current() {
+    int64 current() {
         if (offset >= source.length) { return -1 }
-        return int(source.byteAt(offset))
+        return int64(source.byteAt(offset))
     }
 
-    int following() {
+    int64 following() {
         if (offset + 1 >= source.length) { return -1 }
-        return int(source.byteAt(offset + 1))
+        return int64(source.byteAt(offset + 1))
     }
 
     void advance() {
-        int value = current()
+        int64 value = current()
         if (value == 13) {
             line += 1
             sourceLine += 1
@@ -142,25 +142,25 @@ class GrammarScanner {
                               line, includedFrom)
     }
 
-    SourceSpan span(int startOffset, int startLine, int startColumn) {
-        int startLogicalLine = line - (sourceLine - startLine)
+    SourceSpan span(int64 startOffset, int64 startLine, int64 startColumn) {
+        int64 startLogicalLine = line - (sourceLine - startLine)
         SourceLocation first(sourcePath, displayPath, startOffset, startLine,
                              startColumn, startLogicalLine, includedFrom)
         return SourceSpan(first, location())
     }
 
-    GrammarToken makeToken(int kind, String text, String name, int startOffset,
-                           int startSourceLine, int startColumn, int startLogicalLine) {
+    GrammarToken makeToken(int64 kind, String text, String name, int64 startOffset,
+                           int64 startSourceLine, int64 startColumn, int64 startLogicalLine) {
         GrammarToken token(kind, text, name, startLogicalLine)
         token.span = span(startOffset, startSourceLine, startColumn)
         return token
     }
 
-    bool letter(int value) {
+    bool letter(int64 value) {
         return (value >= 65 && value <= 90) || (value >= 97 && value <= 122) || value == 95
     }
 
-    bool digit(int value) {
+    bool digit(int64 value) {
         return value >= 48 && value <= 57
     }
 
@@ -175,10 +175,10 @@ class GrammarScanner {
                 }
                 else {
                     if (current() == 47 && following() == 42) {
-                        int startLine = line
-                        int startSourceLine = sourceLine
-                        int startColumn = column
-                        int startOffset = offset
+                        int64 startLine = line
+                        int64 startSourceLine = sourceLine
+                        int64 startColumn = column
+                        int64 startOffset = offset
                         advance()
                         advance()
                         while (current() >= 0 && !(current() == 42 && following() == 47)) { advance() }
@@ -200,10 +200,10 @@ class GrammarScanner {
 
     String insertionWord() {
         while (current() == 32 || current() == 9 || current() == 10 || current() == 13) { advance() }
-        int startIndex = offset
-        int startSourceLine = sourceLine
-        int startColumn = column
-        int startLogicalLine = line
+        int64 startIndex = offset
+        int64 startSourceLine = sourceLine
+        int64 startColumn = column
+        int64 startLogicalLine = line
         if (letter(current())) {
             while (letter(current()) || digit(current())) { advance() }
         }
@@ -212,11 +212,11 @@ class GrammarScanner {
         return source.slice(startIndex, offset)
     }
 
-    GrammarToken insertion(int startLine) {
-        int startOffset = offset - 1
-        int startSourceLine = sourceLine
-        int startColumn = column - 1
-        int startLogicalLine = startLine
+    GrammarToken insertion(int64 startLine) {
+        int64 startOffset = offset - 1
+        int64 startSourceLine = sourceLine
+        int64 startColumn = column - 1
+        int64 startLogicalLine = startLine
         GrammarToken token(260, "", "insert", startLine)
         token.target = insertionWord()
         token.targetSpan = lastWordSpan
@@ -228,18 +228,18 @@ class GrammarScanner {
             return token
         }
         advance()
-        int startIndex = offset
-        int depth = 1
+        int64 startIndex = offset
+        int64 depth = 1
         // State: code, quote byte, line comment ('/'), or block comment ('*').
-        int state = 0
-        int stateLine = line
-        int stateSourceLine = sourceLine
-        int stateColumn = column
-        int stateOffset = offset
+        int64 state = 0
+        int64 stateLine = line
+        int64 stateSourceLine = sourceLine
+        int64 stateColumn = column
+        int64 stateOffset = offset
         bool escaped = false
         while (current() >= 0) {
-            int value = current()
-            int size = offset - startIndex
+            int64 value = current()
+            int64 size = offset - startIndex
             if (size > 1048576 || (size == 1048576 && !(value == 125 && state == 0 && depth == 1))) {
                 problem = format("line {}: @insert block exceeds 1048576 bytes", startLine)
                 problemSpan = span(offset, sourceLine, column)
@@ -349,35 +349,35 @@ class GrammarScanner {
             failed.span = problemSpan
             return failed
         }
-        int startLine = line
-        int startSourceLine = sourceLine
-        int startColumn = column
-        int startOffset = offset
-        int value = current()
+        int64 startLine = line
+        int64 startSourceLine = sourceLine
+        int64 startColumn = column
+        int64 startOffset = offset
+        int64 value = current()
         if (value < 0) {
             return makeToken(0, "", "", startOffset, startSourceLine, startColumn, startLine)
         }
 
         if (letter(value)) {
-            int startIndex = offset
+            int64 startIndex = offset
             while (letter(current()) || digit(current())) { advance() }
             return makeToken(256, source.slice(startIndex, offset), "", startOffset,
                              startSourceLine, startColumn, startLine)
         }
 
         if (value == 34 || value == 39) {
-            int quote = value
+            int64 quote = value
             advance()
             String literal = ""
-            int literalStart = offset
+            int64 literalStart = offset
             while (current() >= 0 && current() != quote && current() != 10) {
                 if (current() == 92) {
-                    int escapeOffset = offset
-                    int escapeSourceLine = sourceLine
-                    int escapeColumn = column
+                    int64 escapeOffset = offset
+                    int64 escapeSourceLine = sourceLine
+                    int64 escapeColumn = column
                     literal.append(source.slice(literalStart, offset))
                     advance()
-                    int escaped = current()
+                    int64 escaped = current()
                     if (escaped == 110) { literal.append("\n") }
                     else {
                         if (escaped == 114) { literal.append("\r") }
@@ -416,7 +416,7 @@ class GrammarScanner {
         }
 
         if (value == 91) {
-            int startIndex = offset
+            int64 startIndex = offset
             advance()
             while (current() >= 0 && current() != 93 && current() != 10) {
                 if (current() == 92) {
@@ -446,7 +446,7 @@ class GrammarScanner {
                 problemSpan = failed.span
                 return failed
             }
-            int nameStart = offset
+            int64 nameStart = offset
             while (letter(current()) || digit(current())) { advance() }
             String directiveName = source.slice(nameStart, offset)
             if (directiveName.equals("insert")) {
@@ -458,9 +458,9 @@ class GrammarScanner {
                 return token
             }
             while (current() == 32 || current() == 9) { advance() }
-            int contentStart = offset
+            int64 contentStart = offset
             // Only @include interprets quotes; other directive payloads stay opaque.
-            int includeQuote = 0
+            int64 includeQuote = 0
             while (current() >= 0 && (current() != 59 || includeQuote != 0)) {
                 if (directiveName.equals("include")) {
                     if ((current() == 10 || current() == 13) && includeQuote != 0) { break }
@@ -502,11 +502,11 @@ class GrammarScanner {
 class LexerRule {
     String name
     LexerExpr expression
-    int quote
-    int line
+    int64 quote
+    int64 line
     SourceSpan span
 
-    LexerRule(String tokenName, int sourceLine) {
+    LexerRule(String tokenName, int64 sourceLine) {
         name = tokenName
         expression = null
         quote = 0
@@ -517,16 +517,16 @@ class LexerRule {
 
 // Kinds: character class, reference, sequence, choice, repetition.
 class LexerExpr {
-    int kind
+    int64 kind
     String value
     list children
     list ranges
-    int minimum
-    int maximum
-    int line
+    int64 minimum
+    int64 maximum
+    int64 line
     SourceSpan span
 
-    LexerExpr(int expressionKind, int sourceLine) {
+    LexerExpr(int64 expressionKind, int64 sourceLine) {
         kind = expressionKind
         value = ""
         children = []
@@ -540,12 +540,12 @@ class LexerExpr {
 
 // Thompson states: byte transition, epsilon split, accepting state.
 class LexerState {
-    int kind
+    int64 kind
     list ranges
-    int next
-    int alternate
+    int64 next
+    int64 alternate
 
-    LexerState(int stateKind, list characters, int target, int other) {
+    LexerState(int64 stateKind, list characters, int64 target, int64 other) {
         kind = stateKind
         ranges = characters
         next = target
@@ -554,10 +554,10 @@ class LexerState {
 }
 
 class ByteRange {
-    int first
-    int last
+    int64 first
+    int64 last
 
-    ByteRange(int lower, int upper) {
+    ByteRange(int64 lower, int64 upper) {
         first = lower
         last = upper
     }
@@ -565,15 +565,15 @@ class ByteRange {
 
 // Kinds: reference, literal, sequence, choice, repetition.
 class RuleExpr {
-    int kind
+    int64 kind
     String value
     list children
-    int minimum
-    int maximum
-    int line
+    int64 minimum
+    int64 maximum
+    int64 line
     SourceSpan span
 
-    RuleExpr(int expressionKind, String text, int sourceLine) {
+    RuleExpr(int64 expressionKind, String text, int64 sourceLine) {
         kind = expressionKind
         value = text
         children = []
@@ -587,10 +587,10 @@ class RuleExpr {
 class ParserRule {
     String name
     RuleExpr expression
-    int line
+    int64 line
     SourceSpan span
 
-    ParserRule(String ruleName, int sourceLine) {
+    ParserRule(String ruleName, int64 sourceLine) {
         name = ruleName
         line = sourceLine
         expression = null
@@ -601,10 +601,10 @@ class ParserRule {
 class GrammarDirective {
     String name
     String content
-    int line
+    int64 line
     SourceSpan span
 
-    GrammarDirective(String directiveName, String payload, int sourceLine) {
+    GrammarDirective(String directiveName, String payload, int64 sourceLine) {
         name = directiveName
         content = payload
         line = sourceLine
@@ -617,13 +617,13 @@ class CodeInsertion {
     String boundary
     String content
     String source
-    int line
-    int location
+    int64 line
+    int64 location
     SourceSpan span
     SourceSpan targetSpan
     SourceSpan boundarySpan
 
-    CodeInsertion(GrammarToken token, String path, int firstLine) {
+    CodeInsertion(GrammarToken token, String path, int64 firstLine) {
         target = token.target
         boundary = token.boundary
         content = token.text
@@ -661,16 +661,16 @@ class GrammarModel {
 
 class GrammarReader {
     list tokens
-    int position
-    int classPosition
+    int64 position
+    int64 classPosition
     String problem
     GrammarToken inclusion
     String sourcePath
-    int sourceFirstLine
+    int64 sourceFirstLine
     SourceSpan problemSpan
     GrammarDiagnostic diagnosticInfo
 
-    GrammarReader(String source, int firstLine, String path, String shownPath,
+    GrammarReader(String source, int64 firstLine, String path, String shownPath,
                   SourceLocation parent) {
         tokens = []
         position = 0
@@ -711,11 +711,11 @@ class GrammarReader {
         diagnosticInfo = GrammarDiagnostic(message, span, null)
     }
 
-    int classByte(GrammarToken token) {
-        int byte = int(token.text.byteAt(classPosition))
+    int64 classByte(GrammarToken token) {
+        int64 byte = int64(token.text.byteAt(classPosition))
         classPosition += 1
         if (byte == 92) {
-            byte = int(token.text.byteAt(classPosition))
+            byte = int64(token.text.byteAt(classPosition))
             classPosition += 1
             if (byte == 110) { return 10 }
             if (byte == 114) { return 13 }
@@ -731,12 +731,12 @@ class GrammarReader {
         String pattern = token.text
         list ranges = []
         classPosition = 1
-        bool negated = int(pattern.byteAt(1)) == 94
+        bool negated = int64(pattern.byteAt(1)) == 94
         if (negated) { classPosition += 1 }
         while (classPosition < pattern.length - 1 && problem.equals("")) {
-            int first = classByte(token)
-            int last = first
-            if (classPosition + 1 < pattern.length - 1 && int(pattern.byteAt(classPosition)) == 45) {
+            int64 first = classByte(token)
+            int64 last = first
+            if (classPosition + 1 < pattern.length - 1 && int64(pattern.byteAt(classPosition)) == 45) {
                 classPosition += 1
                 last = classByte(token)
                 if (last < first) {
@@ -755,11 +755,11 @@ class GrammarReader {
         }
         if (negated && problem.equals("")) {
             list complement = []
-            int byte = 1
-            int lower = -1
+            int64 byte = 1
+            int64 lower = -1
             while (byte <= 127) {
                 bool included = false
-                int r = 0
+                int64 r = 0
                 while (r < ranges.length) {
                     ByteRange range = ranges[r] as ByteRange
                     if (byte >= range.first && byte <= range.last) { included = true }
@@ -781,7 +781,7 @@ class GrammarReader {
         return ranges
     }
 
-    LexerExpr lexerChoice(int line, int depth) {
+    LexerExpr lexerChoice(int64 line, int64 depth) {
         LexerExpr expression = LexerExpr(3, line)
         if (depth > 128) {
             fail(format("line {}: lexer group nesting limit exceeded (128)", line), peek().span)
@@ -795,7 +795,7 @@ class GrammarReader {
         if (expression.children.length > 0 &&
             (expression.children[0] as LexerExpr).span != null) {
             expression.span = (expression.children[0] as LexerExpr).span
-            int child = expression.children.length - 1
+            int64 child = expression.children.length - 1
             if (child >= 0 && (expression.children[child] as LexerExpr).span != null) {
                 expression.span = SourceSpan(expression.span.first,
                     (expression.children[child] as LexerExpr).span.last)
@@ -804,7 +804,7 @@ class GrammarReader {
         return expression
     }
 
-    LexerExpr lexerSequence(int line, int depth) {
+    LexerExpr lexerSequence(int64 line, int64 depth) {
         LexerExpr expression = LexerExpr(2, line)
         while (peek().line == line && peek().kind != 0 && peek().kind != 124 &&
                peek().kind != 41 && peek().kind != 59 && problem.equals("")) {
@@ -828,9 +828,9 @@ class GrammarReader {
                         if (token.text.length == 0) {
                             fail(format("line {}: empty lexer literal is not supported", token.line), token.span)
                         }
-                        int b = 0
+                        int64 b = 0
                         while (b < token.text.length) {
-                            int byte = int(token.text.byteAt(b))
+                            int64 byte = int64(token.text.byteAt(b))
                             if (byte == 0 || byte > 127) {
                                 fail(format("line {}: lexer literals must contain non-NUL ASCII bytes", token.line), token.span)
                             }
@@ -1020,13 +1020,13 @@ class GrammarReader {
 class GrammarSource {
     String path
     String displayPath
-    int firstLine
-    int lineCount
-    int includedAt
+    int64 firstLine
+    int64 lineCount
+    int64 includedAt
     bool active
     SourceLocation includedFrom
 
-    GrammarSource(String filename, int first, int count, SourceLocation parent) {
+    GrammarSource(String filename, int64 first, int64 count, SourceLocation parent) {
         path = filename
         displayPath = filename
         firstLine = first
@@ -1042,8 +1042,8 @@ class GrammarSource {
 class GrammarSources {
     list paths
     list files
-    int nextLine
-    int depth
+    int64 nextLine
+    int64 depth
     String problem
     SourceSpan diagnosticSpan
     SourceSpan relatedSpan
@@ -1060,8 +1060,8 @@ class GrammarSources {
         diagnosticInfo = null
     }
 
-    String location(int line) {
-        int i = 0
+    String location(int64 line) {
+        int64 i = 0
         while (i < files.length) {
             GrammarSource file = files[i] as GrammarSource
             if (line >= file.firstLine && line < file.firstLine + file.lineCount) {
@@ -1078,16 +1078,16 @@ class GrammarSources {
         }
         if (diagnosticInfo != null) { return renderDiagnostic(diagnosticInfo) }
         if (!error.startsWith("line ")) { return error }
-        int end = 5
-        int line = 0
-        while (end < error.length && int(error.byteAt(end)) >= 48 && int(error.byteAt(end)) <= 57) {
-            line = line * 10 + int(error.byteAt(end)) - 48
+        int64 end = 5
+        int64 line = 0
+        while (end < error.length && int64(error.byteAt(end)) >= 48 && int64(error.byteAt(end)) <= 57) {
+            line = line * 10 + int64(error.byteAt(end)) - 48
             end += 1
         }
         String result = format("{}{}", location(line), error.slice(end, error.length))
         while (line != 0) {
-            int parent = 0
-            int i = 0
+            int64 parent = 0
+            int64 i = 0
             while (i < files.length) {
                 GrammarSource file = files[i] as GrammarSource
                 if (line >= file.firstLine && line < file.firstLine + file.lineCount) {
@@ -1102,7 +1102,7 @@ class GrammarSources {
         return result
     }
 
-    String renderLocation(SourceLocation location, int endOffset) {
+    String renderLocation(SourceLocation location, int64 endOffset) {
         return format("{}:{}:{}: bytes {}-{}", location.displayPath, location.line,
                       location.column, location.offset, endOffset)
     }
@@ -1117,7 +1117,7 @@ class GrammarSources {
                 diagnostic.related.first, diagnostic.related.last.offset)))
         }
         SourceLocation parent = span.first.includedFrom
-        int count = 0
+        int64 count = 0
         while (parent != null && count < 8) {
             result.append(format("\n  included from {}:{}:{}: byte {}",
                 parent.displayPath, parent.line, parent.column, parent.offset))
@@ -1131,13 +1131,13 @@ class GrammarSources {
     void load(String path, SourceSpan includeSpan, GrammarModel grammar) {
         Sys.FileSystem fs()
         String absolute = fs.absolutePath(path)
-        int includedAt = 0
+        int64 includedAt = 0
         SourceLocation includedFrom = null
         if (includeSpan != null) {
             includedAt = includeSpan.first.logicalLine
             includedFrom = includeSpan.first
         }
-        int i = 0
+        int64 i = 0
         while (i < files.length) {
             GrammarSource previous = files[i] as GrammarSource
             if (previous.path.equals(absolute)) {
@@ -1175,11 +1175,11 @@ class GrammarSources {
             diagnosticSpan = includeSpan
             return
         }
-        int count = 1
+        int64 count = 1
         i = 0
         bool previousCR = false
         while (i < source.length) {
-            int value = int(source.byteAt(i))
+            int64 value = int64(source.byteAt(i))
             if (value == 13) {
                 count += 1
                 previousCR = true
@@ -1216,26 +1216,26 @@ class GrammarSources {
 
     void includeFile(String payload, String parent, SourceSpan includeSpan,
                      GrammarModel grammar) {
-        int line = includeSpan.first.logicalLine
+        int64 line = includeSpan.first.logicalLine
         String name = payload.trim()
         bool valid = name.length > 0
         if (valid) {
-            int quote = int(name.byteAt(0))
+            int64 quote = int64(name.byteAt(0))
             if (quote == 34 || quote == 39) {
-                valid = name.length > 2 && int(name.byteAt(name.length - 1)) == quote
+                valid = name.length > 2 && int64(name.byteAt(name.length - 1)) == quote
                 if (valid) {
                     name = name.slice(1, name.length - 1)
-                    int i = 0
+                    int64 i = 0
                     while (i < name.length) {
-                        if (int(name.byteAt(i)) == quote || int(name.byteAt(i)) < 32) { valid = false }
+                        if (int64(name.byteAt(i)) == quote || int64(name.byteAt(i)) < 32) { valid = false }
                         i += 1
                     }
                 }
             }
             else {
-                int i = 0
+                int64 i = 0
                 while (i < name.length) {
-                    int byte = int(name.byteAt(i))
+                    int64 byte = int64(name.byteAt(i))
                     if (byte <= 32 || byte == 34 || byte == 39) { valid = false }
                     i += 1
                 }
@@ -1256,7 +1256,7 @@ class GrammarSources {
             load(candidate, includeSpan, grammar)
             return
         }
-        int i = 0
+        int64 i = 0
         while (i < paths.length) {
             candidate = fs.join(paths[i] as String, name)
             if (fs.exists(candidate) || fs.isDir(candidate)) {

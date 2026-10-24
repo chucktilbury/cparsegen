@@ -6,10 +6,10 @@ include "emitter.cw"
 include "c_emitter.cw"
 
 class FileIdentity {
-    int sameFile(String first, String second)
+    int64 sameFile(String first, String second)
 }
 
-int FileIdentity.sameFile(String first, String second) from "cparsegen_same_file"
+int64 FileIdentity.sameFile(String first, String second) from "cparsegen_same_file"
 
 class GeneratorCli {
     Sys.StandardIO io
@@ -21,10 +21,10 @@ class GeneratorCli {
     }
 
     String defaultOutput(String grammarPath, bool cTarget) {
-        int extension = grammarPath.length
-        int i = grammarPath.length - 1
-        while (i >= 0 && int(grammarPath.byteAt(i)) != 47) {
-            if (int(grammarPath.byteAt(i)) == 46 && extension == grammarPath.length) {
+        int64 extension = grammarPath.length
+        int64 i = grammarPath.length - 1
+        while (i >= 0 && int64(grammarPath.byteAt(i)) != 47) {
+            if (int64(grammarPath.byteAt(i)) == 46 && extension == grammarPath.length) {
                 extension = i
             }
             i -= 1
@@ -46,7 +46,7 @@ class GeneratorCli {
     }
 
     bool distinctPaths(String first, String second) {
-        int same = FileIdentity().sameFile(first, second)
+        int64 same = FileIdentity().sameFile(first, second)
         String firstKey = pathKey(first)
         String secondKey = pathKey(second)
         if (same < 0 || firstKey.equals("") || secondKey.equals("")) {
@@ -60,7 +60,7 @@ class GeneratorCli {
         return true
     }
 
-    int run() {
+    int64 run() {
         bool library = false
         bool cTarget = false
         bool valid = true
@@ -69,7 +69,7 @@ class GeneratorCli {
         bool options = true
         bool dot = false
         String graphPath = ""
-        int argument = 1
+        int64 argument = 1
         while (argument < process.argc()) {
             String option = process.arg(argument)
             argument += 1
@@ -110,10 +110,10 @@ class GeneratorCli {
                     valid = false
                     break
                 }
-                int startIndex = 0
-                int end = 0
+                int64 startIndex = 0
+                int64 end = 0
                 while (end <= value.length) {
-                    if (end == value.length || int(value.byteAt(end)) == 58) {
+                    if (end == value.length || int64(value.byteAt(end)) == 58) {
                         String path = value.slice(startIndex, end)
                         if (path.equals("")) { path = "." }
                         paths.append(path)
@@ -128,7 +128,7 @@ class GeneratorCli {
             break
         }
         if (positional.length < 1 || positional.length > 2) { valid = false }
-        int index = 0
+        int64 index = 0
         while (index < positional.length) {
             if ((positional[index] as String).equals("")) { valid = false }
             index += 1
@@ -194,6 +194,6 @@ class GeneratorCli {
 
 start {
     GeneratorCli app()
-    int result = app.run()
+    int64 result = app.run()
     Sys.Process().exit(result)
 }

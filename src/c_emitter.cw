@@ -19,7 +19,7 @@ class CGrammarEmitter {
     }
 
     String validate() {
-        int i = 0
+        int64 i = 0
         while (i < grammar.directives.length) {
             GrammarDirective directive = grammar.directives[i] as GrammarDirective
             if (!directive.name.equals("skip") && !directive.name.equals("keywords") &&
@@ -39,9 +39,9 @@ class CGrammarEmitter {
 
     String quoted(String value) {
         String result = "\""
-        int i = 0
+        int64 i = 0
         while (i < value.length) {
-            int byte = int(value.byteAt(i))
+            int64 byte = int64(value.byteAt(i))
             // Fixed-width octal escapes also avoid C trigraphs and encoding assumptions.
             result.append(format("\\{}{}{}", byte / 64, (byte / 8) % 8, byte % 8))
             i += 1
@@ -54,11 +54,11 @@ class CGrammarEmitter {
         String output = ""
         shared.emitInsertions(output, "c", "file_pre")
         CParserRuntime().emitTypes(output, shared)
-        int s = 0
+        int64 s = 0
         while (s < analysis.lexerStates.length) {
             LexerState state = analysis.lexerStates[s] as LexerState
             output.append(format("static const Range scan_ranges{}[] = {{", s))
-            int n = 0
+            int64 n = 0
             while (n < state.ranges.length) {
                 ByteRange range = state.ranges[n] as ByteRange
                 output.append(format("{{{}, {}}},", range.first, range.last))
@@ -77,10 +77,10 @@ class CGrammarEmitter {
         output.append("{2, NULL, 0, -1, -1}};\n")
         output.append("#define SCAN_STATE_COUNT (sizeof(scan_states) / sizeof(scan_states[0]))\n")
         output.append("static const ScanRule scan_rules[] = {\n")
-        int r = 0
+        int64 r = 0
         while (r < analysis.lexers.length) {
             LexerPlan rule = analysis.lexers[r] as LexerPlan
-            int skip = 0
+            int64 skip = 0
             if (rule.skip) { skip = 1 }
             output.append(format("{{{}, {}, {}, {}}},\n", quoted(rule.name), rule.entry, skip, rule.quote))
             r += 1
@@ -88,13 +88,13 @@ class CGrammarEmitter {
         output.append("{NULL, -1, 0, 0}};\n")
         output.append(format("static const char *const keyword_token = {};\n", quoted(analysis.lexical.keywordToken)))
         output.append("static const char *const reserved[] = {")
-        int word = 0
+        int64 word = 0
         while (word < analysis.lexical.reserved.length) {
             output.append(format("{},", quoted(analysis.lexical.reserved[word] as String)))
             word += 1
         }
         output.append("NULL};\nstatic const Comment line_comments[] = {\n")
-        int comment = 0
+        int64 comment = 0
         while (comment < analysis.lexical.lineComments.length) {
             String marker = analysis.lexical.lineComments[comment] as String
             output.append(format("{{{}, {}, NULL, 0}},\n", quoted(marker), marker.length))
@@ -111,7 +111,7 @@ class CGrammarEmitter {
         }
         output.append("{NULL, 0, NULL, 0}};\n")
         output.append("static const Literal literals[] = {\n")
-        int i = 0
+        int64 i = 0
         while (i < analysis.literals.length) {
             String value = analysis.literals[i] as String
             output.append(format("{{{}, {}, {}}},\n", quoted(value), value.length, quoted(shared.literalKind(i))))
@@ -122,9 +122,9 @@ class CGrammarEmitter {
         while (i < analysis.expressions.length) {
             ParserExprRecord expression = analysis.expressions[i] as ParserExprRecord
             output.append(format("static const size_t children{}[] = {{", i))
-            int c = 0
+            int64 c = 0
             while (c < expression.children.length) {
-                output.append(format("{},", expression.children[c] as int))
+                output.append(format("{},", expression.children[c] as int64))
                 c += 1
             }
             output.append("0};\n")
@@ -160,7 +160,7 @@ class CGrammarEmitter {
         out.append("typedef enum { CPG_ERROR = -1, CPG_CONTINUE = 0, CPG_SKIP = 1, CPG_STOP = 2 } CpgVisit;\n")
         out.append("typedef CpgVisit (*CpgHook)(const Node *, void *);\n")
         out.append("typedef struct {\n    CpgHook on_node, enter, leave;\n")
-        int i = 0
+        int64 i = 0
         while (i < shared.visitorNames.length) {
             String suffix = shared.visitorSuffixes[i] as String
             out.append(format("    CpgHook on_{}, enter_{}, leave_{};\n", suffix, suffix, suffix))

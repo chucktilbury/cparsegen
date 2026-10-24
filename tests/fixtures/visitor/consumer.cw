@@ -3,7 +3,7 @@ include "parser.cw"
 class Trace : GeneratedVisitor {
     String events
     String mode
-    int count
+    int64 count
 
     Trace(String selected) {
         super GeneratedVisitor()
@@ -14,21 +14,21 @@ class Trace : GeneratedVisitor {
     void event(String phase, AstNode node) {
         events.append(format("{}:{} ", phase, node.kind()))
     }
-    int enter(AstNode node) {
+    int64 enter(AstNode node) {
         event("e", node)
         return VISIT_CONTINUE
     }
-    int leave(AstNode node) {
+    int64 leave(AstNode node) {
         event("l", node)
         return VISIT_CONTINUE
     }
-    int enter_rule_pair(AstNode node) {
+    int64 enter_rule_pair(AstNode node) {
         event("p", node)
         if (mode.equals("skip")) { return VISIT_SKIP }
         if (mode.equals("invalid-enter")) { return 99 }
         return VISIT_CONTINUE
     }
-    int leave_rule_pair(AstNode node) {
+    int64 leave_rule_pair(AstNode node) {
         event("q", node)
         if (mode.equals("leave-stop")) { return VISIT_STOP }
         if (mode.equals("leave-error")) { return VISIT_ERROR }
@@ -36,22 +36,22 @@ class Trace : GeneratedVisitor {
         if (mode.equals("invalid-leave")) { return 99 }
         return VISIT_CONTINUE
     }
-    int enter_token_NUMBER(AstNode node) {
+    int64 enter_token_NUMBER(AstNode node) {
         event("n", node)
         count += 1
         if (mode.equals("stop")) { return VISIT_STOP }
         if (mode.equals("error")) { return VISIT_ERROR }
         return VISIT_CONTINUE
     }
-    int enter_literal_0(AstNode node) {
+    int64 enter_literal_0(AstNode node) {
         event("t", node)
         return VISIT_CONTINUE
     }
-    int onNode(AstNode node) {
+    int64 onNode(AstNode node) {
         event("g", node)
         return VISIT_CONTINUE
     }
-    int on_rule_entry(AstNode node) {
+    int64 on_rule_entry(AstNode node) {
         event("d", node)
         if (mode.equals("dispatch-stop")) { return VISIT_STOP }
         if (mode.equals("dispatch-error")) { return VISIT_ERROR }
@@ -73,7 +73,7 @@ start {
     String mode = Sys.Process().arg(1)
     Trace visitor(mode)
     Trace independent("walk")
-    int result = visitor.VISIT_CONTINUE
+    int64 result = visitor.VISIT_CONTINUE
     if (mode.length >= 8 && mode.slice(0, 8).equals("dispatch")) {
         result = visitor.dispatch(root)
         if (independent.dispatch(first) != visitor.VISIT_CONTINUE

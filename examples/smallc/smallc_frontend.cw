@@ -2,16 +2,16 @@ include "parser.cw"
 
 class SmallCLocation {
     AstNode node
-    int offset
+    int64 offset
 
-    SmallCLocation(AstNode value, int at) {
+    SmallCLocation(AstNode value, int64 at) {
         node = value
         offset = at
     }
 }
 
 class SmallCTokenCursor {
-    int index
+    int64 index
 
     SmallCTokenCursor() {
         index = 0
@@ -79,7 +79,7 @@ class SmallCIntrinsics {
     }
 
     SmallCIntrinsic find(String name) {
-        int i = 0
+        int64 i = 0
         while (i < entries.length) {
             SmallCIntrinsic entry = entries[i] as SmallCIntrinsic
             if (entry.name.equals(name)) { return entry }
@@ -95,11 +95,11 @@ class SmallCSemanticChecker : GeneratedVisitor {
     list globals
     SmallCScope currentScope
     String problem
-    int errorOffset
+    int64 errorOffset
     String returnType
     list labels
-    int loopDepth
-    int switchDepth
+    int64 loopDepth
+    int64 switchDepth
     list parameterNames
     list checkedParameterTypes
 
@@ -119,13 +119,13 @@ class SmallCSemanticChecker : GeneratedVisitor {
         checkedParameterTypes = []
     }
 
-    AstNode child(AstNode node, int index) {
+    AstNode child(AstNode node, int64 index) {
         return node.children[index] as AstNode
     }
 
     void indexLocations(AstNode node, list tokens, SmallCTokenCursor cursor) {
         if (node.children.length == 0) {
-            int offset = 0
+            int64 offset = 0
             if (cursor.index < tokens.length) {
                 offset = (tokens[cursor.index] as LexToken).offset
                 cursor.index += 1
@@ -133,7 +133,7 @@ class SmallCSemanticChecker : GeneratedVisitor {
             locations.append(SmallCLocation(node, offset))
             return
         }
-        int i = 0
+        int64 i = 0
         while (i < node.children.length) {
             indexLocations(child(node, i), tokens, cursor)
             i += 1
@@ -141,8 +141,8 @@ class SmallCSemanticChecker : GeneratedVisitor {
         locations.append(SmallCLocation(node, offsetOf(child(node, 0))))
     }
 
-    int offsetOf(AstNode node) {
-        int i = 0
+    int64 offsetOf(AstNode node) {
+        int64 i = 0
         while (i < locations.length) {
             SmallCLocation location = locations[i] as SmallCLocation
             if (location.node == node) { return location.offset }
@@ -177,7 +177,7 @@ class SmallCSemanticChecker : GeneratedVisitor {
     }
 
     SmallCSymbol findGlobal(String name) {
-        int i = 0
+        int64 i = 0
         while (i < globals.length) {
             SmallCSymbol symbol = globals[i] as SmallCSymbol
             if (symbol.name.equals(name)) { return symbol }
@@ -189,7 +189,7 @@ class SmallCSemanticChecker : GeneratedVisitor {
     SmallCSymbol findScoped(String name) {
         SmallCScope scope = currentScope
         while (scope != null) {
-            int i = 0
+            int64 i = 0
             while (i < scope.symbols.length) {
                 SmallCSymbol symbol = scope.symbols[i] as SmallCSymbol
                 if (symbol.name.equals(name)) { return symbol }
@@ -208,7 +208,7 @@ class SmallCSemanticChecker : GeneratedVisitor {
 
     bool currentScopeHas(String name) {
         if (currentScope == null) { return false }
-        int i = 0
+        int64 i = 0
         while (i < currentScope.symbols.length) {
             if ((currentScope.symbols[i] as SmallCSymbol).name.equals(name)) { return true }
             i += 1
@@ -304,12 +304,12 @@ class SmallCSemanticChecker : GeneratedVisitor {
 
     String intrinsicCallType(AstNode node, SmallCIntrinsic intrinsic) {
         AstNode nameNode = child(node, 0)
-        int argumentCount = 0
-        int i = 0
+        int64 argumentCount = 0
+        int64 i = 0
         while (i < node.children.length && !child(node, i).name.equals("arguments")) { i += 1 }
         if (i < node.children.length) {
             AstNode arguments = child(node, i)
-            int a = 0
+            int64 a = 0
             while (a < arguments.children.length && problem.equals("")) {
                 AstNode argument = child(arguments, a)
                 if (argument.name.equals("STRING")) {
@@ -384,12 +384,12 @@ class SmallCSemanticChecker : GeneratedVisitor {
             fail(nameNode, format("'{}' names a variable, not a function", nameNode.text))
             return ""
         }
-        int argumentCount = 0
-        int i = 0
+        int64 argumentCount = 0
+        int64 i = 0
         while (i < node.children.length && !child(node, i).name.equals("arguments")) { i += 1 }
         if (i < node.children.length) {
             AstNode arguments = child(node, i)
-            int a = 0
+            int64 a = 0
             while (a < arguments.children.length && problem.equals("")) {
                 AstNode argument = child(arguments, a)
                 if (argument.name.equals("STRING")) {
@@ -496,7 +496,7 @@ class SmallCSemanticChecker : GeneratedVisitor {
         }
         if (node.children.length > 1) {
             String result = expressionType(child(node, 0))
-            int i = 1
+            int64 i = 1
             while (i < node.children.length && problem.equals("")) {
                 if (i + 1 < node.children.length) {
                     String right = expressionType(child(node, i + 1))
@@ -531,7 +531,7 @@ class SmallCSemanticChecker : GeneratedVisitor {
                 fail(initializer, format("scalar '{}' cannot use an array initializer", nameNode.text))
                 return
             }
-            int i = 1
+            int64 i = 1
             while (i < initializer.children.length && problem.equals("")) {
                 AstNode value = child(initializer, i)
                 if (value.name.equals("assignment")) {
@@ -556,18 +556,18 @@ class SmallCSemanticChecker : GeneratedVisitor {
 
     void checkDeclaration(AstNode node, bool global) {
         String base = child(child(node, 0), 0).text
-        int i = 1
+        int64 i = 1
         while (i < node.children.length && problem.equals("")) {
             AstNode declarator = child(node, i)
             if (declarator.name.equals("declarator")) {
                 AstNode nameNode = child(declarator, 0)
                 bool array = declarator.children.length > 1 && child(declarator, 1).text.equals("[")
                 String valueType = base
-                int initializerIndex = declarator.children.length
+                int64 initializerIndex = declarator.children.length
                 if (array) {
                     valueType = "int[]"
                     if (base.equals("char")) { valueType = "char[]" }
-                    int d = 1
+                    int64 d = 1
                     while (d < declarator.children.length
                             && !child(declarator, d).text.equals("=")) { d += 1 }
                     initializerIndex = d
@@ -595,10 +595,10 @@ class SmallCSemanticChecker : GeneratedVisitor {
         return checkedParameterTypes
     }
 
-    int enter_rule_parameter(AstNode node) {
+    int64 enter_rule_parameter(AstNode node) {
         String valueType = node.childAt(0).childAt(0).lexeme()
         AstNode nameNode = node.childAt(1)
-        int i = 0
+        int64 i = 0
         while (i < parameterNames.length) {
             if ((parameterNames[i] as String).equals(nameNode.lexeme())) {
                 fail(nameNode, format("duplicate parameter '{}'", nameNode.lexeme()))
@@ -619,7 +619,7 @@ class SmallCSemanticChecker : GeneratedVisitor {
 
     void collectLabels(AstNode node) {
         if (isLabel(node)) { labels.append(child(node, 0)) }
-        int i = 0
+        int64 i = 0
         while (i < node.children.length) {
             collectLabels(child(node, i))
             i += 1
@@ -627,7 +627,7 @@ class SmallCSemanticChecker : GeneratedVisitor {
     }
 
     AstNode findLabel(String name) {
-        int i = 0
+        int64 i = 0
         while (i < labels.length) {
             AstNode label = labels[i] as AstNode
             if (label.text.equals(name)) { return label }
@@ -640,9 +640,9 @@ class SmallCSemanticChecker : GeneratedVisitor {
         AstNode literal = child(node, node.children.length - 1)
         String text = literal.text
         if (literal.name.equals("CHAR")) {
-            int value = int(text.byteAt(1))
+            int64 value = int64(text.byteAt(1))
             if (value == 92) {
-                value = int(text.byteAt(2))
+                value = int64(text.byteAt(2))
                 if (value == 110) { value = 10 }
                 else {
                     if (value == 114) { value = 13 }
@@ -655,8 +655,8 @@ class SmallCSemanticChecker : GeneratedVisitor {
             return format("{}", value)
         }
         // Compare decimal spellings without imposing a host integer width.
-        int first = 0
-        while (first + 1 < text.length && int(text.byteAt(first)) == 48) { first += 1 }
+        int64 first = 0
+        while (first + 1 < text.length && int64(text.byteAt(first)) == 48) { first += 1 }
         String result = text.slice(first, text.length)
         if (child(node, 0).text.equals("-") && !result.equals("0")) {
             return format("-{}", result)
@@ -670,7 +670,7 @@ class SmallCSemanticChecker : GeneratedVisitor {
         AstNode parameters = null
         AstNode body = null
         bool definition = false
-        int i = 0
+        int64 i = 0
         while (i < node.children.length) {
             AstNode part = child(node, i)
             if (part.name.equals("parameters")) { parameters = part }
@@ -700,7 +700,7 @@ definition = true }
                 fail(nameNode, format("incompatible function signature for '{}'", nameNode.text))
                 return
             }
-            int p = 0
+            int64 p = 0
             while (p < types.length && problem.equals("")) {
                 if (!(function.parameterTypes[p] as String).equals(types[p] as String)) {
                     fail(nameNode, format("incompatible function signature for '{}'", nameNode.text))
@@ -727,8 +727,8 @@ definition = true }
             collectLabels(body)
             pushScope()
             if (parameters != null) {
-                int p = 0
-                int parameterIndex = 0
+                int64 p = 0
+                int64 parameterIndex = 0
                 while (p < parameters.children.length && problem.equals("")) {
                     AstNode parameter = child(parameters, p)
                     if (parameter.name.equals("parameter")) {
@@ -746,7 +746,7 @@ definition = true }
     }
 
     void checkForInitializer(AstNode node) {
-        int i = 0
+        int64 i = 0
         while (i < node.children.length && problem.equals("")) {
             AstNode part = child(node, i)
             if (part.name.equals("declaration")) { checkDeclaration(part, false) }
@@ -757,7 +757,7 @@ definition = true }
 
     void checkCompound(AstNode node, bool nested) {
         if (nested) { pushScope() }
-        int i = 0
+        int64 i = 0
         while (i < node.children.length && problem.equals("")) {
             AstNode part = child(node, i)
             if (part.name.equals("blockItem")) { checkBlockItem(part) }
@@ -767,7 +767,7 @@ definition = true }
     }
 
     void checkBlockItem(AstNode node) {
-        int i = 0
+        int64 i = 0
         while (i < node.children.length && problem.equals("")) {
             AstNode part = child(node, i)
             if (part.name.equals("declaration")) { checkDeclaration(part, false) }
@@ -780,7 +780,7 @@ definition = true }
         list cases = []
         bool hasDefault = false
         switchDepth += 1
-        int i = 0
+        int64 i = 0
         while (i < node.children.length && problem.equals("")) {
             AstNode part = child(node, i)
             if (part.name.equals("expression")) {
@@ -797,7 +797,7 @@ definition = true }
                     else {
                         AstNode value = child(part, 1)
                         String key = caseKey(value)
-                        int c = 0
+                        int64 c = 0
                         while (c < cases.length && problem.equals("")) {
                             if ((cases[c] as String).equals(key)) {
                                 fail(value, format("duplicate case constant {}", key))
@@ -806,7 +806,7 @@ definition = true }
                         }
                         cases.append(key)
                     }
-                    int j = 0
+                    int64 j = 0
                     while (j < part.children.length && problem.equals("")) {
                         AstNode item = child(part, j)
                         if (item.name.equals("blockItem")) { checkBlockItem(item) }
@@ -835,7 +835,7 @@ definition = true }
         }
         bool isReturn = false
         AstNode returnedValue = null
-        int i = 0
+        int64 i = 0
         while (i < node.children.length && problem.equals("")) {
             AstNode part = child(node, i)
             if (part.text.equals("return")) { isReturn = true }
@@ -881,7 +881,7 @@ definition = true }
         if (loopScope) { pushScope() }
         if (loop) { loopDepth += 1 }
         bool inUpdate = false
-        int i = 0
+        int64 i = 0
         while (i < node.children.length && problem.equals("")) {
             AstNode part = child(node, i)
             if (part.name.equals("expression")) {
@@ -923,7 +923,7 @@ definition = true }
         locations = []
         SmallCTokenCursor cursor()
         indexLocations(root, tokens, cursor)
-        int i = 0
+        int64 i = 0
         while (i < root.children.length && problem.equals("")) {
             AstNode external = child(root, i)
             if (external.children.length > 0) {
@@ -941,7 +941,7 @@ class SmallCFrontend {
     Sys.StandardIO io
     list tokens
     String problem
-    int errorOffset
+    int64 errorOffset
     SmallCSemanticChecker checker
 
     SmallCFrontend() {
@@ -982,16 +982,16 @@ class SmallCFrontend {
         return false
     }
 
-    int offsetOf(AstNode node) {
+    int64 offsetOf(AstNode node) {
         if (checker == null) { return 0 }
         return checker.offsetOf(node)
     }
 
     String jsonString(String value) {
         String result = "\""
-        int i = 0
+        int64 i = 0
         while (i < value.length) {
-            int byte = int(value.byteAt(i))
+            int64 byte = int64(value.byteAt(i))
             if (byte == 34 || byte == 92) { result.append("\\") }
             if (byte == 10) { result.append("\\n") }
             else {
@@ -1013,7 +1013,7 @@ class SmallCFrontend {
         result.append(",\"text\":")
         result.append(jsonString(node.text))
         result.append(",\"children\":[")
-        int i = 0
+        int64 i = 0
         while (i < node.children.length) {
             if (i > 0) { result.append(",") }
             result.append(jsonAst(node.children[i] as AstNode))
@@ -1023,12 +1023,12 @@ class SmallCFrontend {
         return result
     }
 
-    void report(String path, String input, int offset, String problem) {
-        int line = 1
-        int column = 1
-        int i = 0
+    void report(String path, String input, int64 offset, String problem) {
+        int64 line = 1
+        int64 column = 1
+        int64 i = 0
         while (i < offset && i < input.length) {
-            if (int(input.byteAt(i)) == 10) {
+            if (int64(input.byteAt(i)) == 10) {
                 line += 1
                 column = 1
             }

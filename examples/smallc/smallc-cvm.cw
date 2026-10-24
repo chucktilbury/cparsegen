@@ -8,7 +8,7 @@ class SmallCCVMApplication {
         io = Sys.StandardIO()
     }
 
-    int run() {
+    int64 run() {
         Sys.Process process()
         if (process.argc() == 2 && process.arg(1).equals("--help")) {
             io.writeLine("usage: smallc-cvm INPUT.c OUTPUT.asm")
@@ -39,7 +39,7 @@ class SmallCCVMApplication {
         SmallCAssemblyCompiler compiler()
         String assembly = compiler.compile(root, frontend)
         if (assembly == null) {
-            int offset = frontend.offsetOf(compiler.errorNode)
+            int64 offset = frontend.offsetOf(compiler.errorNode)
             frontend.report(inputPath, input, offset, compiler.problem)
             return 1
         }
@@ -52,7 +52,7 @@ class SmallCCVMApplication {
         }
         String failure = ""
         try {
-            int count = output.write(assembly)
+            int64 count = output.write(assembly)
             failure = Sys.System().lastError()
             if (failure.equals("") && count != assembly.length) {
                 failure = "could not write the complete assembly file"

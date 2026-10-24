@@ -7,7 +7,7 @@ class SmallCASTApplication {
         io = Sys.StandardIO()
     }
 
-    int run() {
+    int64 run() {
         Sys.Process process()
         if (process.argc() == 2 && process.arg(1).equals("--help")) {
             io.writeLine("usage: smallc-ast [--check] INPUT.c")

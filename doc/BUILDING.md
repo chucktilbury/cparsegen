@@ -21,10 +21,11 @@ cmake --install "$HOME/Src/cwhip-build"
 
 Install the host prerequisites listed in the [Cwhip SDK installation
 guide](https://github.com/chucktilbury/cwhip/blob/master/doc/GETTING_STARTED.md#host-prerequisites)
-first. This project requires the exact Cwhip SDK version `0.0.1` and an
-installation that supports configurable application output directories and
-the `cwhip_apply_application_defaults()` CMake helper. Older SDK installations
-may report the same version without providing this required capability.
+first. This project requires the exact Cwhip SDK version `0.0.2`, the
+`numeric-v2` SDK ABI, and an installation that supports configurable
+application output directories and the `cwhip_apply_application_defaults()`
+CMake helper. Older SDK installations may not provide the required ABI or
+capabilities.
 Keep the complete SDK prefix; do not point the project at just its `bin/`
 directory. The installer registers the prefix in the dedicated
 `sdk.toml`; cparsegen only reads this configuration and never edits user
@@ -87,14 +88,19 @@ cparsegen generates. The SDK normally installs
 alone is not enough for CMake discovery.
 
 If configuration reports a missing application-defaults capability, the
-selected SDK is too old even if its version is `0.0.1`. Rebuild and reinstall
-the updated Cwhip SDK into the prefix named in the error, following the
+selected SDK is too old even if it reports version `0.0.2`. Rebuild and
+reinstall the updated Cwhip SDK into the prefix named in the error, following the
 installation sequence above, or select an updated installed SDK with
 `CWHIP_SDK`. Its `CwhipConfig.cmake` must include the installed
 `CwhipApplicationDefaults.cmake` and provide
 `cwhip_apply_application_defaults()`. Updating source alone does not update an
 installed SDK. cparsegen fails rather than silently skipping defaults or
 selecting a different SDK.
+
+Configuration also requires `Cwhip_SDK_ABI` to be `numeric-v2`. This rejects
+older or mismatched SDKs before building against incompatible numeric types.
+Applications and native packages must be rebuilt against this ABI; package
+manifests identify it with `[package] sdk-abi = "numeric-v2"`.
 
 For an SDK already installed at a known prefix, select it explicitly:
 

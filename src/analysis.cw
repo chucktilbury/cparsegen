@@ -22,16 +22,16 @@ class AnalysisDiagnostic {
 // Domains: 0 lexer expression to lexer token, 1 parser to lexer token,
 // 2 parser expression to parser rule.
 class ResolvedReference {
-    int domain
+    int64 domain
     String name
-    int owner
-    int target
-    int line
+    int64 owner
+    int64 target
+    int64 line
     SourceSpan span
     SourceSpan targetSpan
 
-    ResolvedReference(int referenceDomain, String targetName, int ownerIndex, int targetIndex,
-                      int sourceLine, SourceSpan location, SourceSpan declaration) {
+    ResolvedReference(int64 referenceDomain, String targetName, int64 ownerIndex, int64 targetIndex,
+                      int64 sourceLine, SourceSpan location, SourceSpan declaration) {
         domain = referenceDomain
         name = targetName
         owner = ownerIndex
@@ -45,22 +45,22 @@ class ResolvedReference {
 // One lexer token, including synthetic @quoted tokens, with its compiled
 // Thompson NFA entry in Analysis.lexerStates and its resolved dependencies.
 class LexerPlan {
-    int index
+    int64 index
     String name
     LexerRule rule
-    int quote
+    int64 quote
     bool skip
     bool nullable
-    int entry
-    int accept
-    int firstState
-    int stateCount
-    int color
+    int64 entry
+    int64 accept
+    int64 firstState
+    int64 stateCount
+    int64 color
     list references
-    int line
+    int64 line
     SourceSpan span
 
-    LexerPlan(int position, LexerRule declaration) {
+    LexerPlan(int64 position, LexerRule declaration) {
         index = position
         name = declaration.name
         rule = declaration
@@ -82,13 +82,13 @@ class LexerPlan {
 // precedes it. zeroContext is true when nothing non-nullable can follow it
 // inside A, so a cycle of such edges consumes nothing and nothing follows it.
 class LeftCornerEdge {
-    int origin
-    int destination
+    int64 origin
+    int64 destination
     bool zeroContext
-    int line
+    int64 line
     SourceSpan span
 
-    LeftCornerEdge(int source, int target, bool zero, int sourceLine, SourceSpan location) {
+    LeftCornerEdge(int64 source, int64 target, bool zero, int64 sourceLine, SourceSpan location) {
         origin = source
         destination = target
         zeroContext = zero
@@ -98,18 +98,18 @@ class LeftCornerEdge {
 }
 
 class ParserRuleFacts {
-    int index
+    int64 index
     String name
     ParserRule rule
-    int root
+    int64 root
     bool nullable
     bool leftRecursive
     list corners
     list reachable
-    int line
+    int64 line
     SourceSpan span
 
-    ParserRuleFacts(int position, ParserRule declaration) {
+    ParserRuleFacts(int64 position, ParserRule declaration) {
         index = position
         name = declaration.name
         rule = declaration
@@ -128,21 +128,21 @@ class ParserRuleFacts {
 // 3 choice, 4 repetition. target is a parser-rule index and token a lexer
 // index for references (-1 otherwise); literal indexes Analysis.literals.
 class ParserExprRecord {
-    int index
-    int kind
+    int64 index
+    int64 kind
     String value
     list children
-    int minimum
-    int maximum
-    int required
-    int literal
-    int target
-    int token
+    int64 minimum
+    int64 maximum
+    int64 required
+    int64 literal
+    int64 target
+    int64 token
     bool nullable
-    int line
+    int64 line
     SourceSpan span
 
-    ParserExprRecord(RuleExpr expression, int position) {
+    ParserExprRecord(RuleExpr expression, int64 position) {
         index = position
         kind = expression.kind
         value = expression.value
@@ -204,8 +204,8 @@ class Analysis {
         diagnostics = []
     }
 
-    int lexerIndex(String name) {
-        int i = 0
+    int64 lexerIndex(String name) {
+        int64 i = 0
         while (i < lexers.length) {
             if ((lexers[i] as LexerPlan).name.equals(name)) { return i }
             i += 1
@@ -213,8 +213,8 @@ class Analysis {
         return -1
     }
 
-    int parserIndex(String name) {
-        int i = 0
+    int64 parserIndex(String name) {
+        int64 i = 0
         while (i < parserRules.length) {
             if ((parserRules[i] as ParserRuleFacts).name.equals(name)) { return i }
             i += 1
@@ -222,8 +222,8 @@ class Analysis {
         return -1
     }
 
-    int literalIndex(String value) {
-        int i = 0
+    int64 literalIndex(String value) {
+        int64 i = 0
         while (i < literals.length) {
             if ((literals[i] as String).equals(value)) { return i }
             i += 1
@@ -231,9 +231,9 @@ class Analysis {
         return -1
     }
 
-    int nameCount(list names, String name) {
-        int count = 0
-        int i = 0
+    int64 nameCount(list names, String name) {
+        int64 count = 0
+        int64 i = 0
         while (i < names.length) {
             if ((names[i] as String).equals(name)) { count += 1 }
             i += 1
@@ -287,9 +287,9 @@ class GrammarAnalyzer {
     }
 
     bool identifier(String name) {
-        int i = 0
+        int64 i = 0
         while (i < name.length) {
-            int byte = int(name.byteAt(i))
+            int64 byte = int64(name.byteAt(i))
             bool letter = (byte >= 65 && byte <= 90) || (byte >= 97 && byte <= 122) || byte == 95
             if (!letter && (i == 0 || byte < 48 || byte > 57)) { return false }
             i += 1
@@ -300,7 +300,7 @@ class GrammarAnalyzer {
     list directiveWords(String content) {
         list pieces = content.replace("\t", " ").replace("\n", " ").replace("\r", " ").split(" ")
         list words = []
-        int i = 0
+        int64 i = 0
         while (i < pieces.length) {
             String word = pieces[i] as String
             if (word.length > 0) { words.append(word) }
@@ -312,7 +312,7 @@ class GrammarAnalyzer {
     String analyze() {
         String error = validateInsertions()
         if (!error.equals("")) { return error }
-        int d = 0
+        int64 d = 0
         while (d < grammar.lexerRules.length) {
             addLexer(grammar.lexerRules[d] as LexerRule)
             d += 1
@@ -343,7 +343,7 @@ class GrammarAnalyzer {
     }
 
     String validateInsertions() {
-        int i = 0
+        int64 i = 0
         while (i < grammar.insertions.length) {
             CodeInsertion block = grammar.insertions[i] as CodeInsertion
             if (!block.target.equals("c") && !block.target.equals("cwhip")) {
@@ -366,7 +366,7 @@ class GrammarAnalyzer {
 
     String lexicalDirectives() {
         LexicalConfig lexical = analysis.lexical
-        int i = 0
+        int64 i = 0
         while (i < grammar.directives.length) {
             GrammarDirective directive = grammar.directives[i] as GrammarDirective
             list words = directiveWords(directive.content)
@@ -400,7 +400,7 @@ class GrammarAnalyzer {
                     return fail("directives", format("line {}: @reserved requires word names",
                         directive.line), directive.span, null)
                 }
-                int w = 0
+                int64 w = 0
                 while (w < words.length) {
                     if (!identifier(words[w] as String)) {
                         return fail("directives", format("line {}: @reserved requires identifier spellings",
@@ -427,7 +427,7 @@ class GrammarAnalyzer {
             i += 1
         }
         if (!lexical.keywordToken.equals("")) {
-            int token = analysis.lexerIndex(lexical.keywordToken)
+            int64 token = analysis.lexerIndex(lexical.keywordToken)
             if (token < 0 || (analysis.lexers[token] as LexerPlan).quote != 0) {
                 return fail("directives", "@keywords must name a declared expression lexer token",
                             lexical.keywordSpan, null)
@@ -442,7 +442,7 @@ class GrammarAnalyzer {
 
     String checkLexerNames() {
         list names = []
-        int i = 0
+        int64 i = 0
         while (i < analysis.lexers.length) {
             names.append((analysis.lexers[i] as LexerPlan).name)
             i += 1
@@ -450,14 +450,14 @@ class GrammarAnalyzer {
         i = 0
         while (i < analysis.lexers.length) {
             LexerPlan plan = analysis.lexers[i] as LexerPlan
-            int first = int(plan.name.byteAt(0))
+            int64 first = int64(plan.name.byteAt(0))
             if (first < 65 || first > 90 || !identifier(plan.name)) {
                 return fail("lexer", format("line {}: lexer names must begin with an uppercase letter",
                     plan.line), plan.span, null)
             }
             if (analysis.nameCount(names, plan.name) > 1) {
                 SourceSpan previous = null
-                int p = 0
+                int64 p = 0
                 while (p < i && previous == null) {
                     LexerPlan candidate = analysis.lexers[p] as LexerPlan
                     if (candidate.name.equals(plan.name)) { previous = candidate.span }
@@ -473,13 +473,13 @@ class GrammarAnalyzer {
         return ""
     }
 
-    String resolveLexer(LexerPlan owner, LexerExpr expression, int depth) {
+    String resolveLexer(LexerPlan owner, LexerExpr expression, int64 depth) {
         if (depth > 128) {
             return fail("lexer", format("line {}: lexer expression nesting/reference limit exceeded (128)",
                 expression.line), expression.span, null)
         }
         if (expression.kind == 1) {
-            int index = analysis.lexerIndex(expression.value)
+            int64 index = analysis.lexerIndex(expression.value)
             if (index < 0) {
                 return fail("lexer", format("line {}: unknown lexer reference {}", expression.line,
                     expression.value), expression.span, null)
@@ -506,7 +506,7 @@ class GrammarAnalyzer {
             return ""
         }
         bool nullable = expression.kind == 2 || (expression.kind == 4 && expression.minimum == 0)
-        int c = 0
+        int64 c = 0
         while (c < expression.children.length) {
             LexerExpr child = expression.children[c] as LexerExpr
             String error = resolveLexer(owner, child, depth + 1)
@@ -524,18 +524,18 @@ class GrammarAnalyzer {
         return ""
     }
 
-    int lexerState(int kind, list ranges, int next, int alternate, int line, SourceSpan span) {
+    int64 lexerState(int64 kind, list ranges, int64 next, int64 alternate, int64 line, SourceSpan span) {
         if (analysis.lexerStates.length >= 4096) {
             lexerProblem = format("line {}: expanded lexer state limit exceeded (4096)", line)
             lexerProblemSpan = span
             return -1
         }
-        int index = analysis.lexerStates.length
+        int64 index = analysis.lexerStates.length
         analysis.lexerStates.append(LexerState(kind, ranges, next, alternate))
         return index
     }
 
-    int compileLexer(LexerExpr expression, int next, int depth) {
+    int64 compileLexer(LexerExpr expression, int64 next, int64 depth) {
         if (!lexerProblem.equals("")) { return -1 }
         if (depth > 128) {
             lexerProblem = format("line {}: expanded lexer nesting/reference limit exceeded (128)", expression.line)
@@ -550,7 +550,7 @@ class GrammarAnalyzer {
             return compileLexer(target.rule.expression, next, depth + 1)
         }
         if (expression.kind == 2) {
-            int c = expression.children.length - 1
+            int64 c = expression.children.length - 1
             while (c >= 0 && lexerProblem.equals("")) {
                 next = compileLexer(expression.children[c] as LexerExpr, next, depth + 1)
                 c -= 1
@@ -558,27 +558,27 @@ class GrammarAnalyzer {
             return next
         }
         if (expression.kind == 3) {
-            int result = compileLexer(expression.children[0] as LexerExpr, next, depth + 1)
-            int c = 1
+            int64 result = compileLexer(expression.children[0] as LexerExpr, next, depth + 1)
+            int64 c = 1
             while (c < expression.children.length && lexerProblem.equals("")) {
-                int branch = compileLexer(expression.children[c] as LexerExpr, next, depth + 1)
+                int64 branch = compileLexer(expression.children[c] as LexerExpr, next, depth + 1)
                 result = lexerState(1, [], result, branch, expression.line, expression.span)
                 c += 1
             }
             return result
         }
-        int split = lexerState(1, [], -1, next, expression.line, expression.span)
+        int64 split = lexerState(1, [], -1, next, expression.line, expression.span)
         if (split < 0) { return -1 }
-        int continuation = next
+        int64 continuation = next
         if (expression.maximum < 0) { continuation = split }
-        int child = compileLexer(expression.children[0] as LexerExpr, continuation, depth + 1)
+        int64 child = compileLexer(expression.children[0] as LexerExpr, continuation, depth + 1)
         (analysis.lexerStates[split] as LexerState).next = child
         if (expression.minimum == 0) { return split }
         return child
     }
 
     String compileLexers() {
-        int i = 0
+        int64 i = 0
         while (i < analysis.lexers.length) {
             LexerPlan plan = analysis.lexers[i] as LexerPlan
             if (plan.quote == 0) {
@@ -606,7 +606,7 @@ class GrammarAnalyzer {
         i = 0
         while (i < analysis.lexers.length) {
             list references = (analysis.lexers[i] as LexerPlan).references
-            int r = 0
+            int64 r = 0
             while (r < references.length) {
                 analysis.lexerReferences.append(references[r])
                 r += 1
@@ -617,11 +617,11 @@ class GrammarAnalyzer {
     }
 
     String applySkips() {
-        int i = 0
+        int64 i = 0
         while (i < grammar.directives.length) {
             GrammarDirective directive = grammar.directives[i] as GrammarDirective
             if (directive.name.equals("skip")) {
-                int token = analysis.lexerIndex(directive.content)
+                int64 token = analysis.lexerIndex(directive.content)
                 if (token < 0) {
                     return fail("directives", format("line {}: @skip requires a declared lexer token name",
                         directive.line), directive.span, null)
@@ -643,7 +643,7 @@ class GrammarAnalyzer {
 
     String checkParserNames() {
         list names = []
-        int i = 0
+        int64 i = 0
         while (i < grammar.parserRules.length) {
             names.append((grammar.parserRules[i] as ParserRule).name)
             i += 1
@@ -651,14 +651,14 @@ class GrammarAnalyzer {
         i = 0
         while (i < grammar.parserRules.length) {
             ParserRule rule = grammar.parserRules[i] as ParserRule
-            int first = int(rule.name.byteAt(0))
+            int64 first = int64(rule.name.byteAt(0))
             if (first < 97 || first > 122) {
                 return fail("parser", format("line {}: parser-rule names must begin with a lowercase letter",
                     rule.line), rule.span, null)
             }
             if (analysis.nameCount(names, rule.name) > 1) {
                 SourceSpan previous = null
-                int p = 0
+                int64 p = 0
                 while (p < i && previous == null) {
                     ParserRule candidate = grammar.parserRules[p] as ParserRule
                     if (candidate.name.equals(rule.name)) { previous = candidate.span }
@@ -675,9 +675,9 @@ class GrammarAnalyzer {
     }
 
     // Numbers expressions children-first, resolves references, and interns literals.
-    int record(RuleExpr expression) {
+    int64 record(RuleExpr expression) {
         ParserExprRecord entry = ParserExprRecord(expression, 0)
-        int c = 0
+        int64 c = 0
         while (c < expression.children.length) {
             entry.children.append(record(expression.children[c] as RuleExpr))
             c += 1
@@ -698,16 +698,16 @@ class GrammarAnalyzer {
         return entry.index
     }
 
-    ParserExprRecord expressionAt(int index) {
+    ParserExprRecord expressionAt(int64 index) {
         return analysis.expressions[index] as ParserExprRecord
     }
 
-    ParserRuleFacts ruleAt(int index) {
+    ParserRuleFacts ruleAt(int64 index) {
         return analysis.parserRules[index] as ParserRuleFacts
     }
 
     void buildParserTable() {
-        int i = 0
+        int64 i = 0
         while (i < grammar.parserRules.length) {
             analysis.parserRules.append(ParserRuleFacts(i, grammar.parserRules[i] as ParserRule))
             i += 1
@@ -725,7 +725,7 @@ class GrammarAnalyzer {
         bool changed = true
         while (changed) {
             changed = false
-            int e = 0
+            int64 e = 0
             while (e < analysis.expressions.length) {
                 ParserExprRecord entry = expressionAt(e)
                 bool nullable = false
@@ -733,27 +733,27 @@ class GrammarAnalyzer {
                     nullable = entry.target >= 0 && ruleAt(entry.target).nullable
                 }
                 if (entry.kind == 4) {
-                    nullable = entry.minimum == 0 || expressionAt(entry.children[0] as int).nullable
+                    nullable = entry.minimum == 0 || expressionAt(entry.children[0] as int64).nullable
                 }
                 if (entry.kind == 2) {
                     nullable = true
-                    int c = 0
+                    int64 c = 0
                     while (c < entry.children.length) {
-                        if (!expressionAt(entry.children[c] as int).nullable) { nullable = false }
+                        if (!expressionAt(entry.children[c] as int64).nullable) { nullable = false }
                         c += 1
                     }
                 }
                 if (entry.kind == 3) {
-                    int c = 0
+                    int64 c = 0
                     while (c < entry.children.length) {
-                        if (expressionAt(entry.children[c] as int).nullable) { nullable = true }
+                        if (expressionAt(entry.children[c] as int64).nullable) { nullable = true }
                         c += 1
                     }
                 }
                 entry.nullable = nullable
                 e += 1
             }
-            int r = 0
+            int64 r = 0
             while (r < analysis.parserRules.length) {
                 ParserRuleFacts facts = ruleAt(r)
                 if (!facts.nullable && expressionAt(facts.root).nullable) {
@@ -765,7 +765,7 @@ class GrammarAnalyzer {
         }
     }
 
-    void collectCorners(ParserRuleFacts owner, int index, bool zero) {
+    void collectCorners(ParserRuleFacts owner, int64 index, bool zero) {
         ParserExprRecord entry = expressionAt(index)
         if (entry.kind == 0) {
             if (entry.target >= 0) {
@@ -773,24 +773,24 @@ class GrammarAnalyzer {
             }
             return
         }
-        int c = 0
+        int64 c = 0
         while (c < entry.children.length) {
             bool childZero = zero
             if (entry.kind == 2) {
-                int s = c + 1
+                int64 s = c + 1
                 while (s < entry.children.length) {
-                    if (!expressionAt(entry.children[s] as int).nullable) { childZero = false }
+                    if (!expressionAt(entry.children[s] as int64).nullable) { childZero = false }
                     s += 1
                 }
             }
-            collectCorners(owner, entry.children[c] as int, childZero)
-            if (entry.kind == 2 && !expressionAt(entry.children[c] as int).nullable) { return }
+            collectCorners(owner, entry.children[c] as int64, childZero)
+            if (entry.kind == 2 && !expressionAt(entry.children[c] as int64).nullable) { return }
             c += 1
         }
     }
 
     void buildLeftCorners() {
-        int r = 0
+        int64 r = 0
         while (r < analysis.parserRules.length) {
             ParserRuleFacts facts = ruleAt(r)
             collectCorners(facts, facts.root, true)
@@ -799,24 +799,24 @@ class GrammarAnalyzer {
         r = 0
         while (r < analysis.parserRules.length) {
             ParserRuleFacts facts = ruleAt(r)
-            int n = 0
+            int64 n = 0
             while (n < analysis.parserRules.length) {
                 facts.reachable.append(false)
                 n += 1
             }
             list pending = []
-            int e = 0
+            int64 e = 0
             while (e < facts.corners.length) {
                 pending.append((facts.corners[e] as LeftCornerEdge).destination)
                 e += 1
             }
-            int p = 0
+            int64 p = 0
             while (p < pending.length) {
-                int node = pending[p] as int
+                int64 node = pending[p] as int64
                 if (!(facts.reachable[node] as bool)) {
                     facts.reachable[node] = true
                     list next = ruleAt(node).corners
-                    int k = 0
+                    int64 k = 0
                     while (k < next.length) {
                         pending.append((next[k] as LeftCornerEdge).destination)
                         k += 1
@@ -829,11 +829,11 @@ class GrammarAnalyzer {
         }
     }
 
-    String validateExpression(int index) {
+    String validateExpression(int64 index) {
         ParserExprRecord entry = expressionAt(index)
         if (entry.kind == 0) {
             if (entry.token < 0 && entry.target < 0) {
-                int first = int(entry.value.byteAt(0))
+                int64 first = int64(entry.value.byteAt(0))
                 if (first >= 65 && first <= 90) {
                     return fail("references", format("line {}: unknown lexer token {}", entry.line,
                         entry.value), entry.span, null)
@@ -859,13 +859,13 @@ class GrammarAnalyzer {
             return fail("references", format("line {}: empty quoted terminals are not supported",
                 entry.line), entry.span, null)
         }
-        if (entry.kind == 4 && expressionAt(entry.children[0] as int).nullable) {
+        if (entry.kind == 4 && expressionAt(entry.children[0] as int64).nullable) {
             return fail("references", format("line {}: nullable repetition is not supported",
                 entry.line), entry.span, null)
         }
-        int i = 0
+        int64 i = 0
         while (i < entry.children.length) {
-            String error = validateExpression(entry.children[i] as int)
+            String error = validateExpression(entry.children[i] as int64)
             if (!error.equals("")) { return error }
             i += 1
         }
@@ -873,10 +873,10 @@ class GrammarAnalyzer {
     }
 
     // Only zero-context cycles admit infinitely many equal-span trees.
-    String zeroCycle(int rule, list onPath, list done) {
+    String zeroCycle(int64 rule, list onPath, list done) {
         onPath[rule] = true
         list corners = ruleAt(rule).corners
-        int e = 0
+        int64 e = 0
         while (e < corners.length) {
             LeftCornerEdge edge = corners[e] as LeftCornerEdge
             if (edge.zeroContext) {
@@ -900,13 +900,13 @@ class GrammarAnalyzer {
     String validateParser() {
         list onPath = []
         list done = []
-        int n = 0
+        int64 n = 0
         while (n < analysis.parserRules.length) {
             onPath.append(false)
             done.append(false)
             n += 1
         }
-        int r = 0
+        int64 r = 0
         while (r < analysis.parserRules.length) {
             ParserRuleFacts facts = ruleAt(r)
             String error = validateExpression(facts.root)
@@ -920,13 +920,13 @@ class GrammarAnalyzer {
 
     // Consuming left recursion needs a conservative token lower bound per expression.
     void finishLeftRecursion() {
-        int r = 0
+        int64 r = 0
         while (r < analysis.parserRules.length) {
             if (ruleAt(r).leftRecursive) { analysis.leftRecursive = true }
             r += 1
         }
         if (!analysis.leftRecursive) { return }
-        int e = 0
+        int64 e = 0
         while (e < analysis.expressions.length) {
             ParserExprRecord entry = expressionAt(e)
             if (!entry.nullable) { entry.required = 1 }

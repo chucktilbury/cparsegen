@@ -58,10 +58,10 @@ if(NOT cwhip_sdk_prefix STREQUAL "")
     message(STATUS "Using Cwhip SDK prefix: ${cwhip_sdk_prefix}")
     unset(Cwhip_DIR CACHE)
     unset(Cwhip_DIR)
-    find_package(Cwhip 0.0.1 EXACT CONFIG QUIET
+    find_package(Cwhip 0.0.2 EXACT CONFIG QUIET
         PATHS "${cwhip_sdk_prefix}" NO_DEFAULT_PATH)
 else()
-    find_package(Cwhip 0.0.1 EXACT CONFIG QUIET)
+    find_package(Cwhip 0.0.2 EXACT CONFIG QUIET)
 endif()
 
 if(NOT Cwhip_FOUND)
@@ -73,7 +73,7 @@ if(NOT Cwhip_FOUND)
             "No SDK prefix was selected by CWHIP_SDK or a registered sdk_prefix setting.")
     endif()
     message(FATAL_ERROR
-        "Cwhip SDK 0.0.1 was not found or is incompatible. ${cwhip_sdk_context}\n"
+        "Cwhip SDK 0.0.2 was not found or is incompatible. ${cwhip_sdk_context}\n"
         "Select an installed SDK with:\n"
         "  export CWHIP_SDK=\"/absolute/path/to/cwhip-sdk\"\n"
         "  ./scripts/setup\n"
@@ -85,6 +85,13 @@ if(NOT Cwhip_FOUND)
         "not bin/ or the package directory. If neither config exists, install "
         "the SDK first; cparsegen does not download it. See doc/BUILDING.md.\n"
         "${Cwhip_NOT_FOUND_MESSAGE}")
+endif()
+
+if(NOT "${Cwhip_SDK_ABI}" STREQUAL "numeric-v2")
+    message(FATAL_ERROR
+        "The selected Cwhip SDK has ABI '${Cwhip_SDK_ABI}', but cparsegen "
+        "requires SDK ABI 'numeric-v2'. Rebuild affected Cwhip packages "
+        "against the numeric-v2 SDK. See doc/BUILDING.md.")
 endif()
 
 if(NOT COMMAND cwhip_apply_application_defaults)

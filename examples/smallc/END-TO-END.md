@@ -9,8 +9,8 @@ unless a `cd` is shown.
 ## 1. Prerequisites and build
 
 You need CMake, a host C compiler, Python 3 for tests and fixture generation,
-and a separately installed **Cwhip SDK 0.0.1** with configurable application
-output directories. See [Building](../../doc/BUILDING.md) for SDK installation
+and a separately installed **Cwhip SDK 0.0.2** with the `numeric-v2` ABI and
+configurable application output directories. See [Building](../../doc/BUILDING.md) for SDK installation
 and discovery. Select the whole SDK prefix, not just its `bin` directory.
 
 Install the official [CVM tools](https://github.com/chucktilbury/cvm) separately.

@@ -168,14 +168,14 @@ int main(void) {
             "cwhip": '''
 include "parser.cw"
 class Seen : GeneratedVisitor {
-    int rules
+    int64 rules
     String digits
     Seen() { super GeneratedVisitor()
 rules = 0
 digits = "" }
-    int enter_rule_entry(AstNode node) { rules += 1
+    int64 enter_rule_entry(AstNode node) { rules += 1
 return VISIT_CONTINUE }
-    int enter_token_NUMBER(AstNode node) { digits.append(node.lexeme())
+    int64 enter_token_NUMBER(AstNode node) { digits.append(node.lexeme())
 return VISIT_CONTINUE }
 }
 start {
@@ -365,9 +365,9 @@ events = "" }
     void post_pair(AstNode node) { events.append("post:pair ") }
     void pre_empty(AstNode node) { events.append("pre:empty ") }
     void post_empty(AstNode node) { events.append("post:empty ") }
-    int enter(AstNode node) { Sys.Process().exit(20)
+    int64 enter(AstNode node) { Sys.Process().exit(20)
 return VISIT_ERROR }
-    int onNode(AstNode node) { Sys.Process().exit(21)
+    int64 onNode(AstNode node) { Sys.Process().exit(21)
 return VISIT_ERROR }
 }
 start {

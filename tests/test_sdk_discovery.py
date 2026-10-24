@@ -53,14 +53,18 @@ class SdkDiscoveryTests(unittest.TestCase):
         self.env["CPARSEGEN_TEST_APPLICATION_BUILD_TYPE"] = "RelWithDebInfo"
         self.env.pop("DESTDIR", None)
 
-    def make_sdk(self, name):
+    def make_sdk(self, name, sdk_abi="numeric-v2"):
         prefix = self.root / name
         package = prefix / "lib/cmake/Cwhip"
         package.mkdir(parents=True)
-        (package / "CwhipConfig.cmake").write_text(
+        config = (
             'get_filename_component(prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)\n'
             'set(Cwhip_PREFIX "${prefix}")\n'
             'file(WRITE "${CMAKE_BINARY_DIR}/selected-sdk.txt" "${prefix}")\n'
+        )
+        if sdk_abi is not None:
+            config += f'set(Cwhip_SDK_ABI "{sdk_abi}")\n'
+        config += (
             'set(Cwhip_APPLICATION_OUTPUT_DIRECTORIES TRUE)\n'
             'include("${CMAKE_CURRENT_LIST_DIR}/CwhipApplicationDefaults.cmake")\n'
             'function(cwhip_add_program name)\n'
@@ -68,6 +72,7 @@ class SdkDiscoveryTests(unittest.TestCase):
             '  set_target_properties("${name}" PROPERTIES CWHIP_EXECUTABLE "${CMAKE_BINARY_DIR}/app")\n'
             'endfunction()\n'
         )
+        (package / "CwhipConfig.cmake").write_text(config)
         (package / "CwhipApplicationDefaults.cmake").write_text(
             "function(cwhip_apply_application_defaults)\n"
             '  get_filename_component(selected_prefix "${Cwhip_PREFIX}" REALPATH)\n'
@@ -101,7 +106,7 @@ class SdkDiscoveryTests(unittest.TestCase):
             "endfunction()\n"
         )
         (package / "CwhipConfigVersion.cmake").write_text(
-            'set(PACKAGE_VERSION "0.0.1")\n'
+            'set(PACKAGE_VERSION "0.0.2")\n'
             'set(PACKAGE_VERSION_COMPATIBLE TRUE)\n'
             'set(PACKAGE_VERSION_EXACT TRUE)\n'
         )
@@ -182,6 +187,15 @@ class SdkDiscoveryTests(unittest.TestCase):
             self.cache_value("CMAKE_BUILD_TYPE"),
             self.env["CPARSEGEN_TEST_APPLICATION_BUILD_TYPE"],
         )
+
+    def test_sdk_numeric_abi_is_required(self):
+        for name, sdk_abi in (("legacy-abi", "legacy"), ("missing-abi", None)):
+            with self.subTest(sdk_abi=sdk_abi):
+                self.env["CWHIP_SDK"] = str(self.make_sdk(name, sdk_abi))
+                output = self.configure(success=False)
+                self.assertIn("Cwhip SDK has ABI", output)
+                self.assertIn("numeric-v2", output)
+                self.env.pop("CWHIP_SDK")
 
     def test_explicit_cmake_settings_override_sdk_application_defaults(self):
         self.assertEqual(

@@ -118,6 +118,7 @@ boundary; they do not independently prove the analyzer's internal call count.
 | Calculator evaluation/variables/batch/interactive/errors | WL consumer only; C syntax is differential, evaluator N/A | [test_calculator.py](../tests/test_calculator.py) `CalculatorTests`; B.`test_calculator_acceptance_rejection_and_rendering` |
 | SmallC samples, precedence/nearest-if/comments/quotes, larger syntax and opt-in semantic boundary | WL app/C syntax; C semantic checker N/A | SmallC classes above: every **4 valid + 8 invalid** committed sample, plus named/table-driven structural and semantic cases; inherited C semantic methods deliberately call the Cwhip checker, not a C checker |
 | SmallC-to-CVM functions/recursion, scalar and array state, strings, global initialization, arithmetic, comparisons, short-circuit logic, loops, branches, checked traps, explicit unsupported statements | CWhip frontend -> textual `.asm` -> installed `cvm-as` -> installed `cvm-run`; host-C parity where defined | SCV.`test_existing_function_and_array_samples_execute`, `test_globals_arrays_strings_functions_and_control_flow_match_c`, `test_continue_break_and_short_circuit_match_c`, `test_signed_division_and_remainder_follow_c`, `test_branches_ending_in_returns_have_valid_targets`, `test_dynamic_global_initializer_runs_before_main`, `test_char_scalar_increment_and_array_bounds`, `test_checked_overflow_traps_at_runtime`, `test_switch_goto_and_labels_are_explicitly_rejected`, `test_non_main_fallthrough_is_rejected_conservatively` |
+| Cwhip `numeric-v2` migration in handwritten apps and generated parser APIs, plus exact SDK ABI gate | W/WL and installed SDK applications | G.`test_generate_compile_and_run_shortest_parser` checks `int64` generated interfaces and compiles/runs; `CalculatorTests`; [test_sdk_discovery.py](../tests/test_sdk_discovery.py) `test_sdk_numeric_abi_is_required`, `InstalledSdkTests.test_sdk_toml_builds_generator_and_examples_with_installed_sdk` |
 | Expression/statement demos: generation -> AST visitor -> emitted C -> compiled result; typed/runtime/definite-assignment policies are app-owned | CL consumers; syntax-only W/C cases | [test_compiler.py](../tests/test_compiler.py) `CompilerTests`; [test_statement_compiler.py](../tests/test_statement_compiler.py) `StatementCompilerTests` (no generated evaluator or new backend) |
 | SDK discovery/selection/errors, output paths and real installed SDK build | Generator build plus WL apps | [test_sdk_discovery.py](../tests/test_sdk_discovery.py) `SdkDiscoveryTests`, `InstalledSdkTests.test_sdk_toml_builds_generator_and_examples_with_installed_sdk`; actual audit builds every optional target and installs to a private prefix |
 | Documentation local links/anchors and runnable commands/snippets | All tracked Markdown; representative W/WL/C/CL/D workflows | M.`test_tracked_markdown_local_links_and_anchors`, `test_reference_prefix_complete_json_and_words_commands`, `test_reference_complete_c_and_cwhip_library_snippets`, `test_documented_insertion_and_lexer_expression_commands`, `test_documented_manual_visitor_commands`, `test_documented_include_default_output_workflow` |
@@ -186,8 +187,9 @@ statement-demo C-emission bug: parenthesized equality conditions triggered
 that compilation failure without changing evaluation. Only that handwritten
 consumer's emitted C changes; generated parser source and DOT bytes stay unchanged.
 
-Recorded on 2026-10-22, Linux, CMake 3.31.6, Python 3.13.5, GCC 14.2.0,
-Clang 22.1.8, installed Cwhip SDK 0.0.1 at `/home/chuck/opt/cwhip`:
+Historical full audit recorded on 2026-10-22, before the numeric-v2 migration,
+using Linux, CMake 3.31.6, Python 3.13.5, GCC 14.2.0, Clang 22.1.8, and
+Cwhip SDK 0.0.1:
 
 | Validation | Outcome |
 | --- | --- |
@@ -199,6 +201,12 @@ Clang 22.1.8, installed Cwhip SDK 0.0.1 at `/home/chuck/opt/cwhip`:
 | Private-prefix install | Installed executable bytes match build output; installed generator generates C, which compiles/runs; covered by installed-SDK opt-in |
 | Demonstrations and Graphviz | Calculator `20`; visitors `names=3`; SmallC checked/standalone JSON bytes equal; expression program `20`; statement basic `20/56/28`, control flow `3/3/3/4`, runtime `7true/false/-7/7/7/1`; DOT renders to SVG |
 | External documentation | GETTING_STARTED.md, CMAKE-SDK.md, STDLIB.md retrieved read-only from cwhip/master; SDK installation/prerequisite anchors and build flags checked against upstream |
+
+Numeric-v2 migration validation on 2026-10-23 used the supplied Cwhip SDK
+0.0.2 `numeric-v2` fixture, including a fresh configure/build of cparsegen,
+calculator, SmallC, and `smallc-cvm`. The complete CMake test target passed
+**353 tests with 2 baseline-parity skips** (`CPARSEGEN_BASELINE_EXECUTABLE`
+was not set).
 
 The sanitizer run uses the same unittest runner, with Clang selected by
 CMake and extra flags passed through the existing C harness:
