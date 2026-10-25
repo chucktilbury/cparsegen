@@ -226,6 +226,12 @@ CTest passes the configured generator executable (including a custom
 via `CMAKE_PREFIX_PATH` or `Cwhip_DIR`. Each suite has a separate working
 directory, HOME/XDG directories, and temporary root under
 `build/tests/cparsegen_<module>/`, so suites can run concurrently with `-j`.
+CTest removes inherited project-shell markers, build/install defaults, and
+SDK discovery overrides before starting each suite. Discovery/setup fixtures
+also scrub their subprocess environments, so they can run directly with Python
+or through CTest from inside an active project shell. Regression coverage runs
+the discovery/setup cases and a nested CTest invocation under a poisoned parent
+environment.
 Tests do not register or install into the selected SDK; install smoke checks
 use private prefixes. Configure with `-DBUILD_TESTING=OFF` to omit test
 registration and the normal build's SmallC CVM test prerequisite.

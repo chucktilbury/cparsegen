@@ -204,8 +204,15 @@ if(BUILD_TESTING)
             "${test_work}/cache" "${test_work}/state" "${test_work}/tmp")
         add_test(NAME "${test_name}"
             COMMAND "${CMAKE_COMMAND}" -E env
+                --unset=_PROJECT_NAME --unset=_PROJECT_LOC --unset=_BUILD_TYPE
+                --unset=CWHIP_BUILD_TYPE --unset=CMAKE_BUILD_TYPE
+                --unset=CMAKE_INSTALL_PREFIX --unset=CMAKE_PREFIX_PATH
+                --unset=Cwhip_DIR --unset=Cwhip_ROOT
+                --unset=CMAKE_TOOLCHAIN_FILE --unset=CMAKE_GENERATOR
+                --unset=CMAKE_GENERATOR_PLATFORM --unset=CMAKE_GENERATOR_TOOLSET
                 --unset=CWHIP_MODULE_DIR --unset=CWHIP_PACKAGE_PATH
                 --unset=CWHIP_MODULE_REGISTRY --unset=DESTDIR --unset=XDG_RUNTIME_DIR
+                --unset=XDG_CONFIG_DIRS --unset=XDG_DATA_DIRS
                 "HOME=${test_work}/home" "XDG_CONFIG_HOME=${test_work}/config"
                 "XDG_DATA_HOME=${test_work}/data" "XDG_CACHE_HOME=${test_work}/cache"
                 "XDG_STATE_HOME=${test_work}/state" "TMPDIR=${test_work}/tmp"

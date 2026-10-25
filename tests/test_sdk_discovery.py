@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -12,6 +13,47 @@ from generator_support import c_compile_command
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+POISONED_ENVIRONMENT = {
+    "_PROJECT_NAME": "cparsegen",
+    "_PROJECT_LOC": "/nonexistent/parent-project",
+    "_BUILD_TYPE": "debug",
+    "CWHIP_BUILD_TYPE": "Debug",
+    "CWHIP_SDK": "/nonexistent/parent-sdk",
+    "CWHIP_MODULE_DIR": "/nonexistent/parent-modules",
+    "CWHIP_PACKAGE_PATH": "/nonexistent/parent-packages",
+    "CWHIP_MODULE_REGISTRY": "/nonexistent/parent-registry",
+    "CMAKE_BUILD_TYPE": "InvalidParentBuildType",
+    "CMAKE_INSTALL_PREFIX": "/nonexistent/parent-install",
+    "CMAKE_PREFIX_PATH": "/nonexistent/parent-prefix",
+    "CMAKE_TOOLCHAIN_FILE": "/nonexistent/parent-toolchain.cmake",
+    "CMAKE_GENERATOR": "Invalid parent generator",
+    "CMAKE_GENERATOR_PLATFORM": "Invalid parent platform",
+    "CMAKE_GENERATOR_TOOLSET": "Invalid parent toolset",
+    "Cwhip_DIR": "/nonexistent/parent-package",
+    "Cwhip_ROOT": "/nonexistent/parent-root",
+    "HOME": "/nonexistent/parent-home",
+    "XDG_CONFIG_HOME": "relative-parent-config",
+    "XDG_DATA_HOME": "/nonexistent/parent-data",
+    "XDG_CACHE_HOME": "/nonexistent/parent-cache",
+    "XDG_STATE_HOME": "/nonexistent/parent-state",
+    "XDG_RUNTIME_DIR": "/nonexistent/parent-runtime",
+    "XDG_CONFIG_DIRS": "/nonexistent/parent-config-dirs",
+    "XDG_DATA_DIRS": "/nonexistent/parent-data-dirs",
+    "DESTDIR": "/nonexistent/parent-staging",
+}
+
+
+def sdk_test_environment(home):
+    env = {
+        name: value for name, value in os.environ.items()
+        if not name.startswith(("CWHIP_", "CMAKE_", "Cwhip_", "XDG_"))
+        and name not in ("_PROJECT_NAME", "_PROJECT_LOC", "_BUILD_TYPE", "DESTDIR")
+    }
+    env["HOME"] = str(home)
+    env["CWHIP_REGISTER_SDK"] = "OFF"
+    return env
 
 
 class SdkDiscoveryTests(unittest.TestCase):
@@ -38,12 +80,7 @@ class SdkDiscoveryTests(unittest.TestCase):
         self.sdk_settings = self.home / ".config/cwhip/sdk.toml"
         self.settings = self.home / ".config/cwhip/settings.toml"
         self.build = self.project / "build"
-        self.env = os.environ.copy()
-        for name in ("CWHIP_SDK", "CMAKE_PREFIX_PATH", "Cwhip_DIR", "XDG_CONFIG_HOME"):
-            self.env.pop(name, None)
-        self.env.pop("CMAKE_INSTALL_PREFIX", None)
-        self.env.pop("CMAKE_BUILD_TYPE", None)
-        self.env["HOME"] = str(self.home)
+        self.env = sdk_test_environment(self.home)
         fallback_sdk = self.make_sdk("fallback")
         self.env["CMAKE_PREFIX_PATH"] = str(fallback_sdk)
         self.env["CPARSEGEN_TEST_REGISTERED_SDK_PREFIX"] = str(fallback_sdk)
@@ -51,7 +88,6 @@ class SdkDiscoveryTests(unittest.TestCase):
             self.root / "sdk-application-prefix"
         )
         self.env["CPARSEGEN_TEST_APPLICATION_BUILD_TYPE"] = "RelWithDebInfo"
-        self.env.pop("DESTDIR", None)
 
     def make_sdk(self, name, sdk_abi="numeric-v2"):
         prefix = self.root / name
@@ -162,7 +198,15 @@ class SdkDiscoveryTests(unittest.TestCase):
         tests = self.project / "tests"
         tests.mkdir()
         for module in ("test_cli", "test_smallc_cvm"):
-            (tests / f"{module}.py").write_text("")
+            (tests / f"{module}.py").write_text(
+                "import os\n"
+                "import unittest\n"
+                "class EnvironmentTests(unittest.TestCase):\n"
+                "    def test_parent_environment_is_not_inherited(self):\n"
+                f"        poisoned = {POISONED_ENVIRONMENT!r}\n"
+                "        for name, value in poisoned.items():\n"
+                "            self.assertNotEqual(os.environ.get(name), value, name)\n"
+            )
         self.configure()
         result = subprocess.run(
             ["ctest", "--test-dir", str(self.build), "--show-only=json-v1"],
@@ -189,6 +233,10 @@ class SdkDiscoveryTests(unittest.TestCase):
             self.assertIn("CWHIP_REGISTER_SDK=OFF", test["command"])
             self.assertIn("--unset=DESTDIR", test["command"])
             self.assertIn("--unset=CWHIP_MODULE_REGISTRY", test["command"])
+            for variable in POISONED_ENVIRONMENT:
+                if variable not in ("HOME", "CWHIP_SDK", "XDG_CONFIG_HOME",
+                                    "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME"):
+                    self.assertIn(f"--unset={variable}", test["command"])
             self.assertEqual(test["command"][-3:], [
                 "-p", name.replace("cparsegen_", "test_", 1) + ".py", "-v",
             ])
@@ -196,6 +244,12 @@ class SdkDiscoveryTests(unittest.TestCase):
                 "smallc-cvm" in properties["LABELS"],
                 name == "cparsegen_smallc_cvm",
             )
+        poisoned_env = self.env | POISONED_ENVIRONMENT
+        result = subprocess.run(
+            ["ctest", "--test-dir", str(self.build), "--output-on-failure", "-j2"],
+            env=poisoned_env, capture_output=True, text=True, timeout=60,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_build_testing_off_disables_ctest(self):
         self.configure(extra=["-DBUILD_TESTING=OFF"])
@@ -622,6 +676,21 @@ class SdkDiscoveryTests(unittest.TestCase):
         self.assertFalse(self.settings.exists())
 
 
+class ProjectShellIsolationTests(unittest.TestCase):
+    def test_discovery_and_setup_under_poisoned_parent_environment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = subprocess.run(
+                [sys.executable, "-m", "unittest", "discover",
+                 "-s", str(ROOT / "tests"), "-p", "test_sdk_discovery.py",
+                 "-k", "SdkDiscoveryTests", "-v"],
+                cwd=directory, env=os.environ | POISONED_ENVIRONMENT,
+                capture_output=True, text=True, timeout=180,
+            )
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertIn("test_setup_uses_registered_prefix_for_cmake_and_shell_path", output)
+
+
 class InstalledSdkTests(unittest.TestCase):
     def test_sdk_toml_builds_generator_and_examples_with_installed_sdk(self):
         prefix = os.environ.get("CWHIP_SDK")
@@ -639,15 +708,9 @@ class InstalledSdkTests(unittest.TestCase):
                 'build_type = "Debug"\n'
             )
             settings.write_text(registration)
-            env = os.environ.copy()
-            for name in (
-                "CWHIP_SDK", "CMAKE_PREFIX_PATH", "Cwhip_DIR", "Cwhip_ROOT",
-                "CMAKE_INSTALL_PREFIX", "CMAKE_BUILD_TYPE",
-            ):
-                env.pop(name, None)
             home = root / "home"
             home.mkdir()
-            env["HOME"] = str(home)
+            env = sdk_test_environment(home)
             env["XDG_CONFIG_HOME"] = str(root / "config")
             result = subprocess.run(
                 ["cmake", "-S", str(ROOT), "-B", str(root / "build"),
