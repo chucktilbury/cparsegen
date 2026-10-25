@@ -274,7 +274,7 @@ identifier token is remapped on exact equality to a grammar literal, keeping
 longer identifiers intact. Skip rules participate in longest-match selection.
 Comment directives apply at token boundaries before those rules; a quoted
 token consumes comment-like text without interpreting it. See
-[Examples](../examples/README.md) for the exact directive contracts.
+[Examples](EXAMPLES.md) for the exact directive contracts.
 
 Backtracking is bounded and intended for small examples: the parser allows
 256 nested parser-rule calls, 100,000 matcher calls per parse, and 4,096 results per
@@ -287,7 +287,7 @@ scanner, AST, parser, and visitor without a `start` block. The calculator's
 handwritten evaluator includes that library; its grammar has no semantic
 actions. Rule nodes retain nested rule structure, terminals are leaves, and
 groups/repetitions flatten their children in source order. See
-[Examples](../examples/README.md) for runnable commands.
+[Examples](EXAMPLES.md) for runnable commands.
 
 The SmallC CLI prints JSON ASTs and byte-based file/line/column diagnostics.
 Its default mode is syntax-only; the handwritten Cwhip app's opt-in `--check`
@@ -471,8 +471,8 @@ emitters, consumes the shared checked AST and emits textual CVM assembly;
 the independent `cvm-as` assembler produces the binary and `cvm-run` executes
 it. This does not add SmallC bytecode support to the standalone C target or expand
 the language into OOP. See its
-[semantic boundary](../examples/smallc/README.md#semantic-checking-and-explicit-limits)
-and [CVM compiler](../examples/smallc/README.md#compile-and-run-with-cvm).
+[semantic boundary](SMALLC.md#semantic-checking-and-explicit-limits)
+and [CVM compiler](SMALLC.md#compile-and-run-with-cvm).
 Future work must preserve the implemented include, insertion, regex-composition
 and parser-selection contracts. The [feature/target evidence matrix](TEST-COVERAGE.md)
 records named tests and residual limitations without claiming exhaustive grammar coverage.

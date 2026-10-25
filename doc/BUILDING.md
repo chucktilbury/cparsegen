@@ -26,6 +26,11 @@ first. This project requires the exact Cwhip SDK version `0.0.2`, the
 application output directories and the `cwhip_apply_application_defaults()`
 CMake helper. Older SDK installations may not provide the required ABI or
 capabilities.
+Use an SDK built from current Cwhip `master`: version `0.0.2` and ABI
+`numeric-v2` alone do not identify its source syntax revision. The generator,
+examples, and emitted Cwhip use parenthesized keyword arguments such as
+`return(value)`. Older compilers that require `return value` are unsupported.
+The standalone C99 output and `.cpg` grammar syntax are unchanged.
 Keep the complete SDK prefix; do not point the project at just its `bin/`
 directory. The installer registers the prefix in the dedicated
 `sdk.toml`; cparsegen only reads this configuration and never edits user
@@ -101,6 +106,8 @@ Configuration also requires `Cwhip_SDK_ABI` to be `numeric-v2`. This rejects
 older or mismatched SDKs before building against incompatible numeric types.
 Applications and native packages must be rebuilt against this ABI; package
 manifests identify it with `[package] sdk-abi = "numeric-v2"`.
+When changing SDK installations, use a fresh build directory so cached package
+locks do not retain dependencies from the previous SDK (`CWHIP9001`).
 
 For an SDK already installed at a known prefix, select it explicitly:
 
@@ -138,7 +145,7 @@ on GCC/Clang). The Cwhip SDK is needed to
 build/run cparsegen, but not to compile or execute its generated C source.
 `cmake --build build --target test` (or `make -C build test`) also compiles C
 fixtures with this host compiler and compares them with Cwhip under private
-HOME/XDG directories. See [Standalone C](../README.md#standalone-c-target)
+HOME/XDG directories. See [Standalone C](USAGE.md#standalone-c-target)
 for direct generator/compiler commands and the bounded backend scope.
 
 The setup script configures the `build/` directory and launches an interactive
@@ -229,7 +236,8 @@ integration test. If you customized `CWHIP_BIN_DIR`, also set
 The [feature/target matrix](TEST-COVERAGE.md) maps named tests to the
 implemented contracts, with sampled-versus-exhaustive scope, API differences,
 and validation outcomes. The installed-SDK opt-in also installs cparsegen to
-a private prefix and generates, compiles, and runs C from that installed binary.
+a private prefix and generates, compiles, and runs both C and Cwhip from that
+installed binary.
 Optional artifact/diagnostic parity needs a separately built baseline:
 
 ```sh
@@ -261,7 +269,7 @@ The optional target generates an includeable parser and DOT graph in
 `build/calculator/`, then compiles the separate evaluator/CLI with the selected
 SDK. Compilation uses private HOME/XDG directories in that build tree.
 The executable follows `CWHIP_BIN_DIR`, just like cparsegen. See
-[Examples](../examples/README.md) for the grammar, variables, batch input, error
+[Examples](EXAMPLES.md) for the grammar, variables, batch input, error
 handling, and a smaller identifier-list example.
 
 ## Build the SmallC AST frontend
@@ -277,7 +285,7 @@ directories. Its executable follows `CWHIP_BIN_DIR`. The JSON output is a
 syntax AST, not a compiled/executed program. `smallc-ast --check INPUT.c`
 validates the AST's supported source-order semantic rules while preserving
 the JSON output; the default command remains syntax-only. See
-[SmallC](../examples/smallc/README.md) for the language subset, valid/invalid
+[SmallC](SMALLC.md) for the language subset, valid/invalid
 samples, checked/deferred semantic rules, and the bytecode boundary.
 
 For the standalone C99 frontend with the same JSON AST and source diagnostics:
@@ -323,7 +331,7 @@ error.
 
 `smallc-cvm INPUT.c OUTPUT.asm` preserves the syntax-only and `--check` AST
 frontends and applies the existing semantic checker before lowering. See
-[SmallC](../examples/smallc/README.md#compile-and-run-with-cvm) for supported
+[SmallC](SMALLC.md#compile-and-run-with-cvm) for supported
 constructs, built-in I/O functions, runtime behavior and unsupported
 diagnostics.
 
@@ -366,7 +374,7 @@ cc -std=c99 -Wall -Wextra -Werror -pedantic \
 These optional host-C targets honor `CWHIP_BIN_DIR` and generate parsers under
 `build/expression-compiler/` and `build/statement-compiler/`. They use strict C99
 settings and need no new dependencies. See the
-[expression guide](../examples/compiler/README.md) and
+[expression guide](EXPRESSION-COMPILER.md) and
 [statement guide](../examples/compiler/STATEMENTS.md) for explicit generation,
 syntax-only parsing, visitor state, generated C, and diagnostics.
 Both end-to-end suites are discovered by `make test`.

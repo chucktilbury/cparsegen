@@ -33,16 +33,16 @@ class GeneratorCli {
         if (extension == i + 1) { extension = grammarPath.length }
         String suffix = ".cw"
         if (cTarget) { suffix = ".c" }
-        return format("{}{}", grammarPath.slice(0, extension), suffix)
+        return(format("{}{}", grammarPath.slice(0, extension), suffix))
     }
 
     String pathKey(String path) {
         Sys.FileSystem fs()
         String resolved = fs.absolutePath(path)
-        if (!resolved.equals("")) { return resolved }
+        if (!resolved.equals("")) { return(resolved) }
         String parent = fs.absolutePath(fs.dirname(path))
-        if (parent.equals("")) { return "" }
-        return fs.join(parent, fs.basename(path))
+        if (parent.equals("")) { return("") }
+        return(fs.join(parent, fs.basename(path)))
     }
 
     bool distinctPaths(String first, String second) {
@@ -51,13 +51,13 @@ class GeneratorCli {
         String secondKey = pathKey(second)
         if (same < 0 || firstKey.equals("") || secondKey.equals("")) {
             io.writeErrorLine(format("cannot resolve output paths: {} and {}", first, second))
-            return false
+            return(false)
         }
         if (same == 1 || firstKey.equals(secondKey)) {
             io.writeErrorLine(format("path collision: {} and {}", first, second))
-            return false
+            return(false)
         }
-        return true
+        return(true)
     }
 
     int64 run() {
@@ -135,7 +135,7 @@ class GeneratorCli {
         }
         if (!valid) {
             io.writeErrorLine("usage: cparsegen [--library | --target c] [--include-path DIR:DIR...] [--dot FILE] [--] GRAMMAR [OUTPUT]")
-            return 2
+            return(2)
         }
 
         String grammarPath = positional[0] as String
@@ -145,15 +145,15 @@ class GeneratorCli {
         GrammarModel grammar = reader.read(grammarPath)
         if (!reader.problem.equals("")) {
             io.writeErrorLine(reader.diagnostic(reader.problem))
-            return 1
+            return(1)
         }
 
-        if (dot && !distinctPaths(programPath, graphPath)) { return 1 }
+        if (dot && !distinctPaths(programPath, graphPath)) { return(1) }
         index = 0
         while (index < reader.files.length) {
             GrammarSource source = reader.files[index] as GrammarSource
-            if (!distinctPaths(source.path, programPath)) { return 1 }
-            if (dot && !distinctPaths(source.path, graphPath)) { return 1 }
+            if (!distinctPaths(source.path, programPath)) { return(1) }
+            if (dot && !distinctPaths(source.path, graphPath)) { return(1) }
             index += 1
         }
 
@@ -167,7 +167,7 @@ class GeneratorCli {
                 reader.relatedSpan = cEmitter.relatedSpan
                 reader.diagnosticInfo = cEmitter.diagnosticInfo
                 io.writeErrorLine(reader.diagnostic(problem))
-                return 1
+                return(1)
             }
             program = cEmitter.emitProgram()
         }
@@ -177,18 +177,18 @@ class GeneratorCli {
         Sys.File programFile(programPath, "w")
         if (programFile.write(program) != program.length) {
             io.writeErrorLine(format("{}: incomplete write", programPath))
-            return 1
+            return(1)
         }
         programFile.close()
         if (dot) {
             Sys.File graphFile(graphPath, "w")
             if (graphFile.write(graph) != graph.length) {
                 io.writeErrorLine(format("{}: incomplete write", graphPath))
-                return 1
+                return(1)
             }
             graphFile.close()
         }
-        return 0
+        return(0)
     }
 }
 

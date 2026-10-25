@@ -16,48 +16,48 @@ class Trace : GeneratedVisitor {
     }
     int64 enter(AstNode node) {
         event("e", node)
-        return VISIT_CONTINUE
+        return(VISIT_CONTINUE)
     }
     int64 leave(AstNode node) {
         event("l", node)
-        return VISIT_CONTINUE
+        return(VISIT_CONTINUE)
     }
     int64 enter_rule_pair(AstNode node) {
         event("p", node)
-        if (mode.equals("skip")) { return VISIT_SKIP }
-        if (mode.equals("invalid-enter")) { return 99 }
-        return VISIT_CONTINUE
+        if (mode.equals("skip")) { return(VISIT_SKIP) }
+        if (mode.equals("invalid-enter")) { return(99) }
+        return(VISIT_CONTINUE)
     }
     int64 leave_rule_pair(AstNode node) {
         event("q", node)
-        if (mode.equals("leave-stop")) { return VISIT_STOP }
-        if (mode.equals("leave-error")) { return VISIT_ERROR }
-        if (mode.equals("leave-skip")) { return VISIT_SKIP }
-        if (mode.equals("invalid-leave")) { return 99 }
-        return VISIT_CONTINUE
+        if (mode.equals("leave-stop")) { return(VISIT_STOP) }
+        if (mode.equals("leave-error")) { return(VISIT_ERROR) }
+        if (mode.equals("leave-skip")) { return(VISIT_SKIP) }
+        if (mode.equals("invalid-leave")) { return(99) }
+        return(VISIT_CONTINUE)
     }
     int64 enter_token_NUMBER(AstNode node) {
         event("n", node)
         count += 1
-        if (mode.equals("stop")) { return VISIT_STOP }
-        if (mode.equals("error")) { return VISIT_ERROR }
-        return VISIT_CONTINUE
+        if (mode.equals("stop")) { return(VISIT_STOP) }
+        if (mode.equals("error")) { return(VISIT_ERROR) }
+        return(VISIT_CONTINUE)
     }
     int64 enter_literal_0(AstNode node) {
         event("t", node)
-        return VISIT_CONTINUE
+        return(VISIT_CONTINUE)
     }
     int64 onNode(AstNode node) {
         event("g", node)
-        return VISIT_CONTINUE
+        return(VISIT_CONTINUE)
     }
     int64 on_rule_entry(AstNode node) {
         event("d", node)
-        if (mode.equals("dispatch-stop")) { return VISIT_STOP }
-        if (mode.equals("dispatch-error")) { return VISIT_ERROR }
-        if (mode.equals("dispatch-skip")) { return VISIT_SKIP }
-        if (mode.equals("dispatch-invalid")) { return 99 }
-        return VISIT_CONTINUE
+        if (mode.equals("dispatch-stop")) { return(VISIT_STOP) }
+        if (mode.equals("dispatch-error")) { return(VISIT_ERROR) }
+        if (mode.equals("dispatch-skip")) { return(VISIT_SKIP) }
+        if (mode.equals("dispatch-invalid")) { return(99) }
+        return(VISIT_CONTINUE)
     }
 }
 

@@ -130,7 +130,7 @@ class DocumentationWorkflows(GeneratorTestCase):
              "NUMBER(-12.5e+2), @literal2(;))\n" * 2),
         ]:
             with self.subTest(section=section):
-                commands = self.blocks("examples/README.md", section)[0]
+                commands = self.blocks("doc/EXAMPLES.md", section)[0]
                 commands = commands.removeprefix("cmake --build build\n")
                 self.assertEqual(self.commands(commands), expected)
 

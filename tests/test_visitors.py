@@ -174,9 +174,9 @@ class Seen : GeneratedVisitor {
 rules = 0
 digits = "" }
     int64 enter_rule_entry(AstNode node) { rules += 1
-return VISIT_CONTINUE }
+return(VISIT_CONTINUE) }
     int64 enter_token_NUMBER(AstNode node) { digits.append(node.lexeme())
-return VISIT_CONTINUE }
+return(VISIT_CONTINUE) }
 }
 start {
     InputScanner scanner("1+2+3")
@@ -335,7 +335,7 @@ class Retained {
         parser.position = 2
         if (parser.parseAll() == null || parser.position != 3
                 || !parser.problem.equals("")) { Sys.Process().exit(17) }
-        return root
+        return(root)
     }
 }
 start {
@@ -366,9 +366,9 @@ events = "" }
     void pre_empty(AstNode node) { events.append("pre:empty ") }
     void post_empty(AstNode node) { events.append("post:empty ") }
     int64 enter(AstNode node) { Sys.Process().exit(20)
-return VISIT_ERROR }
+return(VISIT_ERROR) }
     int64 onNode(AstNode node) { Sys.Process().exit(21)
-return VISIT_ERROR }
+return(VISIT_ERROR) }
 }
 start {
     InputScanner scanner("12+34")

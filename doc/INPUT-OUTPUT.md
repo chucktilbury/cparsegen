@@ -36,7 +36,9 @@ All commands below start in the repository root and use default output
 directories. The generator requires an installed Cwhip SDK **0.0.2** with the
 `numeric-v2` ABI, including its CMake integration and
 application-output-directory support. It does not
-download or build that SDK. See [Building](BUILDING.md) for installation and
+download or build that SDK. Use current Cwhip syntax support as described in
+[Building](BUILDING.md); the unchanged SDK version/ABI alone is not enough.
+See that guide for installation and
 host prerequisites.
 
 ```sh
@@ -357,7 +359,7 @@ are diagnosed at generation time. Both scanners allow 100,000 visited NFA
 states per input token boundary across all competing rules, with an explicit
 resource-limit error, never a partial successful match. See
 [lexer-expressions.cpg](../examples/lexer-expressions.cpg) for a runnable
-composition example and [its commands](../examples/README.md#composable-lexer-expressions).
+composition example and [its commands](EXAMPLES.md#composable-lexer-expressions).
 
 ### Parser rules and EBNF
 
@@ -504,7 +506,7 @@ directive. The C backend explicitly rejects directives outside the table.
 };
 @insert cwhip visitor_post {
 class MyVisitor : GeneratedVisitor {
-    int64 enter_token_WORD(AstNode node) { return VISIT_CONTINUE }
+    int64 enter_token_WORD(AstNode node) { return(VISIT_CONTINUE) }
 }
 };
 ```
@@ -516,6 +518,14 @@ exactly `c` (standalone ISO C99) and `cwhip` (the default, including
 `--library`). There is no wildcard/shared target, C++, or Python support.
 Blocks for a different implemented target are validated but not emitted;
 unknown targets or boundaries are errors even in unselected blocks.
+
+Inserted Cwhip bodies must use current
+[Cwhip syntax](https://github.com/chucktilbury/cwhip/blob/master/doc/GRAMMAR.md),
+including `return(value)`, callable types such as `int64<int64>`, and dictionary
+literals such as `["key": value]` or `[:]`. The generator preserves bodies
+verbatim; it does not translate legacy syntax. A `.cpg` directive or parser-rule
+terminator is still `;`, even though `;` is not a Cwhip comment or statement
+separator. Native C insertions and standalone C output retain C semicolons.
 
 Every boundary is **outside** generated classes, structures, functions, and
 rule bodies. The following table describes exact placement, not execution
@@ -602,7 +612,7 @@ There are no member-insertion seams, inline rule actions, automatic hooks,
 or new parse semantics. AST and ordinary visitor APIs remain the application
 integration model.
 
-The [runnable two-target word counter](../examples/README.md#code-insertion)
+The [runnable two-target word counter](EXAMPLES.md#code-insertion)
 uses injected helper declarations and a visitor with the ordinary parser.
 
 ### Grammar includes
@@ -1238,8 +1248,8 @@ in its own grammar/visitor/runtime code; it has no classes, objects, or
 inheritance, and none of this is a built-in cparsegen language feature.
 
 Use the dedicated guides for application-specific language/checking limits:
-[Examples](../examples/README.md), [SmallC](../examples/smallc/README.md),
-[expression compiler](../examples/compiler/README.md), and
+[Examples](EXAMPLES.md), [SmallC](SMALLC.md),
+[expression compiler](EXPRESSION-COMPILER.md), and
 [statement compiler](../examples/compiler/STATEMENTS.md).
 
 ## Troubleshooting and limits
