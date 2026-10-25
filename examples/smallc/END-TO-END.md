@@ -1,6 +1,6 @@
 # Proving the SmallC toolchain end to end
 
-The four programs in [end_to_end/](end_to_end/) collectively exercise the
+The four programs in [end_to_end/](end_to_end) collectively exercise the
 **executable SmallC subset**, including console and binary file I/O. They are
 not merely parsing examples: each is compiled, assembled and executed in the
 automated tests. Commands below run from the **cparsegen repository root**
@@ -275,5 +275,5 @@ These examples cover the supported compiler, not full C:
   handles, bad modes, invalid lengths and host I/O failures do not silently
   succeed; the VM reports errors. There is no SmallC exception handler.
 
-See the [SmallC reference](README.md) for the full syntax/checker boundary
+See the [SmallC reference](../../doc/SMALLC.md) for the full syntax/checker boundary
 and [build documentation](../../doc/BUILDING.md) for SDK/tool discovery.

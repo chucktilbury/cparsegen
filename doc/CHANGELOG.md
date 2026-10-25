@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Migrate generator sources, embedded Cwhip scanner/parser/AST/visitor
+  templates, handwritten apps, insertion examples, test consumers, and
+  documentation to current Cwhip syntax (`return(value)`). Rename local
+  `range` variables to `interval` in sources and emitted scanners to avoid the
+  current reserved type keyword. Keep bare void
+  returns, C99 output, and `.cpg` semicolons unchanged. Pin representative
+  generated return forms in the compile/run regression. Move detailed README
+  guides into `doc/`, retain directory summaries, and update runnable links.
+
 - Add the optional SmallC-to-CVM v1 compiler. Reuse the parsed, semantically
   checked AST and emit textual CVM assembly (`smallc-cvm INPUT.c OUTPUT.asm`);
   the official `cvm-as` produces the binary and `cvm-run` executes it. The

@@ -207,28 +207,28 @@ class Analysis {
     int64 lexerIndex(String name) {
         int64 i = 0
         while (i < lexers.length) {
-            if ((lexers[i] as LexerPlan).name.equals(name)) { return i }
+            if ((lexers[i] as LexerPlan).name.equals(name)) { return(i) }
             i += 1
         }
-        return -1
+        return(-1)
     }
 
     int64 parserIndex(String name) {
         int64 i = 0
         while (i < parserRules.length) {
-            if ((parserRules[i] as ParserRuleFacts).name.equals(name)) { return i }
+            if ((parserRules[i] as ParserRuleFacts).name.equals(name)) { return(i) }
             i += 1
         }
-        return -1
+        return(-1)
     }
 
     int64 literalIndex(String value) {
         int64 i = 0
         while (i < literals.length) {
-            if ((literals[i] as String).equals(value)) { return i }
+            if ((literals[i] as String).equals(value)) { return(i) }
             i += 1
         }
-        return -1
+        return(-1)
     }
 
     int64 nameCount(list names, String name) {
@@ -238,7 +238,7 @@ class Analysis {
             if ((names[i] as String).equals(name)) { count += 1 }
             i += 1
         }
-        return count
+        return(count)
     }
 }
 
@@ -273,17 +273,17 @@ class GrammarAnalyzer {
                 grammar.relatedSpan = last.info.related
             }
         }
-        return problem
+        return(problem)
     }
 
     String fail(String phase, String error, SourceSpan span, SourceSpan related) {
         analysis.diagnostics.append(AnalysisDiagnostic(phase, GrammarDiagnostic(error, span, related), true))
-        return error
+        return(error)
     }
 
     String failPlain(String phase, String error) {
         analysis.diagnostics.append(AnalysisDiagnostic(phase, GrammarDiagnostic(error, null, null), false))
-        return error
+        return(error)
     }
 
     bool identifier(String name) {
@@ -291,10 +291,10 @@ class GrammarAnalyzer {
         while (i < name.length) {
             int64 byte = int64(name.byteAt(i))
             bool letter = (byte >= 65 && byte <= 90) || (byte >= 97 && byte <= 122) || byte == 95
-            if (!letter && (i == 0 || byte < 48 || byte > 57)) { return false }
+            if (!letter && (i == 0 || byte < 48 || byte > 57)) { return(false) }
             i += 1
         }
-        return name.length > 0
+        return(name.length > 0)
     }
 
     list directiveWords(String content) {
@@ -306,36 +306,36 @@ class GrammarAnalyzer {
             if (word.length > 0) { words.append(word) }
             i += 1
         }
-        return words
+        return(words)
     }
 
     String analyze() {
         String error = validateInsertions()
-        if (!error.equals("")) { return error }
+        if (!error.equals("")) { return(error) }
         int64 d = 0
         while (d < grammar.lexerRules.length) {
             addLexer(grammar.lexerRules[d] as LexerRule)
             d += 1
         }
         error = lexicalDirectives()
-        if (!error.equals("")) { return error }
-        if (analysis.lexers.length == 0) { return failPlain("declarations", "grammar must declare a lexer rule") }
-        if (grammar.parserRules.length == 0) { return failPlain("declarations", "grammar must declare a parser rule") }
+        if (!error.equals("")) { return(error) }
+        if (analysis.lexers.length == 0) { return(failPlain("declarations", "grammar must declare a lexer rule")) }
+        if (grammar.parserRules.length == 0) { return(failPlain("declarations", "grammar must declare a parser rule")) }
         error = checkLexerNames()
-        if (!error.equals("")) { return error }
+        if (!error.equals("")) { return(error) }
         error = compileLexers()
-        if (!error.equals("")) { return error }
+        if (!error.equals("")) { return(error) }
         error = applySkips()
-        if (!error.equals("")) { return error }
+        if (!error.equals("")) { return(error) }
         error = checkParserNames()
-        if (!error.equals("")) { return error }
+        if (!error.equals("")) { return(error) }
         buildParserTable()
         computeNullability()
         buildLeftCorners()
         error = validateParser()
-        if (!error.equals("")) { return error }
+        if (!error.equals("")) { return(error) }
         finishLeftRecursion()
-        return ""
+        return("")
     }
 
     void addLexer(LexerRule rule) {
@@ -347,8 +347,8 @@ class GrammarAnalyzer {
         while (i < grammar.insertions.length) {
             CodeInsertion block = grammar.insertions[i] as CodeInsertion
             if (!block.target.equals("c") && !block.target.equals("cwhip")) {
-                return fail("insertions", format("line {}: unknown @insert target {}", block.location,
-                    block.target), block.targetSpan, null)
+                return(fail("insertions", format("line {}: unknown @insert target {}", block.location,
+                    block.target), block.targetSpan, null))
             }
             if (!block.boundary.equals("file_pre") && !block.boundary.equals("file_post") &&
                 !block.boundary.equals("imports") && !block.boundary.equals("declarations") &&
@@ -356,12 +356,12 @@ class GrammarAnalyzer {
                 !block.boundary.equals("scanner_pre") && !block.boundary.equals("scanner_post") &&
                 !block.boundary.equals("parser_pre") && !block.boundary.equals("parser_post") &&
                 !block.boundary.equals("visitor_pre") && !block.boundary.equals("visitor_post")) {
-                return fail("insertions", format("line {}: unknown @insert boundary {}",
-                    block.location, block.boundary), block.boundarySpan, null)
+                return(fail("insertions", format("line {}: unknown @insert boundary {}",
+                    block.location, block.boundary), block.boundarySpan, null))
             }
             i += 1
         }
-        return ""
+        return("")
     }
 
     String lexicalDirectives() {
@@ -372,13 +372,13 @@ class GrammarAnalyzer {
             list words = directiveWords(directive.content)
             if (directive.name.equals("quoted")) {
                 if (words.length != 2) {
-                    return fail("directives", format("line {}: @quoted requires TOKEN single|double",
-                        directive.line), directive.span, null)
+                    return(fail("directives", format("line {}: @quoted requires TOKEN single|double",
+                        directive.line), directive.span, null))
                 }
                 String style = words[1] as String
                 if (!style.equals("single") && !style.equals("double")) {
-                    return fail("directives", format("line {}: @quoted requires single or double",
-                        directive.line), directive.span, null)
+                    return(fail("directives", format("line {}: @quoted requires single or double",
+                        directive.line), directive.span, null))
                 }
                 LexerRule rule = LexerRule(words[0] as String, directive.line)
                 rule.quote = 34
@@ -388,8 +388,8 @@ class GrammarAnalyzer {
             }
             if (directive.name.equals("keywords")) {
                 if (words.length != 1 || !lexical.keywordToken.equals("")) {
-                    return fail("directives", format("line {}: @keywords requires one identifier token and may occur only once",
-                        directive.line), directive.span, null)
+                    return(fail("directives", format("line {}: @keywords requires one identifier token and may occur only once",
+                        directive.line), directive.span, null))
                 }
                 lexical.keywordToken = words[0] as String
                 lexical.keywordSpan = directive.span
@@ -397,14 +397,14 @@ class GrammarAnalyzer {
             if (directive.name.equals("reserved")) {
                 lexical.reservedSpan = directive.span
                 if (words.length == 0) {
-                    return fail("directives", format("line {}: @reserved requires word names",
-                        directive.line), directive.span, null)
+                    return(fail("directives", format("line {}: @reserved requires word names",
+                        directive.line), directive.span, null))
                 }
                 int64 w = 0
                 while (w < words.length) {
                     if (!identifier(words[w] as String)) {
-                        return fail("directives", format("line {}: @reserved requires identifier spellings",
-                            directive.line), directive.span, null)
+                        return(fail("directives", format("line {}: @reserved requires identifier spellings",
+                            directive.line), directive.span, null))
                     }
                     lexical.reserved.append(words[w])
                     w += 1
@@ -412,15 +412,15 @@ class GrammarAnalyzer {
             }
             if (directive.name.equals("line_comment")) {
                 if (words.length != 1 || (words[0] as String).length == 0) {
-                    return fail("directives", format("line {}: @line_comment requires one nonempty marker",
-                        directive.line), directive.span, null)
+                    return(fail("directives", format("line {}: @line_comment requires one nonempty marker",
+                        directive.line), directive.span, null))
                 }
                 lexical.lineComments.append(words[0])
             }
             if (directive.name.equals("block_comment")) {
                 if (words.length != 2) {
-                    return fail("directives", format("line {}: @block_comment requires opening and closing markers",
-                        directive.line), directive.span, null)
+                    return(fail("directives", format("line {}: @block_comment requires opening and closing markers",
+                        directive.line), directive.span, null))
                 }
                 lexical.blockComments.append(words)
             }
@@ -429,15 +429,15 @@ class GrammarAnalyzer {
         if (!lexical.keywordToken.equals("")) {
             int64 token = analysis.lexerIndex(lexical.keywordToken)
             if (token < 0 || (analysis.lexers[token] as LexerPlan).quote != 0) {
-                return fail("directives", "@keywords must name a declared expression lexer token",
-                            lexical.keywordSpan, null)
+                return(fail("directives", "@keywords must name a declared expression lexer token",
+                            lexical.keywordSpan, null))
             }
         }
         if (lexical.reserved.length > 0 && lexical.keywordToken.equals("")) {
-            return fail("directives", "@reserved requires @keywords to identify the identifier token",
-                        lexical.reservedSpan, null)
+            return(fail("directives", "@reserved requires @keywords to identify the identifier token",
+                        lexical.reservedSpan, null))
         }
-        return ""
+        return("")
     }
 
     String checkLexerNames() {
@@ -452,8 +452,8 @@ class GrammarAnalyzer {
             LexerPlan plan = analysis.lexers[i] as LexerPlan
             int64 first = int64(plan.name.byteAt(0))
             if (first < 65 || first > 90 || !identifier(plan.name)) {
-                return fail("lexer", format("line {}: lexer names must begin with an uppercase letter",
-                    plan.line), plan.span, null)
+                return(fail("lexer", format("line {}: lexer names must begin with an uppercase letter",
+                    plan.line), plan.span, null))
             }
             if (analysis.nameCount(names, plan.name) > 1) {
                 SourceSpan previous = null
@@ -464,90 +464,90 @@ class GrammarAnalyzer {
                     p += 1
                 }
                 if (previous != null) {
-                    return fail("lexer", format("line {}: duplicate lexer rule {}", plan.line,
-                        plan.name), plan.span, previous)
+                    return(fail("lexer", format("line {}: duplicate lexer rule {}", plan.line,
+                        plan.name), plan.span, previous))
                 }
             }
             i += 1
         }
-        return ""
+        return("")
     }
 
     String resolveLexer(LexerPlan owner, LexerExpr expression, int64 depth) {
         if (depth > 128) {
-            return fail("lexer", format("line {}: lexer expression nesting/reference limit exceeded (128)",
-                expression.line), expression.span, null)
+            return(fail("lexer", format("line {}: lexer expression nesting/reference limit exceeded (128)",
+                expression.line), expression.span, null))
         }
         if (expression.kind == 1) {
             int64 index = analysis.lexerIndex(expression.value)
             if (index < 0) {
-                return fail("lexer", format("line {}: unknown lexer reference {}", expression.line,
-                    expression.value), expression.span, null)
+                return(fail("lexer", format("line {}: unknown lexer reference {}", expression.line,
+                    expression.value), expression.span, null))
             }
             LexerPlan target = analysis.lexers[index] as LexerPlan
             if (target.quote != 0) {
-                return fail("lexer", format("line {}: cannot compose @quoted token {}",
-                    expression.line, target.name), expression.span, target.span)
+                return(fail("lexer", format("line {}: cannot compose @quoted token {}",
+                    expression.line, target.name), expression.span, target.span))
             }
             if (target.color == 1) {
-                return fail("lexer", format("line {}: cyclic lexer reference {}",
-                    expression.line, target.name), expression.span, target.span)
+                return(fail("lexer", format("line {}: cyclic lexer reference {}",
+                    expression.line, target.name), expression.span, target.span))
             }
             if (target.color == 0) {
                 target.color = 1
                 String error = resolveLexer(target, target.rule.expression, depth + 1)
-                if (!error.equals("")) { return error }
+                if (!error.equals("")) { return(error) }
                 target.nullable = lastNullable
                 target.color = 2
             }
             owner.references.append(ResolvedReference(0, target.name, owner.index, index,
                 expression.line, expression.span, target.span))
             lastNullable = target.nullable
-            return ""
+            return("")
         }
         bool nullable = expression.kind == 2 || (expression.kind == 4 && expression.minimum == 0)
         int64 c = 0
         while (c < expression.children.length) {
             LexerExpr child = expression.children[c] as LexerExpr
             String error = resolveLexer(owner, child, depth + 1)
-            if (!error.equals("")) { return error }
+            if (!error.equals("")) { return(error) }
             bool childNullable = lastNullable
             if (expression.kind == 2 && !childNullable) { nullable = false }
             if (expression.kind == 3 && childNullable) { nullable = true }
             if (expression.kind == 4 && childNullable) {
-                return fail("lexer", format("line {}: nullable lexer repetition is not supported",
-                    expression.line), expression.span, null)
+                return(fail("lexer", format("line {}: nullable lexer repetition is not supported",
+                    expression.line), expression.span, null))
             }
             c += 1
         }
         lastNullable = nullable
-        return ""
+        return("")
     }
 
     int64 lexerState(int64 kind, list ranges, int64 next, int64 alternate, int64 line, SourceSpan span) {
         if (analysis.lexerStates.length >= 4096) {
             lexerProblem = format("line {}: expanded lexer state limit exceeded (4096)", line)
             lexerProblemSpan = span
-            return -1
+            return(-1)
         }
         int64 index = analysis.lexerStates.length
         analysis.lexerStates.append(LexerState(kind, ranges, next, alternate))
-        return index
+        return(index)
     }
 
     int64 compileLexer(LexerExpr expression, int64 next, int64 depth) {
-        if (!lexerProblem.equals("")) { return -1 }
+        if (!lexerProblem.equals("")) { return(-1) }
         if (depth > 128) {
             lexerProblem = format("line {}: expanded lexer nesting/reference limit exceeded (128)", expression.line)
             lexerProblemSpan = expression.span
-            return -1
+            return(-1)
         }
         if (expression.kind == 0) {
-            return lexerState(0, expression.ranges, next, -1, expression.line, expression.span)
+            return(lexerState(0, expression.ranges, next, -1, expression.line, expression.span))
         }
         if (expression.kind == 1) {
             LexerPlan target = analysis.lexers[analysis.lexerIndex(expression.value)] as LexerPlan
-            return compileLexer(target.rule.expression, next, depth + 1)
+            return(compileLexer(target.rule.expression, next, depth + 1))
         }
         if (expression.kind == 2) {
             int64 c = expression.children.length - 1
@@ -555,7 +555,7 @@ class GrammarAnalyzer {
                 next = compileLexer(expression.children[c] as LexerExpr, next, depth + 1)
                 c -= 1
             }
-            return next
+            return(next)
         }
         if (expression.kind == 3) {
             int64 result = compileLexer(expression.children[0] as LexerExpr, next, depth + 1)
@@ -565,16 +565,16 @@ class GrammarAnalyzer {
                 result = lexerState(1, [], result, branch, expression.line, expression.span)
                 c += 1
             }
-            return result
+            return(result)
         }
         int64 split = lexerState(1, [], -1, next, expression.line, expression.span)
-        if (split < 0) { return -1 }
+        if (split < 0) { return(-1) }
         int64 continuation = next
         if (expression.maximum < 0) { continuation = split }
         int64 child = compileLexer(expression.children[0] as LexerExpr, continuation, depth + 1)
         (analysis.lexerStates[split] as LexerState).next = child
-        if (expression.minimum == 0) { return split }
-        return child
+        if (expression.minimum == 0) { return(split) }
+        return(child)
     }
 
     String compileLexers() {
@@ -585,19 +585,19 @@ class GrammarAnalyzer {
                 if (plan.color == 0) {
                     plan.color = 1
                     String error = resolveLexer(plan, plan.rule.expression, 0)
-                    if (!error.equals("")) { return error }
+                    if (!error.equals("")) { return(error) }
                     plan.nullable = lastNullable
                     plan.color = 2
                 }
                 if (plan.nullable) {
-                    return fail("lexer", format("line {}: lexer rule {} can match empty input",
-                        plan.line, plan.name), plan.span, null)
+                    return(fail("lexer", format("line {}: lexer rule {} can match empty input",
+                        plan.line, plan.name), plan.span, null))
                 }
                 plan.firstState = analysis.lexerStates.length
                 plan.accept = lexerState(2, [], -1, -1, plan.line, plan.span)
                 plan.entry = compileLexer(plan.rule.expression, plan.accept, 0)
                 if (!lexerProblem.equals("")) {
-                    return fail("lexer", lexerProblem, lexerProblemSpan, null)
+                    return(fail("lexer", lexerProblem, lexerProblemSpan, null))
                 }
                 plan.stateCount = analysis.lexerStates.length - plan.firstState
             }
@@ -613,7 +613,7 @@ class GrammarAnalyzer {
             }
             i += 1
         }
-        return ""
+        return("")
     }
 
     String applySkips() {
@@ -623,8 +623,8 @@ class GrammarAnalyzer {
             if (directive.name.equals("skip")) {
                 int64 token = analysis.lexerIndex(directive.content)
                 if (token < 0) {
-                    return fail("directives", format("line {}: @skip requires a declared lexer token name",
-                        directive.line), directive.span, null)
+                    return(fail("directives", format("line {}: @skip requires a declared lexer token name",
+                        directive.line), directive.span, null))
                 }
                 (analysis.lexers[token] as LexerPlan).skip = true
             }
@@ -634,11 +634,11 @@ class GrammarAnalyzer {
         if (!keyword.equals("")) {
             LexerPlan token = analysis.lexers[analysis.lexerIndex(keyword)] as LexerPlan
             if (token.skip) {
-                return fail("directives", "@keywords cannot use a skipped lexer token",
-                            analysis.lexical.keywordSpan, token.span)
+                return(fail("directives", "@keywords cannot use a skipped lexer token",
+                            analysis.lexical.keywordSpan, token.span))
             }
         }
-        return ""
+        return("")
     }
 
     String checkParserNames() {
@@ -653,8 +653,8 @@ class GrammarAnalyzer {
             ParserRule rule = grammar.parserRules[i] as ParserRule
             int64 first = int64(rule.name.byteAt(0))
             if (first < 97 || first > 122) {
-                return fail("parser", format("line {}: parser-rule names must begin with a lowercase letter",
-                    rule.line), rule.span, null)
+                return(fail("parser", format("line {}: parser-rule names must begin with a lowercase letter",
+                    rule.line), rule.span, null))
             }
             if (analysis.nameCount(names, rule.name) > 1) {
                 SourceSpan previous = null
@@ -665,13 +665,13 @@ class GrammarAnalyzer {
                     p += 1
                 }
                 if (previous != null) {
-                    return fail("parser", format("line {}: duplicate parser rule {}", rule.line,
-                        rule.name), rule.span, previous)
+                    return(fail("parser", format("line {}: duplicate parser rule {}", rule.line,
+                        rule.name), rule.span, previous))
                 }
             }
             i += 1
         }
-        return ""
+        return("")
     }
 
     // Numbers expressions children-first, resolves references, and interns literals.
@@ -695,15 +695,15 @@ class GrammarAnalyzer {
         }
         entry.index = analysis.expressions.length
         analysis.expressions.append(entry)
-        return entry.index
+        return(entry.index)
     }
 
     ParserExprRecord expressionAt(int64 index) {
-        return analysis.expressions[index] as ParserExprRecord
+        return(analysis.expressions[index] as ParserExprRecord)
     }
 
     ParserRuleFacts ruleAt(int64 index) {
-        return analysis.parserRules[index] as ParserRuleFacts
+        return(analysis.parserRules[index] as ParserRuleFacts)
     }
 
     void buildParserTable() {
@@ -835,17 +835,17 @@ class GrammarAnalyzer {
             if (entry.token < 0 && entry.target < 0) {
                 int64 first = int64(entry.value.byteAt(0))
                 if (first >= 65 && first <= 90) {
-                    return fail("references", format("line {}: unknown lexer token {}", entry.line,
-                        entry.value), entry.span, null)
+                    return(fail("references", format("line {}: unknown lexer token {}", entry.line,
+                        entry.value), entry.span, null))
                 }
-                return fail("references", format("line {}: unknown parser rule {}", entry.line,
-                    entry.value), entry.span, null)
+                return(fail("references", format("line {}: unknown parser rule {}", entry.line,
+                    entry.value), entry.span, null))
             }
             if (entry.token >= 0) {
                 LexerPlan token = analysis.lexers[entry.token] as LexerPlan
                 if (token.skip) {
-                    return fail("references", format("line {}: skipped lexer token {} cannot be matched by a parser",
-                        entry.line, token.name), entry.span, token.span)
+                    return(fail("references", format("line {}: skipped lexer token {} cannot be matched by a parser",
+                        entry.line, token.name), entry.span, token.span))
                 }
                 analysis.parserReferences.append(ResolvedReference(1, token.name, -1, entry.token,
                     entry.line, entry.span, token.span))
@@ -856,20 +856,20 @@ class GrammarAnalyzer {
             }
         }
         if (entry.kind == 1 && entry.value.length == 0) {
-            return fail("references", format("line {}: empty quoted terminals are not supported",
-                entry.line), entry.span, null)
+            return(fail("references", format("line {}: empty quoted terminals are not supported",
+                entry.line), entry.span, null))
         }
         if (entry.kind == 4 && expressionAt(entry.children[0] as int64).nullable) {
-            return fail("references", format("line {}: nullable repetition is not supported",
-                entry.line), entry.span, null)
+            return(fail("references", format("line {}: nullable repetition is not supported",
+                entry.line), entry.span, null))
         }
         int64 i = 0
         while (i < entry.children.length) {
             String error = validateExpression(entry.children[i] as int64)
-            if (!error.equals("")) { return error }
+            if (!error.equals("")) { return(error) }
             i += 1
         }
-        return ""
+        return("")
     }
 
     // Only zero-context cycles admit infinitely many equal-span trees.
@@ -882,19 +882,19 @@ class GrammarAnalyzer {
             if (edge.zeroContext) {
                 if (onPath[edge.destination] as bool) {
                     ParserRuleFacts target = ruleAt(edge.destination)
-                    return fail("left-recursion", format("line {}: left recursion through parser rule {} can repeat without consuming tokens; require a nonnullable prefix or suffix on every cycle",
-                        edge.line, target.name), edge.span, target.span)
+                    return(fail("left-recursion", format("line {}: left recursion through parser rule {} can repeat without consuming tokens; require a nonnullable prefix or suffix on every cycle",
+                        edge.line, target.name), edge.span, target.span))
                 }
                 if (!(done[edge.destination] as bool)) {
                     String error = zeroCycle(edge.destination, onPath, done)
-                    if (!error.equals("")) { return error }
+                    if (!error.equals("")) { return(error) }
                 }
             }
             e += 1
         }
         onPath[rule] = false
         done[rule] = true
-        return ""
+        return("")
     }
 
     String validateParser() {
@@ -910,12 +910,12 @@ class GrammarAnalyzer {
         while (r < analysis.parserRules.length) {
             ParserRuleFacts facts = ruleAt(r)
             String error = validateExpression(facts.root)
-            if (!error.equals("")) { return error }
+            if (!error.equals("")) { return(error) }
             error = zeroCycle(r, onPath, done)
-            if (!error.equals("")) { return error }
+            if (!error.equals("")) { return(error) }
             r += 1
         }
-        return ""
+        return("")
     }
 
     // Consuming left recursion needs a conservative token lower bound per expression.

@@ -306,11 +306,11 @@ class LexerExpressionValidationTests(GeneratorTestCase):
         driver.write_text(
             'include "generated.cw"\nclass Driver {\nint64 run() {\n'
             f'InputScanner scanner({self.cw_string(source)})\n'
-            'if (!scanner.scan()) { print(scanner.problem)\nreturn 1 }\n'
+            'if (!scanner.scan()) { print(scanner.problem)\nreturn(1) }\n'
             'int64 i = 0\nwhile (i < scanner.tokens.length) {\n'
             'LexToken token = scanner.tokens[i] as LexToken\n'
             'print(format("{}:{}:{}:{}\\n", token.kind, token.offset, '
-            'token.text.length, token.text))\ni += 1\n}\nreturn 0\n}\n}\n'
+            'token.text.length, token.text))\ni += 1\n}\nreturn(0)\n}\n}\n'
             'start { Sys.Process().exit(Driver().run()) }\n'
         )
         cw_executable = self.directory / "scan-cw"

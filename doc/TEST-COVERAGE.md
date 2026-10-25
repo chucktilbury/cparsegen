@@ -31,6 +31,14 @@ recognition. C is compiled with `-std=c99 -Wall -Wextra -Werror -pedantic`;
 W/WL compile with the installed SDK. Positive runtime evidence below means
 generate **and compile and run**, not merely inspect emitted strings.
 
+The current-syntax migration was validated with a private SDK built from
+Cwhip `master` plus its test fix (head `ca2bd106`): 353 tests ran successfully,
+with only the two opt-in baseline-parity checks skipped. This includes
+generated Cwhip/C compilation, installed-SDK and installed-generator smoke
+checks for both targets, documentation workflows, and all SmallC/CVM tests
+using the available assembler/runner. Earlier audit counts below describe
+their historical runs, not this migration's result.
+
 ## Evidence index
 
 Method names below are exact unittest methods. Shared mixins run in each
@@ -64,6 +72,7 @@ boundary; they do not independently prove the analyzer's internal call count.
 
 | Feature / contract | Target/mode evidence | Concrete tests and scope |
 | --- | --- | --- |
+| Current Cwhip keyword syntax in generated AST, parser, visitor, and scanner | W/WL | G.`test_generate_compile_and_run_shortest_parser` pins representative `return(value)` output and compiles/runs it; U and J compile/run library visitors and inserted Cwhip bodies |
 | Interleaved declarations, forward token/rule references, first parser rule as entry | W/C/D; WL/CL use the same tables | F.`test_interleaved_collection_resolves_forward_names_and_keeps_start_rule`; B.`test_shared_conformance_fixtures_are_differential` |
 | Grammar comments, multiline parser rules, `;`, opaque payloads versus embedded actions/mixed declarations | W/C/V | F.`test_rule_trivia_does_not_terminate_or_enter_generated_input`, `test_unsupported_and_malformed_declarations_fail_without_outputs`; A.`test_c_directive_allowlist_is_backend_validation_after_analysis` |
 | Groups, sequences, ordered choices, `?/*/+`, empty alternatives/rules, flattened children | W/C; WL/CL shapes | G.`test_optional_plus_and_explicit_empty_rule`; B.`test_ebnf_empty_rules_and_source_order`; U.`test_library_tokens_tree_shapes_and_retained_roots` |

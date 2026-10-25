@@ -15,25 +15,25 @@ class Names : GeneratedVisitor {
     int64 on_token_IDENT(AstNode node) {
         if (node.lexeme().equals("forbidden")) {
             problem = "identifier 'forbidden' is not allowed"
-            return VISIT_ERROR
+            return(VISIT_ERROR)
         }
         count += 1
-        if (first) { return VISIT_STOP }
-        return VISIT_CONTINUE
+        if (first) { return(VISIT_STOP) }
+        return(VISIT_CONTINUE)
     }
 
     int64 enter_token_IDENT(AstNode node) {
-        return on_token_IDENT(node)
+        return(on_token_IDENT(node))
     }
 
     int64 on_rule_words(AstNode node) {
         int64 i = 0
         while (i < node.childCount()) {
             int64 result = dispatch(node.childAt(i))
-            if (result != VISIT_CONTINUE) { return result }
+            if (result != VISIT_CONTINUE) { return(result) }
             i += 1
         }
-        return VISIT_CONTINUE
+        return(VISIT_CONTINUE)
     }
 }
 

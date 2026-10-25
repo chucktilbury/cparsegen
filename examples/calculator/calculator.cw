@@ -24,21 +24,21 @@ class Calculator {
     }
 
     AstNode child(AstNode node, int64 index) {
-        return node.children[index] as AstNode
+        return(node.children[index] as AstNode)
     }
 
     Variable findVariable(String name) {
         int64 i = 0
         while (i < variables.length) {
             Variable variable = variables[i] as Variable
-            if (variable.name.equals(name)) { return variable }
+            if (variable.name.equals(name)) { return(variable) }
             i += 1
         }
-        return null
+        return(null)
     }
 
     fp64 evaluate(AstNode node) {
-        if (!problem.equals("")) { return 0.0 }
+        if (!problem.equals("")) { return(0.0) }
         if (node.name.equals("number")) {
             String spelling = ""
             int64 i = 0
@@ -46,25 +46,25 @@ class Calculator {
                 spelling.append(child(node, i).text)
                 i += 1
             }
-            return spelling.toFp64()
+            return(spelling.toFp64())
         }
         if (node.name.equals("IDENT")) {
             Variable variable = findVariable(node.text)
             if (variable == null) {
                 problem = format("undefined variable '{}'", node.text)
-                return 0.0
+                return(0.0)
             }
-            return variable.value
+            return(variable.value)
         }
         if (node.name.equals("primary")) {
-            if (node.children.length == 3) { return evaluate(child(node, 1)) }
-            return evaluate(child(node, 0))
+            if (node.children.length == 3) { return(evaluate(child(node, 1))) }
+            return(evaluate(child(node, 0)))
         }
         if (node.name.equals("unary")) {
-            if (node.children.length == 1) { return evaluate(child(node, 0)) }
+            if (node.children.length == 1) { return(evaluate(child(node, 0))) }
             fp64 value = evaluate(child(node, 1))
-            if (child(node, 0).text.equals("-")) { return -value }
-            return value
+            if (child(node, 0).text.equals("-")) { return(-value) }
+            return(value)
         }
         if (node.name.equals("expression") || node.name.equals("product")) {
             fp64 result = evaluate(child(node, 0))
@@ -72,7 +72,7 @@ class Calculator {
             while (i < node.children.length && problem.equals("")) {
                 String operation = child(node, i).text
                 fp64 value = evaluate(child(node, i + 1))
-                if (!problem.equals("")) { return 0.0 }
+                if (!problem.equals("")) { return(0.0) }
                 if (operation.equals("+")) { result += value }
                 else {
                     if (operation.equals("-")) { result -= value }
@@ -81,7 +81,7 @@ class Calculator {
                         else {
                             if (value == 0.0) {
                                 problem = "division by zero"
-                                return 0.0
+                                return(0.0)
                             }
                             result /= value
                         }
@@ -89,10 +89,10 @@ class Calculator {
                 }
                 i += 2
             }
-            return result
+            return(result)
         }
         problem = format("unexpected AST node '{}'", node.name)
-        return 0.0
+        return(0.0)
     }
 
     bool execute(String text) {
@@ -100,19 +100,19 @@ class Calculator {
         InputScanner scanner(text)
         if (!scanner.scan()) {
             problem = scanner.problem
-            return false
+            return(false)
         }
         GeneratedParser parser(scanner.tokens)
         AstNode statement = parser.parseAll()
         if (statement == null) {
             problem = parser.problem
-            return false
+            return(false)
         }
         bool assignment = statement.children.length == 3
         int64 expressionIndex = 0
         if (assignment) { expressionIndex = 2 }
         fp64 value = evaluate(child(statement, expressionIndex))
-        if (!problem.equals("")) { return false }
+        if (!problem.equals("")) { return(false) }
         if (assignment) {
             String name = child(statement, 0).text
             Variable variable = findVariable(name)
@@ -121,7 +121,7 @@ class Calculator {
             io.writeLine(format("{} = {}", name, value))
         }
         else { io.writeLine(format("{}", value)) }
-        return true
+        return(true)
     }
 
     void listVariables() {
@@ -145,25 +145,25 @@ class Calculator {
             if (byte.equals("\n")) { break }
             line.append(byte)
         }
-        return line
+        return(line)
     }
 
     int64 run() {
         Sys.Process process()
         if (process.argc() == 3 && process.arg(1).equals("-e")) {
-            if (execute(process.arg(2))) { return 0 }
+            if (execute(process.arg(2))) { return(0) }
             io.writeErrorLine(format("error: {}", problem))
-            return 1
+            return(1)
         }
         bool batch = process.argc() == 2 && process.arg(1).equals("--batch")
         if (process.argc() == 2 && process.arg(1).equals("--help")) {
             io.writeLine("usage: calculator [-e EXPRESSION | --batch | --help]")
             io.writeLine("Without arguments: interactive CLI. Commands: :help, :vars, :quit")
-            return 0
+            return(0)
         }
         if (process.argc() != 1 && !batch) {
             io.writeErrorLine("usage: calculator [-e EXPRESSION | --batch | --help]")
-            return 2
+            return(2)
         }
         if (!batch) { io.writeLine("Calculator: :help for help, :quit to exit.") }
         int64 status = 0
@@ -187,7 +187,7 @@ class Calculator {
                 }
             }
         }
-        return status
+        return(status)
     }
 }
 

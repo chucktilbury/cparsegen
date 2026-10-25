@@ -82,10 +82,10 @@ class SmallCIntrinsics {
         int64 i = 0
         while (i < entries.length) {
             SmallCIntrinsic entry = entries[i] as SmallCIntrinsic
-            if (entry.name.equals(name)) { return entry }
+            if (entry.name.equals(name)) { return(entry) }
             i += 1
         }
-        return null
+        return(null)
     }
 }
 
@@ -120,7 +120,7 @@ class SmallCSemanticChecker : GeneratedVisitor {
     }
 
     AstNode child(AstNode node, int64 index) {
-        return node.children[index] as AstNode
+        return(node.children[index] as AstNode)
     }
 
     void indexLocations(AstNode node, list tokens, SmallCTokenCursor cursor) {
@@ -145,10 +145,10 @@ class SmallCSemanticChecker : GeneratedVisitor {
         int64 i = 0
         while (i < locations.length) {
             SmallCLocation location = locations[i] as SmallCLocation
-            if (location.node == node) { return location.offset }
+            if (location.node == node) { return(location.offset) }
             i += 1
         }
-        return 0
+        return(0)
     }
 
     void fail(AstNode node, String message) {
@@ -159,31 +159,31 @@ class SmallCSemanticChecker : GeneratedVisitor {
     }
 
     bool isArray(String valueType) {
-        return valueType.equals("int[]") || valueType.equals("char[]")
+        return(valueType.equals("int[]") || valueType.equals("char[]"))
     }
 
     String elementType(String valueType) {
-        if (valueType.equals("int[]")) { return "int" }
-        if (valueType.equals("char[]")) { return "char" }
-        return valueType
+        if (valueType.equals("int[]")) { return("int") }
+        if (valueType.equals("char[]")) { return("char") }
+        return(valueType)
     }
 
     bool isScalar(String valueType) {
-        return valueType.equals("int") || valueType.equals("char")
+        return(valueType.equals("int") || valueType.equals("char"))
     }
 
     bool isValue(String valueType) {
-        return isScalar(valueType)
+        return(isScalar(valueType))
     }
 
     SmallCSymbol findGlobal(String name) {
         int64 i = 0
         while (i < globals.length) {
             SmallCSymbol symbol = globals[i] as SmallCSymbol
-            if (symbol.name.equals(name)) { return symbol }
+            if (symbol.name.equals(name)) { return(symbol) }
             i += 1
         }
-        return null
+        return(null)
     }
 
     SmallCSymbol findScoped(String name) {
@@ -192,28 +192,28 @@ class SmallCSemanticChecker : GeneratedVisitor {
             int64 i = 0
             while (i < scope.symbols.length) {
                 SmallCSymbol symbol = scope.symbols[i] as SmallCSymbol
-                if (symbol.name.equals(name)) { return symbol }
+                if (symbol.name.equals(name)) { return(symbol) }
                 i += 1
             }
             scope = scope.parent
         }
-        return null
+        return(null)
     }
 
     SmallCSymbol findVariable(String name) {
         SmallCSymbol symbol = findScoped(name)
-        if (symbol != null) { return symbol }
-        return findGlobal(name)
+        if (symbol != null) { return(symbol) }
+        return(findGlobal(name))
     }
 
     bool currentScopeHas(String name) {
-        if (currentScope == null) { return false }
+        if (currentScope == null) { return(false) }
         int64 i = 0
         while (i < currentScope.symbols.length) {
-            if ((currentScope.symbols[i] as SmallCSymbol).name.equals(name)) { return true }
+            if ((currentScope.symbols[i] as SmallCSymbol).name.equals(name)) { return(true) }
             i += 1
         }
-        return false
+        return(false)
     }
 
     void pushScope() {
@@ -248,17 +248,17 @@ class SmallCSemanticChecker : GeneratedVisitor {
     String exactType(String actual, String expected, AstNode node, String context) {
         if (actual.equals("void")) {
             fail(node, format("{} cannot use the result of a void intrinsic", context))
-            return ""
+            return("")
         }
         if (!isValue(actual)) {
             fail(node, format("{} requires a scalar value", context))
-            return ""
+            return("")
         }
         if (!actual.equals(expected)) {
             fail(node, format("{} requires {}, got {}", context, expected, actual))
-            return ""
+            return("")
         }
-        return actual
+        return(actual)
     }
 
     String lvalueType(AstNode node, bool writing) {
@@ -266,29 +266,29 @@ class SmallCSemanticChecker : GeneratedVisitor {
         SmallCSymbol symbol = findVariable(nameNode.text)
         if (symbol == null) {
             fail(nameNode, format("undeclared variable '{}'", nameNode.text))
-            return ""
+            return("")
         }
         if (!symbol.kind.equals("variable")) {
             fail(nameNode, format("function '{}' is not a variable", nameNode.text))
-            return ""
+            return("")
         }
         if (node.children.length == 1) {
             if (writing && isArray(symbol.valueType)) {
                 fail(nameNode, format("array '{}' is not a modifiable scalar", nameNode.text))
-                return ""
+                return("")
             }
-            return symbol.valueType
+            return(symbol.valueType)
         }
         if (!isArray(symbol.valueType)) {
             fail(nameNode, format("variable '{}' is not an array", nameNode.text))
-            return ""
+            return("")
         }
         String indexType = expressionType(child(node, 2))
         if (!isScalar(indexType)) {
             fail(child(node, 2), "array index must have integral scalar type")
-            return ""
+            return("")
         }
-        return elementType(symbol.valueType)
+        return(elementType(symbol.valueType))
     }
 
     // Returns the lvalue naming a whole array when an argument is exactly
@@ -298,8 +298,8 @@ class SmallCSemanticChecker : GeneratedVisitor {
         while (!current.name.equals("lvalue") && current.children.length == 1) {
             current = child(current, 0)
         }
-        if (current.name.equals("lvalue") && current.children.length == 1) { return current }
-        return null
+        if (current.name.equals("lvalue") && current.children.length == 1) { return(current) }
+        return(null)
     }
 
     String intrinsicCallType(AstNode node, SmallCIntrinsic intrinsic) {
@@ -363,26 +363,26 @@ class SmallCSemanticChecker : GeneratedVisitor {
         if (problem.equals("") && argumentCount != intrinsic.parameterTypes.length) {
             fail(nameNode, format("intrinsic '{}' expects {} arguments, got {}", intrinsic.name, intrinsic.parameterTypes.length, argumentCount))
         }
-        return intrinsic.resultType
+        return(intrinsic.resultType)
     }
 
     String callType(AstNode node) {
         AstNode nameNode = child(node, 0)
         SmallCIntrinsic intrinsic = intrinsics.find(nameNode.text)
-        if (intrinsic != null) { return intrinsicCallType(node, intrinsic) }
+        if (intrinsic != null) { return(intrinsicCallType(node, intrinsic)) }
         SmallCSymbol local = findScoped(nameNode.text)
         if (local != null) {
             fail(nameNode, format("'{}' names a variable, not a function", nameNode.text))
-            return ""
+            return("")
         }
         SmallCSymbol function = findGlobal(nameNode.text)
         if (function == null) {
             fail(nameNode, format("call to undeclared function '{}'", nameNode.text))
-            return ""
+            return("")
         }
         if (!function.kind.equals("function")) {
             fail(nameNode, format("'{}' names a variable, not a function", nameNode.text))
-            return ""
+            return("")
         }
         int64 argumentCount = 0
         int64 i = 0
@@ -412,20 +412,20 @@ class SmallCSemanticChecker : GeneratedVisitor {
         if (problem.equals("") && argumentCount != function.parameterTypes.length) {
             fail(nameNode, format("function '{}' expects {} arguments, got {}", function.name, function.parameterTypes.length, argumentCount))
         }
-        return function.valueType
+        return(function.valueType)
     }
 
     String expressionType(AstNode node) {
-        if (!problem.equals("")) { return "" }
-        if (node.name.equals("INTEGER")) { return "int" }
-        if (node.name.equals("CHAR")) { return "char" }
+        if (!problem.equals("")) { return("") }
+        if (node.name.equals("INTEGER")) { return("int") }
+        if (node.name.equals("CHAR")) { return("char") }
         if (node.name.equals("lvalue")) {
             String valueType = lvalueType(node, false)
             if (isArray(valueType)) {
                 fail(child(node, 0), format("array '{}' cannot be used as a scalar value", child(node, 0).text))
-                return ""
+                return("")
             }
-            return valueType
+            return(valueType)
         }
         if (node.name.equals("assignment") && node.children.length == 3) {
             String left = lvalueType(child(node, 0), true)
@@ -454,45 +454,45 @@ class SmallCSemanticChecker : GeneratedVisitor {
                     }
                 }
             }
-            return left
+            return(left)
         }
         if (node.name.equals("primary")) {
             if (node.children.length >= 3 && child(node, 0).name.equals("IDENT") && child(node, 1).text.equals("(")) {
-                return callType(node)
+                return(callType(node))
             }
             if (node.children.length == 3 && child(node, 0).text.equals("(")) {
-                return expressionType(child(node, 1))
+                return(expressionType(child(node, 1)))
             }
             if (child(node, 0).name.equals("lvalue")) {
                 String valueType = lvalueType(child(node, 0), node.children.length > 1)
                 if (node.children.length > 1 && !isScalar(valueType)) {
                     fail(child(node, 0), "increment/decrement requires a scalar variable")
-                    return ""
+                    return("")
                 }
                 if (isArray(valueType)) {
                     fail(child(child(node, 0), 0), format("array '{}' cannot be used as a scalar value", child(child(node, 0), 0).text))
-                    return ""
+                    return("")
                 }
-                return valueType
+                return(valueType)
             }
-            return expressionType(child(node, 0))
+            return(expressionType(child(node, 0)))
         }
         if (node.name.equals("unary")) {
-            if (node.children.length == 1) { return expressionType(child(node, 0)) }
+            if (node.children.length == 1) { return(expressionType(child(node, 0))) }
             if (node.children.length == 2 && (child(node, 0).text.equals("++") || child(node, 0).text.equals("--"))) {
                 String target = lvalueType(child(node, 1), true)
                 if (!isScalar(target)) {
                     fail(child(node, 1), "increment/decrement requires a scalar variable")
-                    return ""
+                    return("")
                 }
-                return target
+                return(target)
             }
             String operand = expressionType(child(node, 1))
             if (!isScalar(operand)) {
                 fail(child(node, 1), "unary operator requires an integral scalar operand")
-                return ""
+                return("")
             }
-            return "int"
+            return("int")
         }
         if (node.children.length > 1) {
             String result = expressionType(child(node, 0))
@@ -502,18 +502,18 @@ class SmallCSemanticChecker : GeneratedVisitor {
                     String right = expressionType(child(node, i + 1))
                     if (!isScalar(result) || !isScalar(right)) {
                         fail(child(node, i + 1), "operator requires integral scalar operands")
-                        return ""
+                        return("")
                     }
                     result = "int"
                     i += 2
                 }
                 else { i += 1 }
             }
-            return result
+            return(result)
         }
-        if (node.children.length == 1) { return expressionType(child(node, 0)) }
+        if (node.children.length == 1) { return(expressionType(child(node, 0))) }
         fail(node, format("unsupported expression node '{}'", node.name))
-        return ""
+        return("")
     }
 
     void checkInitializer(AstNode initializer, String valueType, AstNode nameNode) {
@@ -592,7 +592,7 @@ class SmallCSemanticChecker : GeneratedVisitor {
         if (walk(parameters) != VISIT_CONTINUE && problem.equals("")) {
             fail(parameters, "parameter visitor failed")
         }
-        return checkedParameterTypes
+        return(checkedParameterTypes)
     }
 
     int64 enter_rule_parameter(AstNode node) {
@@ -602,19 +602,19 @@ class SmallCSemanticChecker : GeneratedVisitor {
         while (i < parameterNames.length) {
             if ((parameterNames[i] as String).equals(nameNode.lexeme())) {
                 fail(nameNode, format("duplicate parameter '{}'", nameNode.lexeme()))
-                return VISIT_ERROR
+                return(VISIT_ERROR)
             }
             i += 1
         }
         parameterNames.append(nameNode.lexeme())
         checkedParameterTypes.append(valueType)
-        return VISIT_SKIP
+        return(VISIT_SKIP)
     }
 
     bool isLabel(AstNode node) {
-        return ((node.name.equals("matchedStatement") || node.name.equals("openStatement"))
+        return(((node.name.equals("matchedStatement") || node.name.equals("openStatement"))
             && node.children.length == 3 && child(node, 0).name.equals("IDENT")
-            && child(node, 1).text.equals(":"))
+            && child(node, 1).text.equals(":")))
     }
 
     void collectLabels(AstNode node) {
@@ -630,10 +630,10 @@ class SmallCSemanticChecker : GeneratedVisitor {
         int64 i = 0
         while (i < labels.length) {
             AstNode label = labels[i] as AstNode
-            if (label.text.equals(name)) { return label }
+            if (label.text.equals(name)) { return(label) }
             i += 1
         }
-        return null
+        return(null)
     }
 
     String caseKey(AstNode node) {
@@ -652,16 +652,16 @@ class SmallCSemanticChecker : GeneratedVisitor {
                     }
                 }
             }
-            return format("{}", value)
+            return(format("{}", value))
         }
         // Compare decimal spellings without imposing a host integer width.
         int64 first = 0
         while (first + 1 < text.length && int64(text.byteAt(first)) == 48) { first += 1 }
         String result = text.slice(first, text.length)
         if (child(node, 0).text.equals("-") && !result.equals("0")) {
-            return format("-{}", result)
+            return(format("-{}", result))
         }
-        return result
+        return(result)
     }
 
     void checkFunction(AstNode node) {
@@ -933,7 +933,7 @@ definition = true }
             }
             i += 1
         }
-        return problem.equals("")
+        return(problem.equals(""))
     }
 }
 
@@ -959,7 +959,7 @@ class SmallCFrontend {
         if (!scanner.scan()) {
             problem = scanner.problem
             errorOffset = scanner.errorOffset
-            return null
+            return(null)
         }
         tokens = scanner.tokens
         GeneratedParser parser(scanner.tokens)
@@ -971,20 +971,20 @@ class SmallCFrontend {
             }
             problem = parser.problem
         }
-        return root
+        return(root)
     }
 
     bool check(AstNode root) {
         checker = SmallCSemanticChecker()
-        if (checker.check(root, tokens)) { return true }
+        if (checker.check(root, tokens)) { return(true) }
         problem = checker.problem
         errorOffset = checker.errorOffset
-        return false
+        return(false)
     }
 
     int64 offsetOf(AstNode node) {
-        if (checker == null) { return 0 }
-        return checker.offsetOf(node)
+        if (checker == null) { return(0) }
+        return(checker.offsetOf(node))
     }
 
     String jsonString(String value) {
@@ -1004,7 +1004,7 @@ class SmallCFrontend {
             i += 1
         }
         result.append("\"")
-        return result
+        return(result)
     }
 
     String jsonAst(AstNode node) {
@@ -1020,7 +1020,7 @@ class SmallCFrontend {
             i += 1
         }
         result.append("]}")
-        return result
+        return(result)
     }
 
     void report(String path, String input, int64 offset, String problem) {

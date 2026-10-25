@@ -14,7 +14,7 @@ application-defined name `forbidden`. This is a semantic policy, not a grammar
 restriction. Neither example is an interpreter.
 
 For an end-to-end compiler rather than a name-counting consumer, see the
-[expression compiler](../examples/compiler/README.md): a generated parser builds
+[expression compiler](EXPRESSION-COMPILER.md): a generated parser builds
 the AST, a handwritten validation walker and dispatch-based emitter produce C,
 and tests compile and execute that C and assert the arithmetic result.
 Its incremental [statement compiler](../examples/compiler/STATEMENTS.md)
@@ -154,14 +154,14 @@ single-node and walker hooks are:
 int64 on_token_IDENT(AstNode node) {
     if (node.lexeme().equals("forbidden")) {
         problem = "identifier 'forbidden' is not allowed"
-        return VISIT_ERROR
+        return(VISIT_ERROR)
     }
     count += 1
-    if (first) { return VISIT_STOP }
-    return VISIT_CONTINUE
+    if (first) { return(VISIT_STOP) }
+    return(VISIT_CONTINUE)
 }
 int64 enter_token_IDENT(AstNode node) {
-    return on_token_IDENT(node)
+    return(on_token_IDENT(node))
 }
 ```
 

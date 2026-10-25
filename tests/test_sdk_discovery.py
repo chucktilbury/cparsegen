@@ -745,6 +745,26 @@ class InstalledSdkTests(unittest.TestCase):
             )
             self.assertEqual((result.returncode, result.stdout, result.stderr),
                              (0, "sum(INTEGER(123), @literal0(+), INTEGER(456))\n", ""))
+            cwhip_parser = root / "installed-parser.cw"
+            result = subprocess.run(
+                [str(installed), str(ROOT / "tests/fixtures/shortest.cpg"),
+                 str(cwhip_parser)], env=env,
+                capture_output=True, text=True, timeout=60,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            cwhip_executable = root / "installed-cwhip-parser"
+            result = subprocess.run(
+                [str(Path(prefix) / "bin/cwhip"), str(cwhip_parser),
+                 "-o", str(cwhip_executable)], env=env,
+                capture_output=True, text=True, timeout=120,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            result = subprocess.run(
+                [str(cwhip_executable), "--complete", str(source)], env=env,
+                capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual((result.returncode, result.stdout, result.stderr),
+                             (0, "sum(INTEGER(123), @literal0(+), INTEGER(456))\n", ""))
 
 
 if __name__ == "__main__":

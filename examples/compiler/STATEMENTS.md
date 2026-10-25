@@ -1,6 +1,6 @@
 # A tiny statement-to-C compiler
 
-This incremental companion to the [expression compiler](README.md) keeps its
+This incremental companion to the [expression compiler](../../doc/EXPRESSION-COMPILER.md) keeps its
 arithmetic grammar, precedence, and visitor-dispatch
 pattern, adding named bindings, source-order statements, structured control
 flow, and statically typed functions over `int` and `bool`. It is a bounded,

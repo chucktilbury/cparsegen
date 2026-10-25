@@ -25,7 +25,7 @@ class SmallCAsmCode {
     String newLabel() {
         String result = format("L{}", labelCounter)
         labelCounter += 1
-        return result
+        return(result)
     }
 
     void mark(String name) {
@@ -156,7 +156,7 @@ class SmallCAssemblyCompiler {
     }
 
     AstNode child(AstNode node, int64 index) {
-        return node.children[index] as AstNode
+        return(node.children[index] as AstNode)
     }
 
     void fail(AstNode node, String message) {
@@ -167,35 +167,35 @@ class SmallCAssemblyCompiler {
     }
 
     String elementType(String valueType) {
-        if (valueType.equals("int[]")) { return "int" }
-        if (valueType.equals("char[]")) { return "char" }
-        return valueType
+        if (valueType.equals("int[]")) { return("int") }
+        if (valueType.equals("char[]")) { return("char") }
+        return(valueType)
     }
 
     String asmType(String valueType) {
-        if (valueType.equals("int") || valueType.equals("int[]")) { return "i32" }
-        if (valueType.equals("char") || valueType.equals("char[]")) { return "u8" }
-        return "void"
+        if (valueType.equals("int") || valueType.equals("int[]")) { return("i32") }
+        if (valueType.equals("char") || valueType.equals("char[]")) { return("u8") }
+        return("void")
     }
 
     SmallCAsmFunction findFunction(String name) {
         int64 i = 0
         while (i < functions.length) {
             SmallCAsmFunction function = functions[i] as SmallCAsmFunction
-            if (function.name.equals(name)) { return function }
+            if (function.name.equals(name)) { return(function) }
             i += 1
         }
-        return null
+        return(null)
     }
 
     SmallCAsmVariable findGlobal(String name) {
         int64 i = 0
         while (i < globals.length) {
             SmallCAsmVariable variable = globals[i] as SmallCAsmVariable
-            if (variable.name.equals(name)) { return variable }
+            if (variable.name.equals(name)) { return(variable) }
             i += 1
         }
-        return null
+        return(null)
     }
 
     SmallCAsmVariable findVariable(String name) {
@@ -204,12 +204,12 @@ class SmallCAssemblyCompiler {
             int64 i = current.variables.length - 1
             while (i >= 0) {
                 SmallCAsmVariable variable = current.variables[i] as SmallCAsmVariable
-                if (variable.name.equals(name)) { return variable }
+                if (variable.name.equals(name)) { return(variable) }
                 i -= 1
             }
             current = current.parent
         }
-        return findGlobal(name)
+        return(findGlobal(name))
     }
 
     void pushScope() {
@@ -221,7 +221,7 @@ class SmallCAssemblyCompiler {
     }
 
     int64 slotCount() {
-        return currentFunction.parameterTypes.length + currentFunction.localCount
+        return(currentFunction.parameterTypes.length + currentFunction.localCount)
     }
 
     // Declares a scalar local in the current function and returns its symbol.
@@ -232,7 +232,7 @@ class SmallCAssemblyCompiler {
         currentFunction.localCount += 1
         currentFunction.declarations.append(
             format("    .local {}: {}\n", symbol, asmType(valueType)))
-        return symbol
+        return(symbol)
     }
 
     void addLocal(String name, String valueType) {
@@ -241,7 +241,7 @@ class SmallCAssemblyCompiler {
     }
 
     String addTemporary(String valueType) {
-        return declareLocal("", valueType, "t")
+        return(declareLocal("", valueType, "t"))
     }
 
     int64 integerValue(String spelling, int64 limit, AstNode node) {
@@ -251,33 +251,33 @@ class SmallCAssemblyCompiler {
             int64 digit = int64(spelling.byteAt(i)) - 48
             if (digit < 0 || digit > 9 || value > (limit - digit) / 10) {
                 fail(node, format("integer literal '{}' is outside the CVM i32 range", spelling))
-                return 0
+                return(0)
             }
             value = value * 10 + digit
             i += 1
         }
-        return value
+        return(value)
     }
 
     bool isMinimumIntegerLiteral(String spelling) {
         int64 first = 0
         while (first + 1 < spelling.length
                 && int64(spelling.byteAt(first)) == 48) { first += 1 }
-        return spelling.slice(first, spelling.length).equals("2147483648")
+        return(spelling.slice(first, spelling.length).equals("2147483648"))
     }
 
     int64 decodeEscape(int64 value) {
-        if (value == 110) { return 10 }
-        if (value == 114) { return 13 }
-        if (value == 116) { return 9 }
-        if (value == 48) { return 0 }
-        return value
+        if (value == 110) { return(10) }
+        if (value == 114) { return(13) }
+        if (value == 116) { return(9) }
+        if (value == 48) { return(0) }
+        return(value)
     }
 
     int64 characterValue(String spelling) {
         int64 value = int64(spelling.byteAt(1))
         if (value == 92) { value = decodeEscape(int64(spelling.byteAt(2))) }
-        return value
+        return(value)
     }
 
     buffer stringBytes(String spelling) {
@@ -292,13 +292,13 @@ class SmallCAssemblyCompiler {
             bytes.append(value)
             i += 1
         }
-        return bytes
+        return(bytes)
     }
 
     String hexByte(int64 value) {
         String digits = "0123456789abcdef"
-        return format("{}{}", digits.slice(value / 16, value / 16 + 1),
-            digits.slice(value % 16, value % 16 + 1))
+        return(format("{}{}", digits.slice(value / 16, value / 16 + 1),
+            digits.slice(value % 16, value % 16 + 1)))
     }
 
     // Quotes decoded bytes as a CVM assembly string literal. Everything except
@@ -324,14 +324,14 @@ class SmallCAssemblyCompiler {
             i += 1
         }
         result.append("\"")
-        return result
+        return(result)
     }
 
     int64 initializerCount(AstNode initializer) {
-        if (initializer == null) { return 0 }
+        if (initializer == null) { return(0) }
         if (initializer.children.length == 1
                 && child(initializer, 0).name.equals("STRING")) {
-            return stringBytes(child(initializer, 0).text).length + 1
+            return(stringBytes(child(initializer, 0).text).length + 1)
         }
         int64 count = 0
         int64 i = 0
@@ -339,7 +339,7 @@ class SmallCAssemblyCompiler {
             if (child(initializer, i).name.equals("assignment")) { count += 1 }
             i += 1
         }
-        return count
+        return(count)
     }
 
     AstNode declarationInitializer(AstNode declarator) {
@@ -347,17 +347,17 @@ class SmallCAssemblyCompiler {
         while (i < declarator.children.length
                 && !child(declarator, i).text.equals("=")) { i += 1 }
         if (i < declarator.children.length && i + 1 < declarator.children.length) {
-            return child(declarator, i + 1)
+            return(child(declarator, i + 1))
         }
-        return null
+        return(null)
     }
 
     int64 declaredArrayLength(AstNode declarator, AstNode initializer) {
         if (declarator.children.length > 2
                 && child(declarator, 2).name.equals("INTEGER")) {
-            return integerValue(child(declarator, 2).text, 2147483647, child(declarator, 2))
+            return(integerValue(child(declarator, 2).text, 2147483647, child(declarator, 2)))
         }
-        return initializerCount(initializer)
+        return(initializerCount(initializer))
     }
 
     // Decimal spelling of a plain (optionally signed) literal expression, or
@@ -368,15 +368,15 @@ class SmallCAssemblyCompiler {
         bool signSeen = false
         while (!current.name.equals("")) {
             if (current.name.equals("INTEGER")) {
-                if (!valueType.equals("int")) { return "" }
-                if (negative && isMinimumIntegerLiteral(current.text)) { return "-2147483648" }
+                if (!valueType.equals("int")) { return("") }
+                if (negative && isMinimumIntegerLiteral(current.text)) { return("-2147483648") }
                 int64 value = integerValue(current.text, 2147483647, current)
-                if (negative && value != 0) { return format("-{}", value) }
-                return format("{}", value)
+                if (negative && value != 0) { return(format("-{}", value)) }
+                return(format("{}", value))
             }
             if (current.name.equals("CHAR")) {
-                if (!valueType.equals("char") || signSeen) { return "" }
-                return format("{}", characterValue(current.text))
+                if (!valueType.equals("char") || signSeen) { return("") }
+                return(format("{}", characterValue(current.text)))
             }
             if (current.name.equals("unary") && current.children.length == 2
                     && !signSeen
@@ -390,31 +390,31 @@ class SmallCAssemblyCompiler {
                         && !current.name.equals("lvalue")) {
                     current = child(current, 0)
                 }
-                else { return "" }
+                else { return("") }
             }
         }
-        return ""
+        return("")
     }
 
     // Returns an assembly array initializer for a global when every element
     // is constant and fits, or "" to initialize with code before main runs.
     String staticArrayInitializer(String arrayElementType, int64 length,
             AstNode initializer, String name) {
-        if (initializer == null) { return "" }
+        if (initializer == null) { return("") }
         if (initializer.children.length == 1
                 && child(initializer, 0).name.equals("STRING")) {
             buffer bytes = stringBytes(child(initializer, 0).text)
             if (bytes.length > length) {
                 fail(initializer, format("string initializer for '{}' exceeds array capacity {}",
                     name, length))
-                return ""
+                return("")
             }
-            if (bytes.length == length) { return "" }
-            return assemblyString(bytes)
+            if (bytes.length == length) { return("") }
+            return(assemblyString(bytes))
         }
         if (initializerCount(initializer) > length) {
             fail(initializer, format("too many elements in initializer for '{}'", name))
-            return ""
+            return("")
         }
         String result = "{"
         int64 count = 0
@@ -423,7 +423,7 @@ class SmallCAssemblyCompiler {
             AstNode value = child(initializer, i)
             if (value.name.equals("assignment")) {
                 String literal = literalText(value, arrayElementType)
-                if (literal.equals("")) { return "" }
+                if (literal.equals("")) { return("") }
                 if (count > 0) { result.append(", ") }
                 result.append(literal)
                 count += 1
@@ -431,7 +431,7 @@ class SmallCAssemblyCompiler {
             i += 1
         }
         result.append("}")
-        return result
+        return(result)
     }
 
     void collectGlobalDeclaration(AstNode declaration) {
@@ -528,16 +528,16 @@ class SmallCAssemblyCompiler {
             }
             i += 1
         }
-        if (!problem.equals("")) { return false }
+        if (!problem.equals("")) { return(false) }
         entryFunction = findFunction("main")
         if (entryFunction == null || entryFunction.body == null) {
             fail(root, "SmallC program requires a definition of main()")
-            return false
+            return(false)
         }
         if (!entryFunction.returnType.equals("int")
                 || entryFunction.parameterTypes.length != 0) {
             fail(entryFunction.declaration, "CVM entry point main must have type int main()")
-            return false
+            return(false)
         }
         int64 f = 0
         while (f < functions.length) {
@@ -545,7 +545,7 @@ class SmallCAssemblyCompiler {
             if (function.body != null) { function.defined = true }
             f += 1
         }
-        return true
+        return(true)
     }
 
     // Returns the complete assembly source, or null with `problem` set.
@@ -554,17 +554,17 @@ class SmallCAssemblyCompiler {
         problem = ""
         errorNode = root
         functionText = ""
-        if (!collectProgram(root)) { return null }
+        if (!collectProgram(root)) { return(null) }
         String initText = compileGlobalInitializers()
-        if (!problem.equals("")) { return null }
+        if (!problem.equals("")) { return(null) }
         int64 i = 0
         while (i < functions.length && problem.equals("")) {
             SmallCAsmFunction function = functions[i] as SmallCAsmFunction
             if (function.defined) { compileUserFunction(function) }
             i += 1
         }
-        if (!problem.equals("")) { return null }
-        return assemble(initText)
+        if (!problem.equals("")) { return(null) }
+        return(assemble(initText))
     }
 
     String assemble(String initText) {
@@ -605,11 +605,11 @@ class SmallCAssemblyCompiler {
         result.append(format("    call {}\n    ret.i32\n.end\n", entryFunction.asmName))
         if (!initText.equals("")) { result.append(initText) }
         result.append(functionText)
-        return result
+        return(result)
     }
 
     String compileGlobalInitializers() {
-        if (globalInitializers.length == 0) { return "" }
+        if (globalInitializers.length == 0) { return("") }
         currentFunction = SmallCAsmFunction("smallc_init_globals", "void")
         code = SmallCAsmCode()
         scope = null
@@ -630,13 +630,13 @@ class SmallCAssemblyCompiler {
             }
             i += 1
         }
-        if (!problem.equals("")) { return "" }
+        if (!problem.equals("")) { return("") }
         code.op("ret")
         String result = "\n.func smallc_init_globals() -> void\n"
         result.append(declarationText())
         result.append(code.text)
         result.append(".end\n")
-        return result
+        return(result)
     }
 
     String declarationText() {
@@ -646,7 +646,7 @@ class SmallCAssemblyCompiler {
             result.append(currentFunction.declarations[i] as String)
             i += 1
         }
-        return result
+        return(result)
     }
 
     void compileUserFunction(SmallCAsmFunction function) {
@@ -699,27 +699,27 @@ class SmallCAssemblyCompiler {
     }
 
     bool guaranteesReturn(AstNode node) {
-        if (node == null) { return false }
+        if (node == null) { return(false) }
         if (node.name.equals("simpleStatement")) {
             if (node.children.length > 0 && child(node, 0).text.equals("return")) {
-                return true
+                return(true)
             }
             int64 i = 0
             while (i < node.children.length) {
                 if (child(node, i).name.equals("compoundStatement")) {
-                    return guaranteesReturn(child(node, i))
+                    return(guaranteesReturn(child(node, i)))
                 }
                 i += 1
             }
-            return false
+            return(false)
         }
         if (node.name.equals("statement")) {
             int64 i = 0
             while (i < node.children.length) {
-                if (guaranteesReturn(child(node, i))) { return true }
+                if (guaranteesReturn(child(node, i))) { return(true) }
                 i += 1
             }
-            return false
+            return(false)
         }
         if (node.name.equals("compoundStatement")) {
             int64 i = 0
@@ -730,49 +730,49 @@ class SmallCAssemblyCompiler {
                     while (j < item.children.length) {
                         AstNode part = child(item, j)
                         if (part.name.equals("statement") && guaranteesReturn(part)) {
-                            return true
+                            return(true)
                         }
                         j += 1
                     }
                 }
                 i += 1
             }
-            return false
+            return(false)
         }
         if (node.name.equals("matchedStatement")) {
             if (node.children.length > 0 && child(node, 0).text.equals("if")) {
                 list statements = statementChildren(node)
-                return (statements.length == 2
+                return((statements.length == 2
                     && guaranteesReturn(statements[0] as AstNode)
-                    && guaranteesReturn(statements[1] as AstNode))
+                    && guaranteesReturn(statements[1] as AstNode)))
             }
             if (node.children.length > 0
                     && child(node, 0).name.equals("simpleStatement")) {
-                return guaranteesReturn(child(node, 0))
+                return(guaranteesReturn(child(node, 0)))
             }
         }
         if (node.name.equals("openStatement")) {
             if (node.children.length > 0 && child(node, 0).text.equals("if")) {
                 list statements = statementChildren(node)
-                return (statements.length == 2
+                return((statements.length == 2
                     && guaranteesReturn(statements[0] as AstNode)
-                    && guaranteesReturn(statements[1] as AstNode))
+                    && guaranteesReturn(statements[1] as AstNode)))
             }
             if (node.children.length > 0
                     && child(node, 0).name.equals("simpleStatement")) {
-                return guaranteesReturn(child(node, 0))
+                return(guaranteesReturn(child(node, 0)))
             }
         }
-        return false
+        return(false)
     }
 
     bool isStatementNode(AstNode node) {
-        return (node.name.equals("statement")
+        return((node.name.equals("statement")
             || node.name.equals("matchedStatement")
             || node.name.equals("openStatement")
             || node.name.equals("simpleStatement")
             || node.name.equals("compoundStatement")
-            || node.name.equals("switchStatement"))
+            || node.name.equals("switchStatement")))
     }
 
     list statementChildren(AstNode node) {
@@ -783,7 +783,7 @@ class SmallCAssemblyCompiler {
             if (isStatementNode(part)) { result.append(part) }
             i += 1
         }
-        return result
+        return(result)
     }
 
     void emitInt(int64 value) {
@@ -1181,52 +1181,52 @@ class SmallCAssemblyCompiler {
     }
 
     String emitExpression(AstNode node) {
-        if (problem.length > 0 || node == null) { return "" }
+        if (problem.length > 0 || node == null) { return("") }
         if (node.name.equals("expression")) {
-            return emitExpression(child(node, 0))
+            return(emitExpression(child(node, 0)))
         }
         if (node.name.equals("assignment")) {
-            if (node.children.length == 3) { return emitAssignment(node) }
-            return emitExpression(child(node, 0))
+            if (node.children.length == 3) { return(emitAssignment(node)) }
+            return(emitExpression(child(node, 0)))
         }
         if (node.name.equals("logicalOr")) {
-            return emitLogical(node, false)
+            return(emitLogical(node, false))
         }
         if (node.name.equals("logicalAnd")) {
-            return emitLogical(node, true)
+            return(emitLogical(node, true))
         }
         if (node.name.equals("equality") || node.name.equals("relational")
                 || node.name.equals("additive") || node.name.equals("multiplicative")) {
-            return emitBinaryChain(node)
+            return(emitBinaryChain(node))
         }
-        if (node.name.equals("unary")) { return emitUnary(node) }
-        if (node.name.equals("primary")) { return emitPrimary(node) }
-        if (node.name.equals("lvalue")) { return emitLvalue(node) }
+        if (node.name.equals("unary")) { return(emitUnary(node)) }
+        if (node.name.equals("primary")) { return(emitPrimary(node)) }
+        if (node.name.equals("lvalue")) { return(emitLvalue(node)) }
         if (node.name.equals("INTEGER")) {
             emitInt(integerValue(node.text, 2147483647, node))
-            return "int"
+            return("int")
         }
         if (node.name.equals("CHAR")) {
             emitByte(characterValue(node.text))
-            return "char"
+            return("char")
         }
         fail(node, format("CVM backend does not support expression node '{}'", node.name))
-        return ""
+        return("")
     }
 
     String binaryMnemonic(String operation) {
-        if (operation.equals("+")) { return "add.i32" }
-        if (operation.equals("-")) { return "sub.i32" }
-        if (operation.equals("*")) { return "mul.i32" }
-        if (operation.equals("/")) { return "div.i32" }
-        if (operation.equals("%")) { return "rem.i32" }
-        if (operation.equals("==")) { return "eq.i32" }
-        if (operation.equals("!=")) { return "ne.i32" }
-        if (operation.equals("<")) { return "lt.i32" }
-        if (operation.equals("<=")) { return "le.i32" }
-        if (operation.equals(">")) { return "gt.i32" }
-        if (operation.equals(">=")) { return "ge.i32" }
-        return ""
+        if (operation.equals("+")) { return("add.i32") }
+        if (operation.equals("-")) { return("sub.i32") }
+        if (operation.equals("*")) { return("mul.i32") }
+        if (operation.equals("/")) { return("div.i32") }
+        if (operation.equals("%")) { return("rem.i32") }
+        if (operation.equals("==")) { return("eq.i32") }
+        if (operation.equals("!=")) { return("ne.i32") }
+        if (operation.equals("<")) { return("lt.i32") }
+        if (operation.equals("<=")) { return("le.i32") }
+        if (operation.equals(">")) { return("gt.i32") }
+        if (operation.equals(">=")) { return("ge.i32") }
+        return("")
     }
 
     String emitBinaryChain(AstNode node) {
@@ -1245,11 +1245,11 @@ class SmallCAssemblyCompiler {
             resultType = "int"
             i += 2
         }
-        return resultType
+        return(resultType)
     }
 
     String emitLogical(AstNode node, bool conjunction) {
-        if (node.children.length == 1) { return emitExpression(child(node, 0)) }
+        if (node.children.length == 1) { return(emitExpression(child(node, 0))) }
         String end = code.newLabel()
         String shortCircuit = code.newLabel()
         int64 i = 0
@@ -1282,57 +1282,57 @@ class SmallCAssemblyCompiler {
         }
         else { emitInt(0) }
         code.mark(end)
-        return "int"
+        return("int")
     }
 
     String emitUnary(AstNode node) {
-        if (node.children.length == 1) { return emitExpression(child(node, 0)) }
+        if (node.children.length == 1) { return(emitExpression(child(node, 0))) }
         String operation = child(node, 0).text
         AstNode operand = child(node, 1)
         if (operation.equals("++") || operation.equals("--")) {
-            return emitIncrement(operand, false, operation.equals("++"))
+            return(emitIncrement(operand, false, operation.equals("++")))
         }
         if (operation.equals("-") && operand.name.equals("INTEGER")
                 && isMinimumIntegerLiteral(operand.text)) {
             emitInt(-2147483648)
-            return "int"
+            return("int")
         }
         String valueType = emitExpression(operand)
         if (operation.equals("+")) {
             promoteToInt(valueType)
-            return "int"
+            return("int")
         }
         if (operation.equals("-")) {
             promoteToInt(valueType)
             code.op("neg.i32")
-            return "int"
+            return("int")
         }
         if (operation.equals("!")) {
             promoteToInt(valueType)
             emitInt(0)
             code.op("eq.i32")
-            return "int"
+            return("int")
         }
         fail(child(node, 0), format("CVM backend does not support unary operator '{}'", operation))
-        return ""
+        return("")
     }
 
     String emitPrimary(AstNode node) {
         if (node.children.length >= 3 && child(node, 0).name.equals("IDENT")
                 && child(node, 1).text.equals("(")) {
-            return emitCall(node)
+            return(emitCall(node))
         }
         if (node.children.length == 3 && child(node, 0).text.equals("(")) {
-            return emitExpression(child(node, 1))
+            return(emitExpression(child(node, 1)))
         }
         if (child(node, 0).name.equals("lvalue")) {
             if (node.children.length > 1) {
                 String operation = child(node, 1).text
-                return emitIncrement(child(node, 0), true, operation.equals("++"))
+                return(emitIncrement(child(node, 0), true, operation.equals("++")))
             }
-            return emitLvalue(child(node, 0))
+            return(emitLvalue(child(node, 0)))
         }
-        return emitExpression(child(node, 0))
+        return(emitExpression(child(node, 0)))
     }
 
     list callArguments(AstNode node) {
@@ -1350,17 +1350,17 @@ class SmallCAssemblyCompiler {
             }
             i += 1
         }
-        return result
+        return(result)
     }
 
     String emitCall(AstNode node) {
         AstNode nameNode = child(node, 0)
         SmallCIntrinsic intrinsic = intrinsics.find(nameNode.text)
-        if (intrinsic != null) { return emitIntrinsic(node, intrinsic) }
+        if (intrinsic != null) { return(emitIntrinsic(node, intrinsic)) }
         SmallCAsmFunction function = findFunction(nameNode.text)
         if (function == null || !function.defined) {
             fail(nameNode, format("CVM backend has no definition for function '{}'", nameNode.text))
-            return ""
+            return("")
         }
         list arguments = callArguments(node)
         int64 a = 0
@@ -1369,7 +1369,7 @@ class SmallCAssemblyCompiler {
             a += 1
         }
         code.op1("call", function.asmName)
-        return function.returnType
+        return(function.returnType)
     }
 
     AstNode arrayArgumentName(AstNode argument) {
@@ -1377,7 +1377,7 @@ class SmallCAssemblyCompiler {
         while (!current.name.equals("lvalue") && current.children.length == 1) {
             current = child(current, 0)
         }
-        return child(current, 0)
+        return(child(current, 0))
     }
 
     // print(char[]): writes the bytes before the first NUL (or the whole array
@@ -1441,7 +1441,7 @@ class SmallCAssemblyCompiler {
         code.op("pop")
         code.op1("jmp", send)
         code.mark(sendEnd)
-        return "void"
+        return("void")
     }
 
     // Pushes a char array reference for a bare array name or a string literal.
@@ -1461,7 +1461,7 @@ class SmallCAssemblyCompiler {
 
     String emitIntrinsic(AstNode node, SmallCIntrinsic intrinsic) {
         list arguments = callArguments(node)
-        if (intrinsic.service.equals("stdout_write")) { return emitPrint(arguments[0] as AstNode) }
+        if (intrinsic.service.equals("stdout_write")) { return(emitPrint(arguments[0] as AstNode)) }
         bool transfer = intrinsic.service.equals("file_read_handle") || intrinsic.service.equals("file_write_handle")
         if (transfer) {
             // Source order is (handle, length, buffer); the service takes
@@ -1489,7 +1489,7 @@ class SmallCAssemblyCompiler {
             }
         }
         if (problem.equals("")) { code.op1("sys", intrinsic.service) }
-        return intrinsic.resultType
+        return(intrinsic.resultType)
     }
 
     String emitLvalue(AstNode node) {
@@ -1497,25 +1497,25 @@ class SmallCAssemblyCompiler {
         SmallCAsmVariable variable = findVariable(nameNode.text)
         if (variable == null) {
             fail(nameNode, format("undeclared variable '{}'", nameNode.text))
-            return ""
+            return("")
         }
         if (node.children.length == 1) {
             if (variable.array) {
                 fail(nameNode, format("array '{}' cannot be used as a scalar value", nameNode.text))
-                return ""
+                return("")
             }
             emitLoad(variable)
-            return variable.valueType
+            return(variable.valueType)
         }
         if (!variable.array) {
             fail(nameNode, format("variable '{}' is not an array", nameNode.text))
-            return ""
+            return("")
         }
         emitArrayReference(variable)
         String indexType = emitExpression(child(node, 2))
         promoteToInt(indexType)
         code.op("aget")
-        return elementType(variable.valueType)
+        return(elementType(variable.valueType))
     }
 
     String evaluateIndex(AstNode lvalue) {
@@ -1524,7 +1524,7 @@ class SmallCAssemblyCompiler {
         String slot = addTemporary("int")
         code.op1("stloc", slot)
         code.op("pop")
-        return slot
+        return(slot)
     }
 
     String emitAssignment(AstNode node) {
@@ -1535,20 +1535,20 @@ class SmallCAssemblyCompiler {
         SmallCAsmVariable variable = findVariable(nameNode.text)
         if (variable == null) {
             fail(nameNode, format("undeclared variable '{}'", nameNode.text))
-            return ""
+            return("")
         }
         if (!variable.array) {
             if (operation.equals("=")) {
                 String valueType = emitExpression(right)
                 emitStore(variable)
-                return valueType
+                return(valueType)
             }
             emitLoad(variable)
             String rightType = emitExpression(right)
             promoteToInt(rightType)
             emitCompoundOperation(operation, child(node, 1))
             emitStore(variable)
-            return "int"
+            return("int")
         }
         String indexSlot = evaluateIndex(lvalue)
         if (operation.equals("=")) {
@@ -1560,7 +1560,7 @@ class SmallCAssemblyCompiler {
             code.op1("ldloc", indexSlot)
             code.op1("ldloc", valueSlot)
             code.op("aset")
-            return valueType
+            return(valueType)
         }
         emitArrayReference(variable)
         code.op1("ldloc", indexSlot)
@@ -1575,7 +1575,7 @@ class SmallCAssemblyCompiler {
         code.op1("ldloc", indexSlot)
         code.op1("ldloc", resultSlot)
         code.op("aset")
-        return "int"
+        return("int")
     }
 
     void emitCompoundOperation(String operation, AstNode operator) {
@@ -1596,7 +1596,7 @@ class SmallCAssemblyCompiler {
         SmallCAsmVariable variable = findVariable(nameNode.text)
         if (variable == null) {
             fail(nameNode, format("undeclared variable '{}'", nameNode.text))
-            return ""
+            return("")
         }
         String valueType = elementType(variable.valueType)
         String step = "sub.i32"
@@ -1616,7 +1616,7 @@ class SmallCAssemblyCompiler {
                 code.op("pop")
                 code.op1("ldloc", oldSlot)
             }
-            return valueType
+            return(valueType)
         }
         String indexSlot = evaluateIndex(lvalue)
         emitArrayReference(variable)
@@ -1641,6 +1641,6 @@ class SmallCAssemblyCompiler {
             code.op("pop")
             code.op1("ldloc", oldSlot)
         }
-        return valueType
+        return(valueType)
     }
 }

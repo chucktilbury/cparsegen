@@ -272,7 +272,7 @@ class InsertionTests(GeneratorTestCase):
             "#define INSERTED_VALUE 37\n"
         )
         (self.directory / "native.cw").write_text(
-            "class NativeValue { int64 value() { return 37 } }\n"
+            'class NativeValue { int64 value() { return(37) } }\n'
         )
         blocks = b'''
 @insert c file_pre {
@@ -290,7 +290,7 @@ int inserted_value(void) { return INSERTED_VALUE; }
 include "native.cw"
 };
 @insert cwhip file_post {
-class InsertedValue { int64 value() { return NativeValue().value() } }
+class InsertedValue { int64 value() { return(NativeValue().value()) } }
 };
 '''
         for backend, consumer in (

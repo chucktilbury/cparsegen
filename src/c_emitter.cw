@@ -30,11 +30,11 @@ class CGrammarEmitter {
                 diagnosticInfo = GrammarDiagnostic(
                     format("line {}: C target does not support @{}",
                         directive.line, directive.name), directive.span, null)
-                return format("line {}: C target does not support @{}", directive.line, directive.name)
+                return(format("line {}: C target does not support @{}", directive.line, directive.name))
             }
             i += 1
         }
-        return ""
+        return("")
     }
 
     String quoted(String value) {
@@ -47,7 +47,7 @@ class CGrammarEmitter {
             i += 1
         }
         result.append("\"")
-        return result
+        return(result)
     }
 
     String emitProgram() {
@@ -60,8 +60,8 @@ class CGrammarEmitter {
             output.append(format("static const Range scan_ranges{}[] = {{", s))
             int64 n = 0
             while (n < state.ranges.length) {
-                ByteRange range = state.ranges[n] as ByteRange
-                output.append(format("{{{}, {}}},", range.first, range.last))
+                ByteRange interval = state.ranges[n] as ByteRange
+                output.append(format("{{{}, {}}},", interval.first, interval.last))
                 n += 1
             }
             output.append("{0, 0}};\n")
@@ -153,7 +153,7 @@ class CGrammarEmitter {
         shared.emitInsertions(output, "c", "visitor_post")
         CParserRuntime().emitProgram(output, shared)
         shared.emitInsertions(output, "c", "file_post")
-        return output
+        return(output)
     }
 
     void emitVisitor(String out) {
