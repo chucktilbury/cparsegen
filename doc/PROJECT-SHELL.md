@@ -6,7 +6,9 @@ locates the project relative to itself, so it does not depend on the caller's
 current directory. With no mode argument, the CMake build type inherits the
 SDK's registered application default or retains an existing cache value.
 Without either, CMake's build-type default is empty. A supplied mode explicitly
-overrides the SDK and cache value.
+overrides the SDK and cache value. Setup passes explicit source and build
+directories to CMake, then reads the configured build type back from the cache
+so the shell's `_BUILD_TYPE` and `CWHIP_BUILD_TYPE` report the effective value.
 
 The setup script configures before starting the shell. If configuration
 fails, it reports the error and exits without opening a project shell.
