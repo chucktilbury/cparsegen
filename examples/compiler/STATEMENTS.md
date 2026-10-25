@@ -18,8 +18,9 @@ From the repository root, with the SDK selected as in
 [Building](../../doc/BUILDING.md):
 
 ```sh
-cmake -S . -B build
-cmake --build build --target statement-compiler
+./scripts/setup
+cd ..
+build statement-compiler
 ./bin/statement-compiler examples/compiler/statements/basic.stmt \
   > build/statement-compiler/program.c
 cc -std=c99 -Wall -Wextra -Werror -pedantic \
@@ -229,7 +230,7 @@ platform-specific APIs, boolean input, and recoverable input errors are deferred
 ## Explicit generation, syntax parsing, and compilation
 
 ```sh
-cmake --build build --target cparsegen
+build cparsegen
 mkdir -p build/statements-manual
 ./bin/cparsegen --target c examples/compiler/statements.cpg \
   build/statements-manual/parser.c --dot build/statements-manual/grammar.dot

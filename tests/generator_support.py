@@ -34,14 +34,6 @@ class GeneratorTestCase(unittest.TestCase):
                 raise FileNotFoundError(cls.generator)
             raise unittest.SkipTest("build cparsegen before running generator tests")
         prefix = os.environ.get("CWHIP_SDK", "")
-        if not prefix:
-            result = subprocess.run(
-                ["python3", str(ROOT / "scripts/sdk-prefix.py"), "--discover"],
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            prefix = result.stdout
         candidates = [Path(prefix) / "bin/cwhip"] if prefix else []
         candidates.extend(
             Path(entry) / "bin/cwhip"

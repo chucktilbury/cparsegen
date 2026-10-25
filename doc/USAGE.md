@@ -16,17 +16,22 @@ It distinguishes generated infrastructure from the handwritten demonstrations.
 Install the Cwhip SDK and its host prerequisites; cparsegen does not vendor,
 download, or build the SDK during CMake configuration. Follow the
 [Cwhip SDK installation guide](https://github.com/chucktilbury/cwhip/blob/master/doc/GETTING_STARTED.md#build-and-install-the-sdk)
-to install a compiler-only SDK. Then configure/build and generate both
-outputs:
+to install a compiler-only SDK. Then configure the project and start its shell:
 
 ```sh
 ./scripts/setup
-cmake --build .
-mkdir -p generated
-../bin/cparsegen --dot generated/shortest.dot ../tests/fixtures/shortest.cpg generated/shortest.cw
-cwhip generated/shortest.cw -o generated/shortest-parser
-printf '123+456' > generated/input.txt
-generated/shortest-parser generated/input.txt
+```
+
+In the project shell, build the generator and generate both outputs:
+
+```sh
+cd ..
+build
+mkdir -p build/generated
+./bin/cparsegen --dot build/generated/shortest.dot tests/fixtures/shortest.cpg build/generated/shortest.cw
+cwhip build/generated/shortest.cw -o build/generated/shortest-parser
+printf '123+456' > build/generated/input.txt
+build/generated/shortest-parser build/generated/input.txt
 ```
 
 The setup script inherits the SDK's registered application build type unless
@@ -92,7 +97,7 @@ the original arithmetic compiler and syntax-only parsers remain unchanged.
 Build a calculator with variables and an interactive CLI:
 
 ```sh
-cmake --build build --target calculator
+build calculator
 ./bin/calculator
 ```
 
@@ -108,7 +113,7 @@ flow. Its Cwhip app also offers an opt-in AST-based semantic check and an
 optional checked-AST-to-CVM-assembly compiler:
 
 ```sh
-cmake --build build --target smallc
+build smallc
 ./bin/smallc-ast examples/smallc/valid/functions.c > build/smallc/functions.ast.json
 ./bin/smallc-ast --check examples/smallc/valid/functions.c
 ```
@@ -123,7 +128,7 @@ assembly, the official `cvm-as` assembler encodes the binary, and `cvm-run`
 executes it. CVM is needed only for the assemble/run steps and tests:
 
 ```sh
-cmake --build build --target smallc-cvm
+build smallc-cvm
 ./bin/smallc-cvm examples/smallc/valid/functions.c build/example.asm
 cvm-as build/example.asm -o build/example.cvm
 cvm-run build/example.cvm
@@ -135,10 +140,10 @@ The C backend generates standalone ISO C99 parsers for the calculator and
 SmallC grammars, without embedding or invoking Cwhip:
 
 ```sh
-cmake --build build --target calculator-c
+build calculator-c
 printf 'x = 2 + 3 * 4' > build/calculator-c/input.txt
 ./bin/calculator-c --complete build/calculator-c/input.txt
-cmake --build build --target smallc-c
+build smallc-c
 ./bin/smallc-c --json examples/smallc/valid/functions.c
 ```
 
@@ -199,11 +204,18 @@ features to named executable tests, distinguishes CLI/library APIs and
 target-specific limitations, and records the audit commands and results.
 It describes sampled coverage, not proof over every possible grammar.
 
-From the repository root, build and run all Python unittest modules via CTest:
+From the repository root, configure and start the project shell:
 
 ```sh
-cmake -S . -B build
-cmake --build build --parallel 4
+./scripts/setup
+```
+
+After entering the shell, return to the repository root and build/run all
+Python unittest modules via CTest:
+
+```sh
+cd ..
+build
 ctest --test-dir build --output-on-failure -j4
 ```
 

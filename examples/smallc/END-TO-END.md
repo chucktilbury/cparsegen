@@ -26,19 +26,23 @@ Replace these two placeholder prefixes with your installations:
 export CWHIP_SDK=/absolute/path/to/cwhip-sdk
 export CVM_PREFIX=/absolute/path/to/cvm-install
 export PATH="$CVM_PREFIX/bin:$PATH"
+./scripts/setup
+```
 
-cmake -S . -B build \
-  -DCVM_PREFIX="$CVM_PREFIX" \
-  -DCPARSEGEN_REQUIRE_CVM_TOOLS=ON
-cmake --build build --target smallc smallc-cvm
+In the project shell, build the examples:
+
+```sh
+cd ..
+build smallc smallc-cvm
 mkdir -p build/smallc-demo
 ```
 
-For nonstandard tool names/locations configure
-`-DCVM_AS=/absolute/path/to/cvm-as -DCVM_RUN=/absolute/path/to/cvm-run`
-instead. The commands below assume the standard names are on `PATH`.
-`CPARSEGEN_REQUIRE_CVM_TOOLS=ON` requires both tools at configure time; it
-does not certify which services they implement.
+For nonstandard tool names/locations or to require CVM tools at configuration
+time, use CMake directly with `-DCVM_AS=/absolute/path/to/cvm-as`,
+`-DCVM_RUN=/absolute/path/to/cvm-run`, and/or
+`-DCPARSEGEN_REQUIRE_CVM_TOOLS=ON`. Setup intentionally exposes no arbitrary
+CMake cache arguments; the commands below assume the standard names are on
+`PATH`.
 
 CMake first builds cparsegen, uses it to generate the SmallC scanner/parser
 and AST support, then compiles the handwritten SmallC checker/backend with
@@ -235,7 +239,7 @@ Expected stdout is `OK` followed by `result: 0`, each on its own line.
 ## 7. Automated evidence and limitations
 
 ```sh
-cmake --build build --target test-smallc-cvm
+build test-smallc-cvm
 ```
 
 Tests compile these actual files to assembly, invoke the official assembler

@@ -19,8 +19,9 @@ Run from the repository root with the SDK selected as described in
 [Building](BUILDING.md). CMake builds the optional compiler example:
 
 ```sh
-cmake -S . -B build
-cmake --build build --target expression-compiler
+./scripts/setup
+cd ..
+build expression-compiler
 ./bin/expression-compiler '(2 + 3) * 4' > build/expression-compiler/program.c
 cc -std=c99 -Wall -Wextra -Werror -pedantic \
   build/expression-compiler/program.c -o build/expression-compiler/program
@@ -36,7 +37,7 @@ Executables built by CMake honor `CWHIP_BIN_DIR` (default `bin/`).
 The equivalent steps without the example target show which files are generated:
 
 ```sh
-cmake --build build --target cparsegen
+build cparsegen
 mkdir -p build/compiler-manual
 ./bin/cparsegen --target c examples/compiler/compiler.cpg \
   build/compiler-manual/parser.c --dot build/compiler-manual/grammar.dot

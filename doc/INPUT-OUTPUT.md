@@ -33,7 +33,8 @@ only; it does not incorporate uncommitted demonstration extensions.
 ## Usage: build, generate, compile, and run
 
 All commands below start in the repository root and use default output
-directories. The generator requires an installed Cwhip SDK **0.0.2** with the
+directories. After `scripts/setup` opens the project shell, run `cd ..` once
+to return to the root for these commands. The generator requires an installed Cwhip SDK **0.0.2** with the
 `numeric-v2` ABI, including its CMake integration and
 application-output-directory support. It does not
 download or build that SDK. Use current Cwhip syntax support as described in
@@ -42,8 +43,9 @@ See that guide for installation and
 host prerequisites.
 
 ```sh
-cmake -S . -B build
-cmake --build build --target cparsegen
+./scripts/setup
+cd ..
+build cparsegen
 mkdir -p build/reference
 ```
 
@@ -52,21 +54,24 @@ CMake selects a nonempty `CWHIP_SDK` first, then registered top-level
 `$HOME/.config/cwhip/sdk.toml`), then normal package discovery such as
 `CMAKE_PREFIX_PATH`. Legacy `settings.toml` is considered only if `sdk.toml`
 is absent. An invalid explicitly selected SDK is an error, not a reason to
-fall back. To override selection:
+fall back. To override selection in the project shell:
 
 ```sh
-CWHIP_SDK=/absolute/path/to/cwhip-sdk cmake -S . -B build
+export CWHIP_SDK=/absolute/path/to/cwhip-sdk
+./scripts/setup
+cd ..
 ```
 
 `CWHIP_BIN_DIR` and `CWHIP_LIB_DIR` are CMake cache paths, defaulting to
 repository-root `bin/` and `lib/`. Examples here assume the former default.
 Put the selected SDK's `bin/` on `PATH` for direct `cwhip` commands.
-Alternatively, `./scripts/setup` configures `build/` and opens a project
-shell there; its optional argument is `debug`, `release`, or `profile`.
+`./scripts/setup` configures `build/` and opens a project shell there; its
+optional argument is `debug`, `release`, or `profile`.
 Omitting it preserves an existing build type or lets CMake/SDK defaults apply.
 With no cache value, environment override, or registered SDK application
-default, the build type is empty. Commands in that shell need paths relative
-to `build/`, not the root-relative paths used here.
+default, the build type is empty. The `build` and `rebuild` shell functions
+accept optional CMake target names. The shell starts in `build/`; return to
+the repository root with `cd ..` before running the root-relative examples.
 
 ### End-to-end Cwhip example: prefix versus complete input
 
@@ -1120,7 +1125,7 @@ per-rule prefix API or a consumed-prefix cursor analogous to Cwhip's
 For a runnable visitor consumer with no manual source creation:
 
 ```sh
-cmake --build build --target visitor-c
+build visitor-c
 ./bin/visitor-c 'alpha, beta, gamma'
 ```
 
@@ -1219,7 +1224,7 @@ not these optional consumers.
 Typical application invocations:
 
 ```sh
-cmake --build build --target calculator smallc expression-compiler statement-compiler
+build calculator smallc expression-compiler statement-compiler
 ./bin/calculator -e '(2 + 3) * 4'
 ./bin/smallc-ast examples/smallc/valid/functions.c
 ./bin/smallc-ast --check examples/smallc/valid/functions.c
