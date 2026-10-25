@@ -1,11 +1,10 @@
 # Generated examples
 
 These examples use the installed Cwhip SDK and cparsegen, not handwritten
-scanners or parsers. Run the commands below from the repository root. Configure
-with `cmake -S . -B build` with your SDK selected
-as described in [Building](BUILDING.md).
-`./scripts/setup` instead opens a shell inside `build/`; return to the root
-before using the root-relative commands below.
+scanners or parsers. Configure and start the project shell with
+`./scripts/setup`, then return to the repository root with `cd ..` before
+running `build [TARGET...]` and the root-relative commands below. See
+[Building](BUILDING.md) for SDK selection.
 The small `expression.cpg` demonstrates consuming left recursion and runs
 with either backend; its original nested expression nodes are preserved.
 
@@ -16,7 +15,7 @@ with either backend; its original nested expression nodes are preserved.
 They demonstrate parsing, callback registration/subclass methods, application
 state and diagnostics, AST access, controlled walking, manual dispatch,
 early stop, and cleanup. Build the standalone example with
-`cmake --build build --target visitor-c`, then run
+`build visitor-c`, then run
 `./bin/visitor-c 'alpha, beta'`.
 
 ## Code insertion
@@ -32,7 +31,7 @@ there are no inline rule actions or generator-time execution.
 Generate library parsers, then compile the tiny consumers:
 
 ```sh
-cmake --build build
+build
 mkdir -p build/insertion
 ./bin/cparsegen --target c examples/insertion/words.cpg \
   build/insertion/parser.c --dot build/insertion/grammar.dot
@@ -59,7 +58,7 @@ before accepting grammars containing code.
 
 The [compiler example](EXPRESSION-COMPILER.md) takes the workflow end to end:
 grammar -> generated parser/AST -> handwritten visitor -> emitted C -> compiled,
-executed program. Build with `cmake --build build --target expression-compiler`;
+executed program. Build with `build expression-compiler`;
 `./bin/expression-compiler '(2 + 3) * 4'` emits a C program that prints `20`
 when compiled and run. The guide gives explicit generation and compilation
 commands and distinguishes generated infrastructure from application code.
@@ -69,7 +68,7 @@ declarations, assignments, `print`, comparisons, braced `if`/`else` and `while`,
 and nested blocks, then typed `int`/`bool` functions (a bounded, non-object-oriented
 demonstration), with persistent single-scope visitor symbols and
 source-order C emission. Build with
-`cmake --build build --target statement-compiler`, then run
+`build statement-compiler`, then run
 `./bin/statement-compiler examples/compiler/statements/basic.stmt` to emit C.
 The guide includes runnable samples for the compiler's incremental milestones
 and covers syntax-only parsing, compile/run steps,
@@ -81,7 +80,7 @@ Build the generator, generate the calculator parser and DOT graph, and compile
 the CLI:
 
 ```sh
-cmake --build build --target calculator
+build calculator
 ./bin/calculator
 ```
 
@@ -143,7 +142,7 @@ dot -Tsvg build/calculator/grammar.dot -o build/calculator/grammar.svg
 and skipped whitespace:
 
 ```sh
-cmake --build build
+build
 mkdir -p build/words
 ./bin/cparsegen examples/words.cpg build/words/parser.cw --dot build/words/grammar.dot
 cwhip build/words/parser.cw -o build/words/parse-words
@@ -205,7 +204,7 @@ nodes. See the [exact syntax, escaping, and limits](INPUT-OUTPUT.md#lexer-declar
 ## Standalone C calculator syntax parser
 
 ```sh
-cmake --build build --target calculator-c
+build calculator-c
 printf '1 + 2' > build/calculator-c/input.txt
 ./bin/calculator-c --complete build/calculator-c/input.txt
 ```
@@ -256,7 +255,7 @@ arrays and initializers, functions, prototypes, calls, arithmetic/comparisons,
 comments, and `if`, `for`, `while`, `switch`, and `goto`. Build/run it with:
 
 ```sh
-cmake --build build --target smallc
+build smallc
 ./bin/smallc-ast examples/smallc/valid/functions.c > build/smallc/functions.ast.json
 ./bin/smallc-ast --check examples/smallc/valid/functions.c > build/smallc/functions.checked.ast.json
 ```
@@ -278,7 +277,7 @@ coverage, and end-to-end tests.
 For a standalone C99 version of the same syntax frontend:
 
 ```sh
-cmake --build build --target smallc-c
+build smallc-c
 ./bin/smallc-c --json examples/smallc/valid/functions.c > build/smallc-c/functions.ast.json
 ```
 

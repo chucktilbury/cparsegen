@@ -117,11 +117,13 @@ test -f "$CWHIP_SDK/lib/cmake/Cwhip/CwhipConfig.cmake"
 ./scripts/setup
 ```
 
-The same override works without the project shell:
+With that override, setup configures the project and opens its shell:
 
 ```sh
-CWHIP_SDK="/absolute/path/to/cwhip-sdk" cmake -S . -B build
-cmake --build build
+export CWHIP_SDK="/absolute/path/to/cwhip-sdk"
+./scripts/setup
+cd ..
+build
 ```
 
 A selected file without a **top-level** `sdk_prefix` does not register an
@@ -149,7 +151,9 @@ HOME/XDG directories. See [Standalone C](USAGE.md#standalone-c-target)
 for direct generator/compiler commands and the bounded backend scope.
 
 The setup script configures the `build/` directory and launches an interactive
-project shell there. Its build type argument is optional:
+project shell there. Its `--clean` option first removes generated output trees
+with `scripts/clean`, then performs a fresh configuration. Its build type
+argument is optional:
 
 | Argument | CMake build type |
 | --- | --- |
@@ -158,16 +162,22 @@ project shell there. Its build type argument is optional:
 | `release` | `Release` |
 | `profile` | `RelWithDebInfo` |
 
-Build the generator and compile/run its generated parser from the project
-shell:
+Start the project shell from the repository root:
 
 ```sh
-cmake --build .
-mkdir -p generated
-../bin/cparsegen --dot generated/shortest.dot ../tests/fixtures/shortest.cpg generated/shortest.cw
-cwhip generated/shortest.cw -o generated/shortest-parser
-printf '123+456' > generated/input.txt
-generated/shortest-parser generated/input.txt
+./scripts/setup
+```
+
+In the project shell, return to the repository root and build the generator:
+
+```sh
+cd ..
+build
+mkdir -p build/generated
+./bin/cparsegen --dot build/generated/shortest.dot tests/fixtures/shortest.cpg build/generated/shortest.cw
+cwhip build/generated/shortest.cw -o build/generated/shortest-parser
+printf '123+456' > build/generated/input.txt
+build/generated/shortest-parser build/generated/input.txt
 ```
 
 The Cwhip application helper writes generated sources and package metadata
@@ -180,7 +190,9 @@ an output directory only when a target needs it.
 The cache variables `CWHIP_BIN_DIR` and `CWHIP_LIB_DIR` choose output
 locations. They default to the project-root `bin/` and `lib/`; native runtime
 targets use the former, and native library/archive targets use the latter.
-For example:
+For a nondefault build/output directory or other cache customization, configure
+directly with CMake; setup intentionally exposes only the build type and
+`--clean` controls:
 
 ```sh
 cmake -S . -B build \
@@ -194,22 +206,27 @@ directories are ignored by Git.
 
 ## Run tests
 
-From the repository root, configure and run all black-box and SDK-selection
-tests:
+From the repository root, configure and enter the project shell:
 
 ```sh
-cmake -S . -B build
-cmake --build build --parallel 4
+./scripts/setup
+```
+
+In the project shell, return to the repository root, build, then run CTest:
+
+```sh
+cd ..
+build
 ctest --test-dir build --output-on-failure -j4
 ```
 
 For Unix Makefiles, the equivalent clean-build workflow is:
 
 ```sh
-cmake -S . -B build -G "Unix Makefiles"
-cd build
-make -j4
-make test
+./scripts/setup --clean
+cd ..
+build
+ctest --test-dir build --output-on-failure
 ```
 
 CTest registers one named suite per `tests/test_*.py` module: 18 suites,
@@ -289,7 +306,7 @@ when its other checks pass.
 From the repository root:
 
 ```sh
-cmake --build build --target calculator
+build calculator
 ./bin/calculator -e '(2 + 3) * 4'
 ./bin/calculator
 ```
@@ -304,7 +321,7 @@ handling, and a smaller identifier-list example.
 ## Build the SmallC AST frontend
 
 ```sh
-cmake --build build --target smallc
+build smallc
 ./bin/smallc-ast examples/smallc/valid/functions.c > build/smallc/functions.ast.json
 ```
 
@@ -320,7 +337,7 @@ samples, checked/deferred semantic rules, and the bytecode boundary.
 For the standalone C99 frontend with the same JSON AST and source diagnostics:
 
 ```sh
-cmake --build build --target smallc-c
+build smallc-c
 ./bin/smallc-c --json examples/smallc/valid/functions.c
 ```
 
@@ -341,11 +358,11 @@ installed toolchain: `cvm-as` (assembler, the only producer of the binary) and
 `cvm-run` (runner).
 
 ```sh
-cmake --build build --target smallc-cvm
+build smallc-cvm
 ./bin/smallc-cvm examples/smallc/valid/functions.c build/example.asm
 cvm-as build/example.asm -o build/example.cvm
 cvm-run build/example.cvm
-cmake --build build --target test-smallc-cvm
+build test-smallc-cvm
 # Or, after building:
 ctest --test-dir build --output-on-failure -L '^smallc-cvm$'
 ```
@@ -381,7 +398,7 @@ the flag affects generated C fixtures, not SDK binaries.
 ## Build the visitor integration example
 
 ```sh
-cmake --build build --target visitor-c
+build visitor-c
 ./bin/visitor-c 'alpha, beta, gamma'
 ```
 
@@ -394,7 +411,7 @@ example, and the public API's traversal, error, and lifetime contracts.
 ## Build the compiler examples
 
 ```sh
-cmake --build build --target expression-compiler statement-compiler
+build expression-compiler statement-compiler
 ./bin/statement-compiler examples/compiler/statements/basic.stmt \
   > build/statement-compiler/program.c
 cc -std=c99 -Wall -Wextra -Werror -pedantic \
@@ -413,10 +430,14 @@ building.
 
 ## Clean
 
-Use CMake's normal clean target to remove generated build artifacts:
+Use `rebuild` to clean-first build while retaining the CMake configuration.
+To remove all generated output trees and configure from scratch:
 
 ```sh
-cmake --build build --target clean
+./scripts/setup --clean
 ```
 
-Rebuilding recreates the required output directories.
+The standalone `scripts/clean` command removes the default `bin/`, `build/`,
+`lib/`, `doc/out/`, and `share/` trees without configuring again. A subsequent
+`./scripts/setup` recreates the build directory. For a custom build directory,
+use CMake's clean target directly.

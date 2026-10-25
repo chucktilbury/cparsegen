@@ -131,7 +131,7 @@ class DocumentationWorkflows(GeneratorTestCase):
         ]:
             with self.subTest(section=section):
                 commands = self.blocks("doc/EXAMPLES.md", section)[0]
-                commands = commands.removeprefix("cmake --build build\n")
+                commands = commands.removeprefix("build\n")
                 self.assertEqual(self.commands(commands), expected)
 
     def test_documented_manual_visitor_commands(self):

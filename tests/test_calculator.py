@@ -20,11 +20,6 @@ class CalculatorTests(unittest.TestCase):
                 raise FileNotFoundError(generator)
             raise unittest.SkipTest("build cparsegen before running calculator tests")
         prefix = os.environ.get("CWHIP_SDK", "")
-        if not prefix:
-            prefix = subprocess.run(
-                ["python3", str(ROOT / "scripts/sdk-prefix.py"), "--discover"],
-                check=True, capture_output=True, text=True,
-            ).stdout
         candidates = [Path(prefix) / "bin/cwhip"] if prefix else []
         candidates.extend(
             Path(entry) / "bin/cwhip"

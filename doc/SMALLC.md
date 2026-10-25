@@ -13,8 +13,9 @@ compile the same checked AST. Code generation does not reparse source.
 From the repository root, with an installed Cwhip SDK selected:
 
 ```sh
-cmake -S . -B build
-cmake --build build --target smallc
+./scripts/setup
+cd ..
+build smallc
 ./bin/smallc-ast examples/smallc/valid/functions.c > build/smallc/functions.ast.json
 ./bin/smallc-ast --check examples/smallc/valid/functions.c > build/smallc/functions.checked.ast.json
 python3 -m json.tool build/smallc/functions.ast.json
@@ -30,7 +31,7 @@ private HOME/XDG directories in the build tree.
 The same grammar also generates an actual standalone ISO C99 frontend:
 
 ```sh
-cmake --build build --target smallc-c
+build smallc-c
 ./bin/smallc-c --json examples/smallc/valid/functions.c > build/smallc-c/functions.ast.json
 ```
 
@@ -122,12 +123,13 @@ The pipeline has three separate stages, each owned by a different program:
 3. The official `cvm-run` **executes** that binary.
 
 ```sh
-cmake -S . -B build -DCVM_PREFIX=/path/to/cvm-install   # optional, for tests
-cmake --build build --target smallc-cvm
+./scripts/setup
+cd ..
+build smallc-cvm
 ./bin/smallc-cvm examples/smallc/valid/functions.c build/example.asm
 cvm-as build/example.asm -o build/example.cvm
 cvm-run build/example.cvm
-cmake --build build --target test-smallc-cvm
+build test-smallc-cvm
 ```
 
 `smallc-cvm INPUT.c OUTPUT.asm` runs the existing semantic checker, lowers its

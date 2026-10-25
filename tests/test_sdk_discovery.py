@@ -72,6 +72,7 @@ class SdkDiscoveryTests(unittest.TestCase):
         shutil.copy2(ROOT / "CMakeLists.txt", self.project)
         shutil.copy2(ROOT / ".project_env", self.project)
         shutil.copy2(ROOT / "scripts/setup", self.project / "scripts")
+        shutil.copy2(ROOT / "scripts/clean", self.project / "scripts")
         shutil.copy2(ROOT / "scripts/sdk-prefix.py", self.project / "scripts")
         (self.project / "src/main.cw").write_text("start {}\n")
         shutil.copy2(ROOT / "src/paths.c", self.project / "src")
@@ -570,9 +571,12 @@ class SdkDiscoveryTests(unittest.TestCase):
         fake_bash = tools / "bash"
         fake_bash.write_text(
             "#!/bin/sh\n"
+            'if [ "${1-}" != "--rcfile" ]; then exec /bin/bash "$@"; fi\n'
             '/bin/bash --noprofile --norc -c \'source "$1"; '
             'printf "%s\\n%s\\n%s\\n" "$PATH" "${_BUILD_TYPE-}" '
-            '"${CWHIP_BUILD_TYPE-}" > "$SHELL_RECORD"\' '
+            '"${CWHIP_BUILD_TYPE-}" > "$SHELL_RECORD"; '
+            'type -t build >> "$SHELL_RECORD"; '
+            'type -t rebuild >> "$SHELL_RECORD"\' '
             '_ "$2"\n'
         )
         fake_bash.chmod(0o755)
@@ -599,7 +603,7 @@ class SdkDiscoveryTests(unittest.TestCase):
         )
         shell_path, build_type, cmake_build_type = (
             self.root / "shell-path.txt"
-        ).read_text().splitlines()
+        ).read_text().splitlines()[:3]
         self.assertEqual(shell_path.split(":")[:3], [
             str(self.project / "bin"),
             str(self.project / "scripts"),
@@ -607,6 +611,34 @@ class SdkDiscoveryTests(unittest.TestCase):
         ])
         self.assertEqual(build_type, "profile")
         self.assertEqual(cmake_build_type, "RelWithDebInfo")
+        self.assertEqual(
+            (self.root / "shell-path.txt").read_text().splitlines()[3:],
+            ["function", "function"],
+        )
+
+    def test_setup_clean_runs_before_configuration_and_accepts_both_orders(self):
+        prefix = self.make_sdk("registered")
+        self.select(prefix)
+        (self.build / "stale-marker").parent.mkdir(parents=True)
+        (self.build / "stale-marker").write_text("stale")
+
+        result = self.run_setup("release", "--clean")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((self.build / "stale-marker").exists())
+        self.assertTrue((self.build / "CMakeCache.txt").exists())
+        self.assertEqual(self.cache_value("CMAKE_BUILD_TYPE"), "Release")
+
+    def test_setup_rejects_duplicate_clean_flag_without_cleaning(self):
+        (self.build / "stale-marker").parent.mkdir(parents=True)
+        marker = self.build / "stale-marker"
+        marker.write_text("stale")
+
+        result = self.run_setup("--clean", "--clean")
+
+        self.assertEqual(result.returncode, 2)
+        self.assertTrue(marker.exists())
+        self.assertIn("Usage:", result.stderr)
 
     def test_setup_explicit_build_type_overrides_sdk_default(self):
         prefix = self.make_sdk("registered")
@@ -620,7 +652,7 @@ class SdkDiscoveryTests(unittest.TestCase):
         self.assertEqual(self.cache_value("CMAKE_BUILD_TYPE"), "Release")
         _, build_type, cmake_build_type = (
             self.root / "shell-path.txt"
-        ).read_text().splitlines()
+        ).read_text().splitlines()[:3]
         self.assertEqual(build_type, "release")
         self.assertEqual(cmake_build_type, "Release")
 
@@ -637,7 +669,7 @@ class SdkDiscoveryTests(unittest.TestCase):
         self.assertEqual(self.cache_value("CMAKE_BUILD_TYPE"), "Release")
         _, build_type, cmake_build_type = (
             self.root / "shell-path.txt"
-        ).read_text().splitlines()
+        ).read_text().splitlines()[:3]
         self.assertEqual(build_type, "release")
         self.assertEqual(cmake_build_type, "Release")
 
@@ -648,7 +680,7 @@ class SdkDiscoveryTests(unittest.TestCase):
         self.assertEqual(self.cache_value("CMAKE_BUILD_TYPE"), "")
         _, build_type, cmake_build_type = (
             self.root / "shell-path.txt"
-        ).read_text().splitlines()
+        ).read_text().splitlines()[:3]
         self.assertEqual(build_type, "default")
         self.assertEqual(cmake_build_type, "")
 

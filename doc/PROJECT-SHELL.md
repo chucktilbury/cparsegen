@@ -1,7 +1,8 @@
 # Project shell
 
-Run `scripts/setup [debug|release|profile]` from any working directory to
-configure this project and start its interactive Bash shell. The script
+Run `scripts/setup [--clean] [debug|release|profile]` from any working
+directory to configure this project and start its interactive Bash shell.
+`--clean` removes the checkout's generated outputs before configuration. The script
 locates the project relative to itself, so it does not depend on the caller's
 current directory. With no mode argument, the CMake build type inherits the
 SDK's registered application default or retains an existing cache value.
@@ -46,16 +47,16 @@ Convenience commands operate on the project repository:
 | `push [args...]` | Run `git push` |
 | `all [commit args...]` | Explicitly stage all changes, commit, then push |
 | `dbg [args...]` | Run `cdbg` with the supplied source or executable arguments |
-| `build [TARGET...]` | Build the current build directory with CMake, in parallel |
-| `rebuild [TARGET...]` | CMake clean-first build of the current build directory |
+| `build [TARGET...]` | Build the project's default build directory with CMake, in parallel |
+| `rebuild [TARGET...]` | Clean-first build of the project's default build directory |
 | `clean` | Remove this checkout's default `bin/`, `build/`, `lib/`, `doc/out/`, and `share/` trees; unlike CMake clean, this also removes configuration |
 
 These commands do not run automatically. In particular, entering the shell
 does not stage, commit, or push changes.
-`build` and `rebuild` come from `scripts/` on PATH and use the current
-directory (initially `build/` in the project shell), unless `_PROJECT_BUILD_DIR`
-is explicitly set.
-Outside that directory, prefer `cmake --build /path/to/build`. `clean` resolves
-the checkout from its own script path, not the current directory; it does not
-remove custom output directories elsewhere. See [Building](BUILDING.md#clean)
-for the less destructive CMake clean target.
+`build` and `rebuild` are Bash functions from `.project_env`; they target
+`$_PROJECT_LOC/build` unless `_PROJECT_BUILD_DIR` is explicitly set. `clean`
+is the standalone `scripts/clean` program and resolves the checkout from its
+own path, not the current directory. It does not remove custom output
+directories elsewhere. Use `rebuild` to retain configuration while removing
+compiled outputs, or `scripts/setup --clean` to remove generated outputs and
+reconfigure. See [Building](BUILDING.md#clean).

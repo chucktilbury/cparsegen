@@ -40,8 +40,9 @@ Run from the repository root, after selecting an installed SDK as described in
 [Building](BUILDING.md):
 
 ```sh
-cmake -S . -B build
-cmake --build build --target cparsegen visitor-c
+./scripts/setup
+cd ..
+build cparsegen visitor-c
 ./bin/visitor-c 'alpha, beta, gamma'
 ./bin/visitor-c --dispatch 'alpha, beta'
 ./bin/visitor-c --first 'alpha, forbidden'
@@ -259,7 +260,7 @@ The real compiler-facing incremental consumer is
 [SmallC](../examples/smallc/smallc.cw):
 
 ```sh
-cmake --build build --target smallc
+build smallc
 ./bin/smallc-ast --check examples/smallc/valid/functions.c
 ```
 

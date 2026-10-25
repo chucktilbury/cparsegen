@@ -191,8 +191,9 @@ Both baseline trees can live in ignored `build/`; use fresh directories
 rather than reusing a baseline from another SDK generation:
 
 ```sh
-cmake -S . -B build
-cmake --build build
+./scripts/setup
+cd ..
+build
 mkdir -p build/audit-baseline-source
 git archive e3c30f7a64d75acc423bf0ee1adb2eb90a57ff1c | tar -x -C build/audit-baseline-source
 cmake -S build/audit-baseline-source -B build/audit-baseline \
@@ -268,8 +269,8 @@ Build/install and representative application commands used in addition to
 the extracted documentation workflows:
 
 ```sh
-cmake --build build --target calculator smallc calculator-c smallc-c \
-  visitor-c expression-compiler statement-compiler --parallel 2
+build calculator smallc calculator-c smallc-c visitor-c \
+  expression-compiler statement-compiler
 cmake --build build/audit-sanitize --target calculator smallc calculator-c smallc-c \
   visitor-c expression-compiler statement-compiler --parallel 2
 cmake --install build --prefix "$PWD/build/audit-install"
