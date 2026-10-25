@@ -472,7 +472,9 @@ class SdkDiscoveryTests(unittest.TestCase):
         fake_bash = tools / "bash"
         fake_bash.write_text(
             "#!/bin/sh\n"
-            '/bin/bash --noprofile --norc -c \'source "$1"; printf "%s" "$PATH" > "$SHELL_RECORD"\' '
+            '/bin/bash --noprofile --norc -c \'source "$1"; '
+            'printf "%s\\n%s\\n%s\\n" "$PATH" "${_BUILD_TYPE-}" '
+            '"${CWHIP_BUILD_TYPE-}" > "$SHELL_RECORD"\' '
             '_ "$2"\n'
         )
         fake_bash.chmod(0o755)
@@ -497,11 +499,16 @@ class SdkDiscoveryTests(unittest.TestCase):
             self.cache_value("CMAKE_BUILD_TYPE"),
             self.env["CPARSEGEN_TEST_APPLICATION_BUILD_TYPE"],
         )
-        self.assertEqual((self.root / "shell-path.txt").read_text().split(":")[:3], [
+        shell_path, build_type, cmake_build_type = (
+            self.root / "shell-path.txt"
+        ).read_text().splitlines()
+        self.assertEqual(shell_path.split(":")[:3], [
             str(self.project / "bin"),
             str(self.project / "scripts"),
             str(prefix / "bin"),
         ])
+        self.assertEqual(build_type, "profile")
+        self.assertEqual(cmake_build_type, "RelWithDebInfo")
 
     def test_setup_explicit_build_type_overrides_sdk_default(self):
         prefix = self.make_sdk("registered")
@@ -513,6 +520,11 @@ class SdkDiscoveryTests(unittest.TestCase):
         result = self.run_setup("release")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.cache_value("CMAKE_BUILD_TYPE"), "Release")
+        _, build_type, cmake_build_type = (
+            self.root / "shell-path.txt"
+        ).read_text().splitlines()
+        self.assertEqual(build_type, "release")
+        self.assertEqual(cmake_build_type, "Release")
 
     def test_setup_without_mode_preserves_existing_build_type_cache(self):
         prefix = self.make_sdk("registered")
@@ -525,6 +537,22 @@ class SdkDiscoveryTests(unittest.TestCase):
         result = self.run_setup()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.cache_value("CMAKE_BUILD_TYPE"), "Release")
+        _, build_type, cmake_build_type = (
+            self.root / "shell-path.txt"
+        ).read_text().splitlines()
+        self.assertEqual(build_type, "release")
+        self.assertEqual(cmake_build_type, "Release")
+
+    def test_setup_without_mode_uses_empty_sdk_default_in_shell(self):
+        self.env["CPARSEGEN_TEST_APPLICATION_BUILD_TYPE"] = ""
+        result = self.run_setup()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.cache_value("CMAKE_BUILD_TYPE"), "")
+        _, build_type, cmake_build_type = (
+            self.root / "shell-path.txt"
+        ).read_text().splitlines()
+        self.assertEqual(build_type, "default")
+        self.assertEqual(cmake_build_type, "")
 
     def test_setup_explicit_sdk_bypasses_invalid_registration(self):
         self.sdk_settings.parent.mkdir(parents=True)
