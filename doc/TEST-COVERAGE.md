@@ -39,6 +39,26 @@ checks for both targets, documentation workflows, and all SmallC/CVM tests
 using the available assembler/runner. Earlier audit counts below describe
 their historical runs, not this migration's result.
 
+CTest registers **18 module suites** (`cparsegen_<module>`), one for each
+`tests/test_*.py`, containing **355 unittest checks** (including two new CTest
+registration/opt-out checks). These are different counts: CTest reports module
+results, while `ctest -V` shows individual unittest results and optional skips.
+Each module has private HOME/XDG, working, and temporary directories and can
+run concurrently. The normal build supplies cparsegen and `smallc-cvm`;
+generated parser/consumer fixtures are compiled privately by the tests.
+See [Run tests](BUILDING.md#run-tests) for the build-before-test workflow.
+
+CTest conversion validation on 2026-10-25 (UTC) used a fresh private build,
+SDK `/tmp/cwhip-final-sdk`, `CWHIP_REGISTER_SDK=OFF`, private HOME/XDG
+directories, and build-local binary/library outputs. All **18 suites passed**
+serially (121.91 s), at `-j4` (32.52 s), and at `-j8` (25.27 s).
+A verbose `-j8` repeat confirmed **355 checks, 2 baseline-parity skips,
+0 failures**; installed-SDK, documentation, and available CVM-tool checks ran.
+The built-in `test` target (CLI selection) and retained `test-smallc-cvm`
+target also passed. A separate fresh build configured without CVM tools
+passed the labeled SmallC suite, preserving optional tool skips while its
+emission/checker checks still ran. No SDK or user configuration was modified.
+
 ## Evidence index
 
 Method names below are exact unittest methods. Shared mixins run in each
@@ -180,7 +200,7 @@ cmake -S build/audit-baseline-source -B build/audit-baseline \
   -DCWHIP_LIB_DIR="$PWD/build/audit-baseline/lib"
 cmake --build build/audit-baseline
 CPARSEGEN_BASELINE_EXECUTABLE="$PWD/build/audit-baseline/bin/cparsegen" \
-  cmake --build build --target test
+  ctest --test-dir build --output-on-failure
 ```
 
 CMake passes the selected installed SDK to tests, enabling the real installed-SDK
@@ -231,10 +251,11 @@ CMake and extra flags passed through the existing C harness:
 cmake -S . -B build/audit-sanitize -DCMAKE_C_COMPILER=clang \
   -DCWHIP_BIN_DIR="$PWD/build/audit-sanitize/bin" \
   -DCWHIP_LIB_DIR="$PWD/build/audit-sanitize/lib"
+cmake --build build/audit-sanitize --parallel 4
 CPARSEGEN_BASELINE_EXECUTABLE="$PWD/build/audit-baseline/bin/cparsegen" \
   CPARSEGEN_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer -g' \
   ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 \
-  cmake --build build/audit-sanitize --target test
+  ctest --test-dir build/audit-sanitize --output-on-failure
 ```
 
 This instruments harness-compiled generated C and compiler-demo programs

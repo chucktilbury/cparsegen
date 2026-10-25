@@ -199,19 +199,24 @@ features to named executable tests, distinguishes CLI/library APIs and
 target-specific limitations, and records the audit commands and results.
 It describes sampled coverage, not proof over every possible grammar.
 
-From the repository root, configure and run the full Python unittest suite:
+From the repository root, build and run all Python unittest modules via CTest:
 
 ```sh
 cmake -S . -B build
-cmake --build build --target test
+cmake --build build --parallel 4
+ctest --test-dir build --output-on-failure -j4
 ```
 
 With Unix Makefiles, `make -C build test` (or `make test` inside `build/`)
-does the same thing. The target builds the generator first, then runs the
-generator, grammar-conformance, standalone-C differential, visitor/compiler,
+does the same thing after building. CTest does not build prerequisites.
+The normal build includes the generator and SmallC CVM compiler. CTest runs
+the generator, grammar-conformance, standalone-C differential, visitor/compiler,
 calculator, SmallC acceptance/differential, and SDK-discovery
-tests with the configured SDK and private HOME/XDG directories. It honors
-`CWHIP_BIN_DIR`; test failures fail the build target.
+tests with the configured SDK and per-module private HOME/XDG and temporary
+directories. It honors `CWHIP_BIN_DIR`; test failures fail the build target.
+Use `ctest --test-dir build -N` to list the 18 module suites, `-R` to select
+a suite, or `-L smallc-cvm` for the CVM suite. See
+[Run tests](BUILDING.md#run-tests) for isolation and optional skip behavior.
 
 `tests/test_grammar_conformance.py` covers interleaved declaration collection
 and forward references, opaque directive payloads, parser-rule whitespace and

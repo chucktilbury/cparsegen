@@ -6,6 +6,11 @@ backends, generated AST/visitor APIs, and runnable application examples.
 grammars and consumers; `tests/` contains black-box and documentation tests;
 `scripts/` contains build and SDK-discovery helpers.
 
+After configuring with an installed SDK, run `cmake --build build --parallel 4`
+and `ctest --test-dir build --output-on-failure -j4`. CTest runs each Python
+test module as a separately named, isolated suite; see
+[Run tests](doc/BUILDING.md#run-tests) for selection and optional tools.
+
 See [Building](doc/BUILDING.md) for SDK requirements and setup,
 [Usage](doc/USAGE.md) for workflows, [Input/output](doc/INPUT-OUTPUT.md) for
 the implemented contract, [Examples](doc/EXAMPLES.md) for applications,

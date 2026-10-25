@@ -114,6 +114,7 @@ endif()
 cwhip_apply_application_defaults()
 
 project(cparsegen LANGUAGES C)
+include(CTest)
 
 set(CWHIP_BIN_DIR "${PROJECT_SOURCE_DIR}/bin" CACHE PATH
     "Directory for project executables")
@@ -190,33 +191,42 @@ get_target_property(cparsegen_executable cparsegen CWHIP_EXECUTABLE)
 install(PROGRAMS "${cparsegen_executable}" DESTINATION bin)
 
 find_package(Python3 3.11 REQUIRED COMPONENTS Interpreter)
-set(test_work "${CMAKE_CURRENT_BINARY_DIR}/tests")
 get_filename_component(cwhip_runtime_directory "${Cwhip_RUNTIME_LIBRARY}" DIRECTORY)
-add_custom_target(test
-    COMMAND "${CMAKE_COMMAND}" -E make_directory
-        "${test_work}/home" "${test_work}/config" "${test_work}/data"
-        "${test_work}/cache" "${test_work}/state"
-    COMMAND "${CMAKE_COMMAND}" -E env
-        --unset=CWHIP_MODULE_DIR --unset=CWHIP_PACKAGE_PATH
-        --unset=CWHIP_MODULE_REGISTRY --unset=DESTDIR --unset=XDG_RUNTIME_DIR
-        "HOME=${test_work}/home" "XDG_CONFIG_HOME=${test_work}/config"
-        "XDG_DATA_HOME=${test_work}/data" "XDG_CACHE_HOME=${test_work}/cache"
-        "XDG_STATE_HOME=${test_work}/state"
-        "CWHIP_SDK=${Cwhip_PREFIX}" "CWHIP_REGISTER_SDK=OFF"
-        "CWHIP_HOME=${Cwhip_PREFIX}" "CWHIP_INCLUDE_DIR=${Cwhip_INCLUDE_DIR}"
-        "CWHIP_RUNTIME_DIR=${cwhip_runtime_directory}"
-        "CWHIP_BUILTIN_DIR=${Cwhip_BUILTIN_DIR}"
-        "CWHIP_STDLIB_MODULE_DIR=${Cwhip_MODULE_DIR}"
-        "CC=${Cwhip_CLANG_EXECUTABLE}"
-        "CPARSEGEN_C_COMPILER=${CMAKE_C_COMPILER}"
-        "CPARSEGEN_EXECUTABLE=${cparsegen_executable}"
-        ${cvm_test_environment}
-        "${Python3_EXECUTABLE}" -m unittest discover
-            -s "${PROJECT_SOURCE_DIR}/tests" -v
-    DEPENDS cparsegen
-    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-    USES_TERMINAL
-    VERBATIM)
+if(BUILD_TESTING)
+    file(GLOB test_modules CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/tests/test_*.py")
+    foreach(test_module IN LISTS test_modules)
+        get_filename_component(test_file "${test_module}" NAME)
+        get_filename_component(test_name "${test_module}" NAME_WE)
+        string(REGEX REPLACE "^test_" "cparsegen_" test_name "${test_name}")
+        set(test_work "${CMAKE_CURRENT_BINARY_DIR}/tests/${test_name}")
+        file(MAKE_DIRECTORY
+            "${test_work}/home" "${test_work}/config" "${test_work}/data"
+            "${test_work}/cache" "${test_work}/state" "${test_work}/tmp")
+        add_test(NAME "${test_name}"
+            COMMAND "${CMAKE_COMMAND}" -E env
+                --unset=CWHIP_MODULE_DIR --unset=CWHIP_PACKAGE_PATH
+                --unset=CWHIP_MODULE_REGISTRY --unset=DESTDIR --unset=XDG_RUNTIME_DIR
+                "HOME=${test_work}/home" "XDG_CONFIG_HOME=${test_work}/config"
+                "XDG_DATA_HOME=${test_work}/data" "XDG_CACHE_HOME=${test_work}/cache"
+                "XDG_STATE_HOME=${test_work}/state" "TMPDIR=${test_work}/tmp"
+                "CWHIP_SDK=${Cwhip_PREFIX}" "CWHIP_REGISTER_SDK=OFF"
+                "CWHIP_HOME=${Cwhip_PREFIX}" "CWHIP_INCLUDE_DIR=${Cwhip_INCLUDE_DIR}"
+                "CWHIP_RUNTIME_DIR=${cwhip_runtime_directory}"
+                "CWHIP_BUILTIN_DIR=${Cwhip_BUILTIN_DIR}"
+                "CWHIP_STDLIB_MODULE_DIR=${Cwhip_MODULE_DIR}"
+                "CC=${Cwhip_CLANG_EXECUTABLE}"
+                "CPARSEGEN_C_COMPILER=${CMAKE_C_COMPILER}"
+                "CPARSEGEN_EXECUTABLE=${cparsegen_executable}"
+                ${cvm_test_environment}
+                "${Python3_EXECUTABLE}" -m unittest discover
+                    -s "${PROJECT_SOURCE_DIR}/tests" -p "${test_file}" -v)
+        set_tests_properties("${test_name}" PROPERTIES
+            WORKING_DIRECTORY "${test_work}" LABELS "cparsegen")
+    endforeach()
+    if(TEST cparsegen_smallc_cvm)
+        set_property(TEST cparsegen_smallc_cvm APPEND PROPERTY LABELS "smallc-cvm")
+    endif()
+endif()
 
 # The SDK application helper currently accepts only non-generated sources.
 function(cparsegen_add_example target output_name)
@@ -314,23 +324,16 @@ add_custom_command(
         "${smallc_cvm_work}/smallc_backend.cw"
     VERBATIM)
 add_custom_target(smallc-cvm DEPENDS "${smallc_cvm_executable}")
-add_dependencies(test smallc-cvm)
-
-add_custom_target(test-smallc-cvm
-    COMMAND "${CMAKE_COMMAND}" -E make_directory
-        "${test_work}/home" "${test_work}/config" "${test_work}/data"
-        "${test_work}/cache" "${test_work}/state"
-    COMMAND "${CMAKE_COMMAND}" -E env
-        "HOME=${test_work}/home" "XDG_CONFIG_HOME=${test_work}/config"
-        "XDG_DATA_HOME=${test_work}/data" "XDG_CACHE_HOME=${test_work}/cache"
-        "XDG_STATE_HOME=${test_work}/state"
-        ${cvm_test_environment}
-        "${Python3_EXECUTABLE}" -m unittest discover
-            -s "${PROJECT_SOURCE_DIR}/tests" -p test_smallc_cvm.py -v
-    DEPENDS smallc-cvm
-    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-    USES_TERMINAL
-    VERBATIM)
+if(BUILD_TESTING)
+    add_custom_target(cparsegen-test-tools ALL DEPENDS smallc-cvm)
+    add_custom_target(test-smallc-cvm
+        COMMAND "${CMAKE_CTEST_COMMAND}" --output-on-failure
+            -C "$<CONFIG>" -L "^smallc-cvm$"
+        DEPENDS smallc-cvm
+        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+        USES_TERMINAL
+        VERBATIM)
+endif()
 
 function(cparsegen_add_c_example example)
     set(target "${example}-c")
