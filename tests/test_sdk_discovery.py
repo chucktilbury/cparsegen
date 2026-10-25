@@ -158,6 +158,50 @@ class SdkDiscoveryTests(unittest.TestCase):
         self.env["CWHIP_SDK"] = str(selected)
         self.assertEqual(self.configure(), str(selected))
 
+    def test_ctest_registers_isolated_modules_and_smallc_label(self):
+        tests = self.project / "tests"
+        tests.mkdir()
+        for module in ("test_cli", "test_smallc_cvm"):
+            (tests / f"{module}.py").write_text("")
+        self.configure()
+        result = subprocess.run(
+            ["ctest", "--test-dir", str(self.build), "--show-only=json-v1"],
+            env=self.env, capture_output=True, text=True, timeout=60,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        registered = json.loads(result.stdout)["tests"]
+        self.assertEqual(
+            [test["name"] for test in registered],
+            ["cparsegen_cli", "cparsegen_smallc_cvm"],
+        )
+        for test in registered:
+            name = test["name"]
+            properties = {item["name"]: item["value"] for item in test["properties"]}
+            work = self.build / "tests" / name
+            self.assertEqual(properties["WORKING_DIRECTORY"], str(work))
+            for variable, directory in (
+                ("HOME", "home"), ("XDG_CONFIG_HOME", "config"),
+                ("XDG_DATA_HOME", "data"), ("XDG_CACHE_HOME", "cache"),
+                ("XDG_STATE_HOME", "state"), ("TMPDIR", "tmp"),
+            ):
+                self.assertIn(f"{variable}={work / directory}", test["command"])
+                self.assertTrue((work / directory).is_dir())
+            self.assertIn("CWHIP_REGISTER_SDK=OFF", test["command"])
+            self.assertIn("--unset=DESTDIR", test["command"])
+            self.assertIn("--unset=CWHIP_MODULE_REGISTRY", test["command"])
+            self.assertEqual(test["command"][-3:], [
+                "-p", name.replace("cparsegen_", "test_", 1) + ".py", "-v",
+            ])
+            self.assertEqual(
+                "smallc-cvm" in properties["LABELS"],
+                name == "cparsegen_smallc_cvm",
+            )
+
+    def test_build_testing_off_disables_ctest(self):
+        self.configure(extra=["-DBUILD_TESTING=OFF"])
+        self.assertFalse((self.build / "CTestTestfile.cmake").exists())
+        self.assertFalse((self.build / "tests").exists())
+
     def test_explicit_sdk_bypasses_invalid_registration(self):
         self.sdk_settings.parent.mkdir(parents=True, exist_ok=True)
         self.sdk_settings.write_text("invalid = [\n")

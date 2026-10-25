@@ -122,7 +122,7 @@ class DocumentationWorkflows(GeneratorTestCase):
         self.assertEqual(output, "words(IDENT(alpha), @literal0(,), IDENT(beta))\n")
 
     def test_documented_insertion_and_lexer_expression_commands(self):
-        # The prerequisite generator is already built by CMake's test target.
+        # The prerequisite generator is already built before CTest runs.
         for section, expected in [
             ("## Code insertion", "words=3\n" * 2),
             ("## Composable lexer expressions",

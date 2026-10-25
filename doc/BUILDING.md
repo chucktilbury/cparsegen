@@ -143,7 +143,7 @@ The optional `calculator-c` and `smallc-c` targets generate and compile standalo
 ISO C99 syntax parsers with CMake's host C compiler (strict warnings-as-errors
 on GCC/Clang). The Cwhip SDK is needed to
 build/run cparsegen, but not to compile or execute its generated C source.
-`cmake --build build --target test` (or `make -C build test`) also compiles C
+`ctest --test-dir build` (or `make -C build test`, after building) also compiles C
 fixtures with this host compiler and compares them with Cwhip under private
 HOME/XDG directories. See [Standalone C](USAGE.md#standalone-c-target)
 for direct generator/compiler commands and the bounded backend scope.
@@ -199,7 +199,8 @@ tests:
 
 ```sh
 cmake -S . -B build
-cmake --build build --target test
+cmake --build build --parallel 4
+ctest --test-dir build --output-on-failure -j4
 ```
 
 For Unix Makefiles, the equivalent clean-build workflow is:
@@ -207,19 +208,39 @@ For Unix Makefiles, the equivalent clean-build workflow is:
 ```sh
 cmake -S . -B build -G "Unix Makefiles"
 cd build
+make -j4
 make test
 ```
 
-The custom `test` target builds cparsegen before running Python unittest
-discovery, including the generated calculator and SmallC acceptance tests.
-It also builds `smallc-cvm`, and the SmallC assembly tests run the installed
-`cvm-as` and `cvm-run` when they are found (see below).
-Unlike CTest's built-in target, it has a build dependency on the generator;
-no separate build step is required. A failing test fails the target.
-The target passes the configured generator executable (including a custom
+CTest registers one named suite per `tests/test_*.py` module: 18 suites,
+named `cparsegen_analysis`, `cparsegen_cli`, etc. Each runs Python unittest
+discovery for only that module, including the generated calculator and SmallC
+acceptance tests. The normal build includes cparsegen and `smallc-cvm` when
+`BUILD_TESTING=ON` (the default); other fixtures and example consumers are
+compiled in the tests' temporary directories. The SmallC assembly tests use
+installed `cvm-as` and `cvm-run` when found (see below).
+CTest and CMake's built-in `test` target do not build prerequisites: always
+build first. A failing suite fails CTest and the `test` target.
+CTest passes the configured generator executable (including a custom
 `CWHIP_BIN_DIR`) and the SDK selected during configuration, even when selected
-via `CMAKE_PREFIX_PATH` or `Cwhip_DIR`. Tests run with private HOME/XDG
-directories under `build/tests/` and do not register or install an SDK.
+via `CMAKE_PREFIX_PATH` or `Cwhip_DIR`. Each suite has a separate working
+directory, HOME/XDG directories, and temporary root under
+`build/tests/cparsegen_<module>/`, so suites can run concurrently with `-j`.
+Tests do not register or install into the selected SDK; install smoke checks
+use private prefixes. Configure with `-DBUILD_TESTING=OFF` to omit test
+registration and the normal build's SmallC CVM test prerequisite.
+
+List suites or select a module/label without running everything:
+
+```sh
+ctest --test-dir build -N
+ctest --test-dir build --output-on-failure -R '^cparsegen_cli$'
+ctest --test-dir build --output-on-failure -L '^smallc-cvm$'
+```
+
+The `test-smallc-cvm` convenience build target is retained; it builds
+`smallc-cvm` and runs the same labeled CTest suite with the full isolated
+environment.
 
 For direct unittest execution after building the generator, from the
 repository root:
@@ -242,7 +263,7 @@ Optional artifact/diagnostic parity needs a separately built baseline:
 
 ```sh
 CPARSEGEN_BASELINE_EXECUTABLE=/absolute/path/to/baseline/cparsegen \
-  cmake --build build --target test
+  ctest --test-dir build --output-on-failure
 ```
 
 Use a CLI-compatible current-main build; see the matrix's
@@ -253,7 +274,9 @@ tests explicitly skip; without `CWHIP_SDK`, direct unittest runs skip the
 real installed-SDK test. Include permission checks skip when run as root.
 The documentation suite checks tracked local Markdown links/anchors and
 executes representative generation/compilation/CLI/library/insertion snippets
-in temporary directories using the existing unittest runner.
+in temporary directories using unittest under CTest. Individual unittest
+skips remain visible with `ctest -V`; they do not mark a whole module skipped
+when its other checks pass.
 
 ## Build the calculator example
 
@@ -298,7 +321,7 @@ cmake --build build --target smallc-c
 The target generates `build/smallc-c/parser.c` and `grammar.dot`, then compiles
 `bin/smallc-c` (`CWHIP_BIN_DIR` applies). Compilation/execution of the generated
 source needs no SDK/runtime library. `--json` always requires complete input.
-`make test` includes all SmallC samples and shared syntax checks against both
+The CTest suite includes all SmallC samples and shared syntax checks against both
 parser backends, comparing full JSON ASTs and lexical/parser diagnostic
 locations, as well as table-driven semantic checks through the Cwhip app.
 Neither parser backend executes SmallC; standalone C remains syntax-only.
@@ -317,6 +340,8 @@ cmake --build build --target smallc-cvm
 cvm-as build/example.asm -o build/example.cvm
 cvm-run build/example.cvm
 cmake --build build --target test-smallc-cvm
+# Or, after building:
+ctest --test-dir build --output-on-failure -L '^smallc-cvm$'
 ```
 
 The executable follows `CWHIP_BIN_DIR`. The tests locate the CVM tools at
@@ -341,7 +366,7 @@ Optional host-C sanitizer validation, using the same test runner:
 CPARSEGEN_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer -g' \
   ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
   UBSAN_OPTIONS=halt_on_error=1 \
-  cmake --build build --target test
+  ctest --test-dir build --output-on-failure
 ```
 
 Use the configured SDK and private HOME/XDG environment as for `make test`;
@@ -377,7 +402,8 @@ settings and need no new dependencies. See the
 [expression guide](EXPRESSION-COMPILER.md) and
 [statement guide](../examples/compiler/STATEMENTS.md) for explicit generation,
 syntax-only parsing, visitor state, generated C, and diagnostics.
-Both end-to-end suites are discovered by `make test`.
+Both end-to-end suites are registered with CTest and run by `make test` after
+building.
 
 ## Clean
 
