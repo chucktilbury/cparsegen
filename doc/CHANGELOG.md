@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Read grammar bytes with `text[index]` and copy half-open spans through an
+  inclusive range. Emitted Cwhip scanners use the same indexing. Empty spans
+  stay empty. `String.byteAt` and `String.slice` are no longer SDK methods.
+  C99 output and `.cpg` syntax are unchanged.
 - Migrate generator sources, embedded Cwhip scanner/parser/AST/visitor
   templates, handwritten apps, insertion examples, test consumers, and
   documentation to current Cwhip syntax (`return(value)`). Rename local

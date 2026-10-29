@@ -39,12 +39,26 @@ class GrammarDiagnostic {
         message = text
         if (text.startsWith("line ")) {
             int64 end = 5
-            while (end < text.length && int64(text.byteAt(end)) >= 48 &&
-                   int64(text.byteAt(end)) <= 57) { end += 1 }
-            if (end + 1 < text.length) { message = text.slice(end + 2, text.length) }
+            while (end < text.length && int64(text[end]) >= 48 &&
+                   int64(text[end]) <= 57) { end += 1 }
+            if (end + 1 < text.length) { message = byteSpan(text, end + 2, text.length) }
         }
         span = location
         related = relatedLocation
+    }
+
+    int64 byteSpanBound(int64 value, int64 length) {
+        int64 index = value
+        if (index < 0) { index = index + length }
+        if (index < 0) { return(0) }
+        if (index > length) { return(length) }
+        return(index)
+    }
+    String byteSpan(String text, int64 first, int64 last) {
+        int64 lower = byteSpanBound(first, text.length)
+        int64 end = byteSpanBound(last, text.length)
+        if (end <= lower) { return("") }
+        return(text[lower..(end - 1)])
     }
 }
 
@@ -104,12 +118,12 @@ class GrammarScanner {
 
     int64 current() {
         if (offset >= source.length) { return(-1) }
-        return(int64(source.byteAt(offset)))
+        return(int64(source[offset]))
     }
 
     int64 following() {
         if (offset + 1 >= source.length) { return(-1) }
-        return(int64(source.byteAt(offset + 1)))
+        return(int64(source[offset + 1]))
     }
 
     void advance() {
@@ -142,7 +156,7 @@ class GrammarScanner {
                               line, includedFrom))
     }
 
-    SourceSpan span(int64 startOffset, int64 startLine, int64 startColumn) {
+    SourceSpan byteSpan(int64 startOffset, int64 startLine, int64 startColumn) {
         int64 startLogicalLine = line - (sourceLine - startLine)
         SourceLocation first(sourcePath, displayPath, startOffset, startLine,
                              startColumn, startLogicalLine, includedFrom)
@@ -152,7 +166,7 @@ class GrammarScanner {
     GrammarToken makeToken(int64 kind, String text, String name, int64 startOffset,
                            int64 startSourceLine, int64 startColumn, int64 startLogicalLine) {
         GrammarToken token(kind, text, name, startLogicalLine)
-        token.span = span(startOffset, startSourceLine, startColumn)
+        token.span = byteSpan(startOffset, startSourceLine, startColumn)
         return(token)
     }
 
@@ -184,7 +198,7 @@ class GrammarScanner {
                         while (current() >= 0 && !(current() == 42 && following() == 47)) { advance() }
                         if (current() < 0) {
                             problem = format("line {}: unterminated block comment", startLine)
-                            problemSpan = span(startOffset, startSourceLine, startColumn)
+                            problemSpan = byteSpan(startOffset, startSourceLine, startColumn)
                             return
                         }
                         advance()
@@ -207,9 +221,9 @@ class GrammarScanner {
         if (letter(current())) {
             while (letter(current()) || digit(current())) { advance() }
         }
-        lastWordSpan = span(startIndex, startSourceLine, startColumn)
+        lastWordSpan = byteSpan(startIndex, startSourceLine, startColumn)
         lastWordSpan.first.logicalLine = startLogicalLine
-        return(source.slice(startIndex, offset))
+        return(byteSpan(source, startIndex, offset))
     }
 
     GrammarToken insertion(int64 startLine) {
@@ -242,20 +256,20 @@ class GrammarScanner {
             int64 size = offset - startIndex
             if (size > 1048576 || (size == 1048576 && !(value == 125 && state == 0 && depth == 1))) {
                 problem = format("line {}: @insert block exceeds 1048576 bytes", startLine)
-                problemSpan = span(offset, sourceLine, column)
+                problemSpan = byteSpan(offset, sourceLine, column)
                 return(token)
             }
             // C translation-phase rewriting would change delimiter recognition.
             if (value == 0 || (value == 92 && (following() == 10 || following() == 13)) ||
                 (value == 63 && following() == 63)) {
                 problem = format("line {}: @insert forbids NUL, backslash-newline and trigraph prefixes", line)
-                problemSpan = span(offset, sourceLine, column)
+                problemSpan = byteSpan(offset, sourceLine, column)
                 return(token)
             }
             if (state == 34 || state == 39) {
                 if (value == 10 || value == 13) {
                     problem = format("line {}: unterminated @insert quoted literal", stateLine)
-                    problemSpan = span(stateOffset, stateSourceLine, stateColumn)
+                    problemSpan = byteSpan(stateOffset, stateSourceLine, stateColumn)
                     return(token)
                 }
                 if (escaped) { escaped = false }
@@ -297,7 +311,7 @@ class GrammarScanner {
                                     depth += 1
                                     if (depth > 256) {
                                         problem = format("line {}: @insert brace nesting exceeds 256", line)
-                                        problemSpan = span(offset, sourceLine, column)
+                                        problemSpan = byteSpan(offset, sourceLine, column)
                                         return(token)
                                     }
                                 }
@@ -315,29 +329,29 @@ class GrammarScanner {
         if (current() < 0) {
             if (state == 34 || state == 39) {
                 problem = format("line {}: unterminated @insert quoted literal", stateLine)
-                problemSpan = span(stateOffset, stateSourceLine, stateColumn)
+                problemSpan = byteSpan(stateOffset, stateSourceLine, stateColumn)
             }
             else {
                 if (state == 42) {
                     problem = format("line {}: unterminated @insert block comment", stateLine)
-                    problemSpan = span(stateOffset, stateSourceLine, stateColumn)
+                    problemSpan = byteSpan(stateOffset, stateSourceLine, stateColumn)
                 }
                 else {
                     problem = format("line {}: unterminated @insert block", startLine)
-                    problemSpan = span(startOffset, startSourceLine, startColumn)
+                    problemSpan = byteSpan(startOffset, startSourceLine, startColumn)
                 }
             }
             return(token)
         }
-        token.text = source.slice(startIndex, offset)
+        token.text = byteSpan(source, startIndex, offset)
         advance()
         skipTrivia()
         if (problem.equals("") && current() != 59) {
             problem = format("line {}: @insert block must end with ';'", startLine)
-            problemSpan = span(offset, sourceLine, column)
+            problemSpan = byteSpan(offset, sourceLine, column)
         }
         if (problem.equals("")) { advance() }
-        token.span = span(startOffset, startSourceLine, startColumn)
+        token.span = byteSpan(startOffset, startSourceLine, startColumn)
         if (!problem.equals("") && problemSpan == null) { problemSpan = token.span }
         return(token)
     }
@@ -361,7 +375,7 @@ class GrammarScanner {
         if (letter(value)) {
             int64 startIndex = offset
             while (letter(current()) || digit(current())) { advance() }
-            return(makeToken(256, source.slice(startIndex, offset), "", startOffset,
+            return(makeToken(256, byteSpan(source, startIndex, offset), "", startOffset,
                              startSourceLine, startColumn, startLine))
         }
 
@@ -375,7 +389,7 @@ class GrammarScanner {
                     int64 escapeOffset = offset
                     int64 escapeSourceLine = sourceLine
                     int64 escapeColumn = column
-                    literal.append(source.slice(literalStart, offset))
+                    literal.append(byteSpan(source, literalStart, offset))
                     advance()
                     int64 escaped = current()
                     if (escaped == 110) { literal.append("\n") }
@@ -389,12 +403,12 @@ class GrammarScanner {
                                     if (current() >= 0) { advance() }
                                     GrammarToken failed = makeToken(0, "", "", startOffset,
                                         startSourceLine, startColumn, startLine)
-                                    problemSpan = span(escapeOffset, escapeSourceLine,
+                                    problemSpan = byteSpan(escapeOffset, escapeSourceLine,
                                                        escapeColumn)
                                     failed.span = problemSpan
                                     return(failed)
                                 }
-                                literal.append(source.slice(offset, offset + 1))
+                                literal.append(byteSpan(source, offset, offset + 1))
                             }
                         }
                     }
@@ -409,7 +423,7 @@ class GrammarScanner {
                 problemSpan = failed.span
                 return(failed)
             }
-            literal.append(source.slice(literalStart, offset))
+            literal.append(byteSpan(source, literalStart, offset))
             advance()
             return(makeToken(257, literal, "", startOffset, startSourceLine,
                              startColumn, startLine))
@@ -433,7 +447,7 @@ class GrammarScanner {
                 return(failed)
             }
             advance()
-            return(makeToken(258, source.slice(startIndex, offset), "", startOffset,
+            return(makeToken(258, byteSpan(source, startIndex, offset), "", startOffset,
                              startSourceLine, startColumn, startLine))
         }
 
@@ -448,11 +462,11 @@ class GrammarScanner {
             }
             int64 nameStart = offset
             while (letter(current()) || digit(current())) { advance() }
-            String directiveName = source.slice(nameStart, offset)
+            String directiveName = byteSpan(source, nameStart, offset)
             if (directiveName.equals("insert")) {
                 GrammarToken token = insertion(startLine)
                 if (token.span == null) {
-                    token.span = span(startOffset, startSourceLine, startColumn)
+                    token.span = byteSpan(startOffset, startSourceLine, startColumn)
                 }
                 if (!problem.equals("") && problemSpan == null) { problemSpan = token.span }
                 return(token)
@@ -480,7 +494,7 @@ class GrammarScanner {
                 problemSpan = failed.span
                 return(failed)
             }
-            String content = source.slice(contentStart, offset).trim()
+            String content = byteSpan(source, contentStart, offset).trim()
             advance()
             return(makeToken(259, content, directiveName, startOffset,
                              startSourceLine, startColumn, startLine))
@@ -494,8 +508,22 @@ class GrammarScanner {
             return(failed)
         }
         advance()
-        return(makeToken(value, source.slice(offset - 1, offset), "", startOffset,
+        return(makeToken(value, byteSpan(source, offset - 1, offset), "", startOffset,
                          startSourceLine, startColumn, startLine))
+    }
+
+    int64 byteSpanBound(int64 value, int64 length) {
+        int64 index = value
+        if (index < 0) { index = index + length }
+        if (index < 0) { return(0) }
+        if (index > length) { return(length) }
+        return(index)
+    }
+    String byteSpan(String text, int64 first, int64 last) {
+        int64 lower = byteSpanBound(first, text.length)
+        int64 end = byteSpanBound(last, text.length)
+        if (end <= lower) { return("") }
+        return(text[lower..(end - 1)])
     }
 }
 
@@ -712,10 +740,10 @@ class GrammarReader {
     }
 
     int64 classByte(GrammarToken token) {
-        int64 byte = int64(token.text.byteAt(classPosition))
+        int64 byte = int64(token.text[classPosition])
         classPosition += 1
         if (byte == 92) {
-            byte = int64(token.text.byteAt(classPosition))
+            byte = int64(token.text[classPosition])
             classPosition += 1
             if (byte == 110) { return(10) }
             if (byte == 114) { return(13) }
@@ -731,12 +759,12 @@ class GrammarReader {
         String pattern = token.text
         list ranges = []
         classPosition = 1
-        bool negated = int64(pattern.byteAt(1)) == 94
+        bool negated = int64(pattern[1]) == 94
         if (negated) { classPosition += 1 }
         while (classPosition < pattern.length - 1 && problem.equals("")) {
             int64 first = classByte(token)
             int64 last = first
-            if (classPosition + 1 < pattern.length - 1 && int64(pattern.byteAt(classPosition)) == 45) {
+            if (classPosition + 1 < pattern.length - 1 && int64(pattern[classPosition]) == 45) {
                 classPosition += 1
                 last = classByte(token)
                 if (last < first) {
@@ -830,7 +858,7 @@ class GrammarReader {
                         }
                         int64 b = 0
                         while (b < token.text.length) {
-                            int64 byte = int64(token.text.byteAt(b))
+                            int64 byte = int64(token.text[b])
                             if (byte == 0 || byte > 127) {
                                 fail(format("line {}: lexer literals must contain non-NUL ASCII bytes", token.line), token.span)
                             }
@@ -1080,11 +1108,11 @@ class GrammarSources {
         if (!error.startsWith("line ")) { return(error) }
         int64 end = 5
         int64 line = 0
-        while (end < error.length && int64(error.byteAt(end)) >= 48 && int64(error.byteAt(end)) <= 57) {
-            line = line * 10 + int64(error.byteAt(end)) - 48
+        while (end < error.length && int64(error[end]) >= 48 && int64(error[end]) <= 57) {
+            line = line * 10 + int64(error[end]) - 48
             end += 1
         }
-        String result = format("{}{}", location(line), error.slice(end, error.length))
+        String result = format("{}{}", location(line), byteSpan(error, end, error.length))
         while (line != 0) {
             int64 parent = 0
             int64 i = 0
@@ -1179,7 +1207,7 @@ class GrammarSources {
         i = 0
         bool previousCR = false
         while (i < source.length) {
-            int64 value = int64(source.byteAt(i))
+            int64 value = int64(source[i])
             if (value == 13) {
                 count += 1
                 previousCR = true
@@ -1220,14 +1248,14 @@ class GrammarSources {
         String name = payload.trim()
         bool valid = name.length > 0
         if (valid) {
-            int64 quote = int64(name.byteAt(0))
+            int64 quote = int64(name[0])
             if (quote == 34 || quote == 39) {
-                valid = name.length > 2 && int64(name.byteAt(name.length - 1)) == quote
+                valid = name.length > 2 && int64(name[name.length - 1]) == quote
                 if (valid) {
-                    name = name.slice(1, name.length - 1)
+                    name = byteSpan(name, 1, name.length - 1)
                     int64 i = 0
                     while (i < name.length) {
-                        if (int64(name.byteAt(i)) == quote || int64(name.byteAt(i)) < 32) { valid = false }
+                        if (int64(name[i]) == quote || int64(name[i]) < 32) { valid = false }
                         i += 1
                     }
                 }
@@ -1235,7 +1263,7 @@ class GrammarSources {
             else {
                 int64 i = 0
                 while (i < name.length) {
-                    int64 byte = int64(name.byteAt(i))
+                    int64 byte = int64(name[i])
                     if (byte <= 32 || byte == 34 || byte == 39) { valid = false }
                     i += 1
                 }
@@ -1283,5 +1311,19 @@ class GrammarSources {
             }
         }
         return(grammar)
+    }
+
+    int64 byteSpanBound(int64 value, int64 length) {
+        int64 index = value
+        if (index < 0) { index = index + length }
+        if (index < 0) { return(0) }
+        if (index > length) { return(length) }
+        return(index)
+    }
+    String byteSpan(String text, int64 first, int64 last) {
+        int64 lower = byteSpanBound(first, text.length)
+        int64 end = byteSpanBound(last, text.length)
+        if (end <= lower) { return("") }
+        return(text[lower..(end - 1)])
     }
 }

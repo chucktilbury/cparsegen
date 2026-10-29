@@ -23,8 +23,8 @@ class GeneratorCli {
     String defaultOutput(String grammarPath, bool cTarget) {
         int64 extension = grammarPath.length
         int64 i = grammarPath.length - 1
-        while (i >= 0 && int64(grammarPath.byteAt(i)) != 47) {
-            if (int64(grammarPath.byteAt(i)) == 46 && extension == grammarPath.length) {
+        while (i >= 0 && int64(grammarPath[i]) != 47) {
+            if (int64(grammarPath[i]) == 46 && extension == grammarPath.length) {
                 extension = i
             }
             i -= 1
@@ -33,7 +33,7 @@ class GeneratorCli {
         if (extension == i + 1) { extension = grammarPath.length }
         String suffix = ".cw"
         if (cTarget) { suffix = ".c" }
-        return(format("{}{}", grammarPath.slice(0, extension), suffix))
+        return(format("{}{}", byteSpan(grammarPath, 0, extension), suffix))
     }
 
     String pathKey(String path) {
@@ -113,8 +113,8 @@ class GeneratorCli {
                 int64 startIndex = 0
                 int64 end = 0
                 while (end <= value.length) {
-                    if (end == value.length || int64(value.byteAt(end)) == 58) {
-                        String path = value.slice(startIndex, end)
+                    if (end == value.length || int64(value[end]) == 58) {
+                        String path = byteSpan(value, startIndex, end)
                         if (path.equals("")) { path = "." }
                         paths.append(path)
                         startIndex = end + 1
@@ -189,6 +189,20 @@ class GeneratorCli {
             graphFile.close()
         }
         return(0)
+    }
+
+    int64 byteSpanBound(int64 value, int64 length) {
+        int64 index = value
+        if (index < 0) { index = index + length }
+        if (index < 0) { return(0) }
+        if (index > length) { return(length) }
+        return(index)
+    }
+    String byteSpan(String text, int64 first, int64 last) {
+        int64 lower = byteSpanBound(first, text.length)
+        int64 end = byteSpanBound(last, text.length)
+        if (end <= lower) { return("") }
+        return(text[lower..(end - 1)])
     }
 }
 

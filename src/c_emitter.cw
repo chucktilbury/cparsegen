@@ -41,7 +41,7 @@ class CGrammarEmitter {
         String result = "\""
         int64 i = 0
         while (i < value.length) {
-            int64 byte = int64(value.byteAt(i))
+            int64 byte = int64(value[i])
             // Fixed-width octal escapes also avoid C trigraphs and encoding assumptions.
             result.append(format("\\{}{}{}", byte / 64, (byte / 8) % 8, byte % 8))
             i += 1
