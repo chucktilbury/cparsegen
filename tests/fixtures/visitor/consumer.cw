@@ -74,7 +74,7 @@ start {
     Trace visitor(mode)
     Trace independent("walk")
     int64 result = visitor.VISIT_CONTINUE
-    if (mode.length >= 8 && mode.slice(0, 8).equals("dispatch")) {
+    if (mode.length >= 8 && mode[0..7].equals("dispatch")) {
         result = visitor.dispatch(root)
         if (independent.dispatch(first) != visitor.VISIT_CONTINUE
                 || !independent.events.equals("g:NUMBER ")) { Sys.Process().exit(13) }

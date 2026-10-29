@@ -29,7 +29,9 @@ capabilities.
 Use an SDK built from current Cwhip `master`: version `0.0.2` and ABI
 `numeric-v2` alone do not identify its source syntax revision. The generator,
 examples, and emitted Cwhip use parenthesized keyword arguments such as
-`return(value)`. Older compilers that require `return value` are unsupported.
+`return(value)`. String bytes are `text[index]` (`uint8`); `String.byteAt` and
+`String.slice` are not methods. Older compilers that require `return value`
+or those string methods are unsupported.
 The standalone C99 output and `.cpg` grammar syntax are unchanged.
 Keep the complete SDK prefix; do not point the project at just its `bin/`
 directory. The installer registers the prefix in the dedicated

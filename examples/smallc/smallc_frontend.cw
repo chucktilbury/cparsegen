@@ -640,9 +640,9 @@ class SmallCSemanticChecker : GeneratedVisitor {
         AstNode literal = child(node, node.children.length - 1)
         String text = literal.text
         if (literal.name.equals("CHAR")) {
-            int64 value = int64(text.byteAt(1))
+            int64 value = int64(text[1])
             if (value == 92) {
-                value = int64(text.byteAt(2))
+                value = int64(text[2])
                 if (value == 110) { value = 10 }
                 else {
                     if (value == 114) { value = 13 }
@@ -656,8 +656,8 @@ class SmallCSemanticChecker : GeneratedVisitor {
         }
         // Compare decimal spellings without imposing a host integer width.
         int64 first = 0
-        while (first + 1 < text.length && int64(text.byteAt(first)) == 48) { first += 1 }
-        String result = text.slice(first, text.length)
+        while (first + 1 < text.length && int64(text[first]) == 48) { first += 1 }
+        String result = byteSpan(text, first, text.length)
         if (child(node, 0).text.equals("-") && !result.equals("0")) {
             return(format("-{}", result))
         }
@@ -935,6 +935,20 @@ definition = true }
         }
         return(problem.equals(""))
     }
+
+    int64 byteSpanBound(int64 value, int64 length) {
+        int64 index = value
+        if (index < 0) { index = index + length }
+        if (index < 0) { return(0) }
+        if (index > length) { return(length) }
+        return(index)
+    }
+    String byteSpan(String text, int64 first, int64 last) {
+        int64 lower = byteSpanBound(first, text.length)
+        int64 end = byteSpanBound(last, text.length)
+        if (end <= lower) { return("") }
+        return(text[lower..(end - 1)])
+    }
 }
 
 class SmallCFrontend {
@@ -991,14 +1005,14 @@ class SmallCFrontend {
         String result = "\""
         int64 i = 0
         while (i < value.length) {
-            int64 byte = int64(value.byteAt(i))
+            int64 byte = int64(value[i])
             if (byte == 34 || byte == 92) { result.append("\\") }
             if (byte == 10) { result.append("\\n") }
             else {
                 if (byte == 13) { result.append("\\r") }
                 else {
                     if (byte == 9) { result.append("\\t") }
-                    else { result.append(value.slice(i, i + 1)) }
+                    else { result.append(byteSpan(value, i, i + 1)) }
                 }
             }
             i += 1
@@ -1028,7 +1042,7 @@ class SmallCFrontend {
         int64 column = 1
         int64 i = 0
         while (i < offset && i < input.length) {
-            if (int64(input.byteAt(i)) == 10) {
+            if (int64(input[i]) == 10) {
                 line += 1
                 column = 1
             }
@@ -1038,4 +1052,18 @@ class SmallCFrontend {
         io.writeErrorLine(format("{}:{}:{}: {}", path, line, column, problem))
     }
 
+
+    int64 byteSpanBound(int64 value, int64 length) {
+        int64 index = value
+        if (index < 0) { index = index + length }
+        if (index < 0) { return(0) }
+        if (index > length) { return(length) }
+        return(index)
+    }
+    String byteSpan(String text, int64 first, int64 last) {
+        int64 lower = byteSpanBound(first, text.length)
+        int64 end = byteSpanBound(last, text.length)
+        if (end <= lower) { return("") }
+        return(text[lower..(end - 1)])
+    }
 }

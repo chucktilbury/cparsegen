@@ -42,14 +42,14 @@ class GrammarEmitter {
         String result = "\""
         int64 i = 0
         while (i < value.length) {
-            int64 byte = int64(value.byteAt(i))
+            int64 byte = int64(value[i])
             if (byte == 34 || byte == 92) { result.append("\\") }
             if (byte == 10) { result.append("\\n") }
             else {
                 if (byte == 13) { result.append("\\r") }
                 else {
                     if (byte == 9) { result.append("\\t") }
-                    else { result.append(value.slice(i, i + 1)) }
+                    else { result.append(byteSpan(value, i, i + 1)) }
                 }
             }
             i += 1
@@ -91,7 +91,7 @@ class GrammarEmitter {
         output.append("class ScanState {\n    int64 kind\n    list ranges\n    int64 next\n    int64 alternate\n    ScanState(int64 k, list r, int64 n, int64 a) { kind = k\nranges = r\nnext = n\nalternate = a }\n")
         output.append("    bool accepts(int64 byte) {\n        int64 i = 0\n        while (i < ranges.length) {\n            ScanRange interval = ranges[i] as ScanRange\n            if (byte >= interval.first && byte <= interval.last) { return(true) }\n            i += 1\n        }\n        return(false)\n    }\n}\n\n")
         output.append("class ScanRule {\n    String name\n    int64 entry\n    bool skip\n    int64 quote\n    ScanRule(String n, int64 e, bool s, int64 q) { name = n\nentry = e\nskip = s\nquote = q }\n}\n\n")
-        output.append("class InputScanner {\n    String input\n    list tokens\n    list rules\n    list states\n    list lineComments\n    list blockComments\n    int64 errorOffset\n    String problem\n    int64 steps\n")
+        output.append("class InputScanner {\nint64 byteSpanBound(int64 value, int64 length) {\n    int64 index = value\n    if (index < 0) { index = index + length }\n    if (index < 0) { return(0) }\n    if (index > length) { return(length) }\n    return(index)\n}\nString byteSpan(String text, int64 first, int64 last) {\n    int64 lower = byteSpanBound(first, text.length)\n    int64 end = byteSpanBound(last, text.length)\n    if (end <= lower) { return(\"\") }\n    return(text[lower..(end - 1)])\n}\n    String input\n    list tokens\n    list rules\n    list states\n    list lineComments\n    list blockComments\n    int64 errorOffset\n    String problem\n    int64 steps\n")
         output.append("    InputScanner(String text) {\n        input = text\n        tokens = []\n        rules = []\n        states = []\n        lineComments = []\n        blockComments = []\n        errorOffset = -1\n        problem = \"\"\n        steps = 0\n")
         int64 comment = 0
         while (comment < analysis.lexical.lineComments.length) {
@@ -126,22 +126,22 @@ class GrammarEmitter {
             r += 1
         }
         output.append("    }\n")
-        output.append("    bool startsAt(int64 at, String marker) {\n        return(input.length - at >= marker.length && input.slice(at, at + marker.length).equals(marker))\n    }\n")
-        output.append("    int64 skipComment(int64 at) {\n        int64 c = 0\n        while (c < lineComments.length) {\n            String marker = lineComments[c] as String\n            if (startsAt(at, marker)) {\n                int64 end = at + marker.length\n                while (end < input.length && int64(input.byteAt(end)) != 10 && int64(input.byteAt(end)) != 13) { end += 1 }\n                return(end)\n            }\n            c += 1\n        }\n        c = 0\n        while (c < blockComments.length) {\n            list markers = blockComments[c] as list\n            String opening = markers[0] as String\n            String closing = markers[1] as String\n            if (startsAt(at, opening)) {\n                int64 end = at + opening.length\n                while (end < input.length && !startsAt(end, closing)) { end += 1 }\n                if (end == input.length) { errorOffset = at\nproblem = format(\"unterminated block comment at byte {}\", at)\nreturn(-1) }\n                return(end + closing.length)\n            }\n            c += 1\n        }\n        return(at)\n    }\n")
-        output.append("    int64 matchQuote(int64 at, int64 quote) {\n        if (int64(input.byteAt(at)) != quote) { return(-1) }\n        int64 end = at + 1\n        int64 characters = 0\n        while (end < input.length && int64(input.byteAt(end)) != quote) {\n            int64 byte = int64(input.byteAt(end))\n            if (byte < 32 || byte > 126) { break }\n            if (byte == 92) {\n                end += 1\n                if (end == input.length) { break }\n                byte = int64(input.byteAt(end))\n                if (byte != 92 && byte != 34 && byte != 39 && byte != 110 && byte != 114 && byte != 116 && byte != 48) {\n                    errorOffset = end\n                    problem = format(\"invalid quoted escape at byte {}\", end)\n                    return(-1)\n                }\n            }\n            characters += 1\n            end += 1\n        }\n        if (end >= input.length || int64(input.byteAt(end)) != quote) {\n            errorOffset = at\n            problem = format(\"unterminated quoted token at byte {}\", at)\n            return(-1)\n        }\n        if (quote == 39 && characters != 1) {\n            errorOffset = at\n            problem = format(\"character literal must contain one byte or escape at byte {}\", at)\n            return(-1)\n        }\n        return(end + 1)\n    }\n")
+        output.append("    bool startsAt(int64 at, String marker) {\n        return(input.length - at >= marker.length && byteSpan(input, at, at + marker.length).equals(marker))\n    }\n")
+        output.append("    int64 skipComment(int64 at) {\n        int64 c = 0\n        while (c < lineComments.length) {\n            String marker = lineComments[c] as String\n            if (startsAt(at, marker)) {\n                int64 end = at + marker.length\n                while (end < input.length && int64(input[end]) != 10 && int64(input[end]) != 13) { end += 1 }\n                return(end)\n            }\n            c += 1\n        }\n        c = 0\n        while (c < blockComments.length) {\n            list markers = blockComments[c] as list\n            String opening = markers[0] as String\n            String closing = markers[1] as String\n            if (startsAt(at, opening)) {\n                int64 end = at + opening.length\n                while (end < input.length && !startsAt(end, closing)) { end += 1 }\n                if (end == input.length) { errorOffset = at\nproblem = format(\"unterminated block comment at byte {}\", at)\nreturn(-1) }\n                return(end + closing.length)\n            }\n            c += 1\n        }\n        return(at)\n    }\n")
+        output.append("    int64 matchQuote(int64 at, int64 quote) {\n        if (int64(input[at]) != quote) { return(-1) }\n        int64 end = at + 1\n        int64 characters = 0\n        while (end < input.length && int64(input[end]) != quote) {\n            int64 byte = int64(input[end])\n            if (byte < 32 || byte > 126) { break }\n            if (byte == 92) {\n                end += 1\n                if (end == input.length) { break }\n                byte = int64(input[end])\n                if (byte != 92 && byte != 34 && byte != 39 && byte != 110 && byte != 114 && byte != 116 && byte != 48) {\n                    errorOffset = end\n                    problem = format(\"invalid quoted escape at byte {}\", end)\n                    return(-1)\n                }\n            }\n            characters += 1\n            end += 1\n        }\n        if (end >= input.length || int64(input[end]) != quote) {\n            errorOffset = at\n            problem = format(\"unterminated quoted token at byte {}\", at)\n            return(-1)\n        }\n        if (quote == 39 && characters != 1) {\n            errorOffset = at\n            problem = format(\"character literal must contain one byte or escape at byte {}\", at)\n            return(-1)\n        }\n        return(end + 1)\n    }\n")
         output.append("    void addState(list active, list seen, int64 index) {\n        if (index >= 0 && !(seen[index] as bool)) { seen[index] = true\nactive.append(index) }\n    }\n")
         output.append("    bool closure(list active, list seen) {\n        int64 i = 0\n        while (i < active.length) {\n            steps += 1\n            if (steps > 100000) { problem = \"scanner resource limit exceeded\"\nreturn(false) }\n            ScanState state = states[active[i] as int64] as ScanState\n            if (state.kind == 1) { addState(active, seen, state.next)\naddState(active, seen, state.alternate) }\n            i += 1\n        }\n        return(true)\n    }\n")
-        output.append("    int64 matchStates(int64 entry, int64 offset) {\n        list active = []\n        list seen = []\n        int64 s = 0\n        while (s < states.length) { seen.append(false)\ns += 1 }\n        addState(active, seen, entry)\n        int64 best = -1\n        int64 at = offset\n        while (active.length > 0) {\n            if (!closure(active, seen)) { return(-1) }\n            list next = []\n            s = 0\n            while (s < seen.length) { seen[s] = false\ns += 1 }\n            s = 0\n            while (s < active.length) {\n                ScanState state = states[active[s] as int64] as ScanState\n                if (state.kind == 2) { best = at }\n                if (state.kind == 0 && at < input.length && state.accepts(int64(input.byteAt(at)))) { addState(next, seen, state.next) }\n                s += 1\n            }\n            if (at == input.length) { return(best) }\n            active = next\n            at += 1\n        }\n        return(best)\n    }\n")
+        output.append("    int64 matchStates(int64 entry, int64 offset) {\n        list active = []\n        list seen = []\n        int64 s = 0\n        while (s < states.length) { seen.append(false)\ns += 1 }\n        addState(active, seen, entry)\n        int64 best = -1\n        int64 at = offset\n        while (active.length > 0) {\n            if (!closure(active, seen)) { return(-1) }\n            list next = []\n            s = 0\n            while (s < seen.length) { seen[s] = false\ns += 1 }\n            s = 0\n            while (s < active.length) {\n                ScanState state = states[active[s] as int64] as ScanState\n                if (state.kind == 2) { best = at }\n                if (state.kind == 0 && at < input.length && state.accepts(int64(input[at]))) { addState(next, seen, state.next) }\n                s += 1\n            }\n            if (at == input.length) { return(best) }\n            active = next\n            at += 1\n        }\n        return(best)\n    }\n")
         output.append("    bool scan() {\n        tokens = []\n        errorOffset = -1\n        problem = \"\"\n        int64 i = 0\n        while (i < input.length) {\n            int64 afterComment = skipComment(i)\n            if (afterComment < 0) { return(false) }\n            if (afterComment > i) { i = afterComment }\n            else {\n            int64 bestEnd = i\n            String bestKind = \"\"\n            bool skip = false\n            int64 r = 0\n            steps = 0\n            while (r < rules.length) {\n                ScanRule rule = rules[r] as ScanRule\n                int64 end = -1\n                if (rule.quote != 0) { end = matchQuote(i, rule.quote) }\n                else { end = matchStates(rule.entry, i) }\n                if (!problem.equals(\"\")) {\n                    if (errorOffset < 0) { errorOffset = i }\n                    return(false)\n                }\n                if (end > bestEnd) { bestEnd = end\nbestKind = rule.name\nskip = rule.skip }\n                r += 1\n            }\n")
         int64 lit = 0
         while (lit < literals.length) {
             String value = literals[lit] as String
-            output.append(format("            if (input.length - i >= {} && input.slice(i, i + {}).equals({}) && i + {} > bestEnd) {{ bestEnd = i + {}\nbestKind = {}\nskip = false }}\n",
+            output.append(format("            if (input.length - i >= {} && byteSpan(input, i, i + {}).equals({}) && i + {} > bestEnd) {{ bestEnd = i + {}\nbestKind = {}\nskip = false }}\n",
                 value.length, value.length, quoted(value), value.length, value.length, quoted(literalKind(lit))))
             lit += 1
         }
         if (!analysis.lexical.keywordToken.equals("")) {
-            output.append(format("            if (bestKind.equals({})) {{\n                String word = input.slice(i, bestEnd)\n", quoted(analysis.lexical.keywordToken)))
+            output.append(format("            if (bestKind.equals({})) {{\n                String word = byteSpan(input, i, bestEnd)\n", quoted(analysis.lexical.keywordToken)))
             lit = 0
             while (lit < literals.length) {
                 output.append(format("                if (word.equals({})) {{ bestKind = {} }}\n", quoted(literals[lit] as String), quoted(literalKind(lit))))
@@ -154,7 +154,7 @@ class GrammarEmitter {
             }
             output.append("            }\n")
         }
-        output.append("            if (bestEnd == i) { errorOffset = i\nproblem = format(\"lex error at byte {}\", i)\nreturn(false) }\n            if (!skip) { tokens.append(LexToken(bestKind, input.slice(i, bestEnd), i)) }\n            i = bestEnd\n            }\n        }\n        return(true)\n    }\n}\n\n")
+        output.append("            if (bestEnd == i) { errorOffset = i\nproblem = format(\"lex error at byte {}\", i)\nreturn(false) }\n            if (!skip) { tokens.append(LexToken(bestKind, byteSpan(input, i, bestEnd), i)) }\n            i = bestEnd\n            }\n        }\n        return(true)\n    }\n}\n\n")
     }
 
     void emitParser(String output) {
@@ -313,5 +313,19 @@ dispatcher = "dispatch" }
         }
         output.append("}\n")
         return(output)
+    }
+
+    int64 byteSpanBound(int64 value, int64 length) {
+        int64 index = value
+        if (index < 0) { index = index + length }
+        if (index < 0) { return(0) }
+        if (index > length) { return(length) }
+        return(index)
+    }
+    String byteSpan(String text, int64 first, int64 last) {
+        int64 lower = byteSpanBound(first, text.length)
+        int64 end = byteSpanBound(last, text.length)
+        if (end <= lower) { return("") }
+        return(text[lower..(end - 1)])
     }
 }

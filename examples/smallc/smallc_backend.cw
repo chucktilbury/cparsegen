@@ -248,7 +248,7 @@ class SmallCAssemblyCompiler {
         int64 value = 0
         int64 i = 0
         while (i < spelling.length && problem.equals("")) {
-            int64 digit = int64(spelling.byteAt(i)) - 48
+            int64 digit = int64(spelling[i]) - 48
             if (digit < 0 || digit > 9 || value > (limit - digit) / 10) {
                 fail(node, format("integer literal '{}' is outside the CVM i32 range", spelling))
                 return(0)
@@ -262,8 +262,8 @@ class SmallCAssemblyCompiler {
     bool isMinimumIntegerLiteral(String spelling) {
         int64 first = 0
         while (first + 1 < spelling.length
-                && int64(spelling.byteAt(first)) == 48) { first += 1 }
-        return(spelling.slice(first, spelling.length).equals("2147483648"))
+                && int64(spelling[first]) == 48) { first += 1 }
+        return(byteSpan(spelling, first, spelling.length).equals("2147483648"))
     }
 
     int64 decodeEscape(int64 value) {
@@ -275,8 +275,8 @@ class SmallCAssemblyCompiler {
     }
 
     int64 characterValue(String spelling) {
-        int64 value = int64(spelling.byteAt(1))
-        if (value == 92) { value = decodeEscape(int64(spelling.byteAt(2))) }
+        int64 value = int64(spelling[1])
+        if (value == 92) { value = decodeEscape(int64(spelling[2])) }
         return(value)
     }
 
@@ -284,10 +284,10 @@ class SmallCAssemblyCompiler {
         buffer bytes = buffer[]
         int64 i = 1
         while (i + 1 < spelling.length) {
-            int64 value = int64(spelling.byteAt(i))
+            int64 value = int64(spelling[i])
             if (value == 92) {
                 i += 1
-                value = decodeEscape(int64(spelling.byteAt(i)))
+                value = decodeEscape(int64(spelling[i]))
             }
             bytes.append(value)
             i += 1
@@ -297,8 +297,8 @@ class SmallCAssemblyCompiler {
 
     String hexByte(int64 value) {
         String digits = "0123456789abcdef"
-        return(format("{}{}", digits.slice(value / 16, value / 16 + 1),
-            digits.slice(value % 16, value % 16 + 1)))
+        return(format("{}{}", byteSpan(digits, value / 16, value / 16 + 1),
+            byteSpan(digits, value % 16, value % 16 + 1)))
     }
 
     // Quotes decoded bytes as a CVM assembly string literal. Everything except
@@ -313,10 +313,10 @@ class SmallCAssemblyCompiler {
             int64 s = 0
             bool printable = false
             while (s < safe.length && !printable) {
-                if (int64(safe.byteAt(s)) == value) { printable = true }
+                if (int64(safe[s]) == value) { printable = true }
                 else { s += 1 }
             }
-            if (printable) { result.append(safe.slice(s, s + 1)) }
+            if (printable) { result.append(byteSpan(safe, s, s + 1)) }
             else {
                 result.append("\\x")
                 result.append(hexByte(value))
@@ -1642,5 +1642,19 @@ class SmallCAssemblyCompiler {
             code.op1("ldloc", oldSlot)
         }
         return(valueType)
+    }
+
+    int64 byteSpanBound(int64 value, int64 length) {
+        int64 index = value
+        if (index < 0) { index = index + length }
+        if (index < 0) { return(0) }
+        if (index > length) { return(length) }
+        return(index)
+    }
+    String byteSpan(String text, int64 first, int64 last) {
+        int64 lower = byteSpanBound(first, text.length)
+        int64 end = byteSpanBound(last, text.length)
+        if (end <= lower) { return("") }
+        return(text[lower..(end - 1)])
     }
 }

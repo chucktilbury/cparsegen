@@ -289,7 +289,7 @@ class GrammarAnalyzer {
     bool identifier(String name) {
         int64 i = 0
         while (i < name.length) {
-            int64 byte = int64(name.byteAt(i))
+            int64 byte = int64(name[i])
             bool letter = (byte >= 65 && byte <= 90) || (byte >= 97 && byte <= 122) || byte == 95
             if (!letter && (i == 0 || byte < 48 || byte > 57)) { return(false) }
             i += 1
@@ -450,7 +450,7 @@ class GrammarAnalyzer {
         i = 0
         while (i < analysis.lexers.length) {
             LexerPlan plan = analysis.lexers[i] as LexerPlan
-            int64 first = int64(plan.name.byteAt(0))
+            int64 first = int64(plan.name[0])
             if (first < 65 || first > 90 || !identifier(plan.name)) {
                 return(fail("lexer", format("line {}: lexer names must begin with an uppercase letter",
                     plan.line), plan.span, null))
@@ -651,7 +651,7 @@ class GrammarAnalyzer {
         i = 0
         while (i < grammar.parserRules.length) {
             ParserRule rule = grammar.parserRules[i] as ParserRule
-            int64 first = int64(rule.name.byteAt(0))
+            int64 first = int64(rule.name[0])
             if (first < 97 || first > 122) {
                 return(fail("parser", format("line {}: parser-rule names must begin with a lowercase letter",
                     rule.line), rule.span, null))
@@ -833,7 +833,7 @@ class GrammarAnalyzer {
         ParserExprRecord entry = expressionAt(index)
         if (entry.kind == 0) {
             if (entry.token < 0 && entry.target < 0) {
-                int64 first = int64(entry.value.byteAt(0))
+                int64 first = int64(entry.value[0])
                 if (first >= 65 && first <= 90) {
                     return(fail("references", format("line {}: unknown lexer token {}", entry.line,
                         entry.value), entry.span, null))
