@@ -1,4 +1,5 @@
 import system as Sys
+import cli as Cli
 
 include "grammar.cw"
 include "analysis.cw"
@@ -60,73 +61,102 @@ class GeneratorCli {
         return(true)
     }
 
+    Cli.CommandLine parser() {
+        Cli.CommandLine commandLine = Cli.CommandLine("cparsegen", "grammar code generator", "1.0.0")
+        Cli.Option library = Cli.Option()
+        library.longName = "library"
+        library.name = "library"
+        library.description = "emit a Cwhip library module"
+        library.valueType = Cli.ValueType().COUNTER
+        commandLine.addOption(library)
+        Cli.Option target = Cli.Option()
+        target.longName = "target"
+        target.name = "target"
+        target.description = "output language (c)"
+        target.valueType = Cli.ValueType().STRING
+        target.isList = true
+        commandLine.addOption(target)
+        Cli.Option dot = Cli.Option()
+        dot.longName = "dot"
+        dot.name = "dot"
+        dot.description = "write a Graphviz DOT file"
+        dot.valueType = Cli.ValueType().STRING
+        dot.isList = true
+        commandLine.addOption(dot)
+        Cli.Option includePath = Cli.Option()
+        includePath.longName = "include-path"
+        includePath.name = "include-path"
+        includePath.description = "colon-separated include directories"
+        includePath.valueType = Cli.ValueType().STRING
+        includePath.isList = true
+        // Keep each --include-path argument intact; colon splitting matches the
+        // historical empty-component rules in run().
+        includePath.listSeparator = "\n"
+        commandLine.addOption(includePath)
+        Cli.Positional grammar = Cli.Positional()
+        grammar.name = "grammar"
+        grammar.description = "grammar input"
+        grammar.required = true
+        commandLine.addPositional(grammar)
+        Cli.Positional output = Cli.Positional()
+        output.name = "output"
+        output.description = "output path"
+        commandLine.addPositional(output)
+        return(commandLine)
+    }
+
     int64 run() {
-        bool library = false
-        bool cTarget = false
+        Cli.CommandLine commandLine = parser()
+        try {
+            commandLine.parseArgv()
+        } except() {
+            io.writeErrorLine("usage: cparsegen [--library | --target c] [--include-path DIR:DIR...] [--dot FILE] [--] GRAMMAR [OUTPUT]")
+            return(2)
+        }
         bool valid = true
-        list paths = []
-        list positional = []
-        bool options = true
+        if (commandLine.count("library") > 1) { valid = false }
+        bool library = commandLine.count("library") == 1
+        bool cTarget = false
+        list targetValues = commandLine.valuesFor("target")
+        if (targetValues.length > 1) { valid = false }
+        if (targetValues.length == 1) {
+            if (!(targetValues[0] as String).equals("c")) { valid = false }
+            else { cTarget = true }
+        }
+        if (library && cTarget) { valid = false }
+        list dotValues = commandLine.valuesFor("dot")
         bool dot = false
         String graphPath = ""
-        int64 argument = 1
-        while (argument < process.argc()) {
-            String option = process.arg(argument)
-            argument += 1
-            if (options && option.equals("--")) {
-                options = false
-                continue
-            }
-            if (!options || !option.startsWith("-")) {
-                positional.append(option)
-                continue
-            }
-            if (option.equals("--library") && !library && !cTarget) {
-                library = true
-                continue
-            }
-            if (option.equals("--target") && !library && !cTarget && argument < process.argc()) {
-                if (!process.arg(argument).equals("c")) {
-                    valid = false
-                    break
-                }
-                cTarget = true
-                argument += 1
-                continue
-            }
-            if (option.equals("--dot") && !dot && argument < process.argc()) {
-                graphPath = process.arg(argument)
-                if (graphPath.equals("") || graphPath.startsWith("--")) {
-                    valid = false
-                    break
-                }
-                dot = true
-                argument += 1
-                continue
-            }
-            if (option.equals("--include-path") && argument < process.argc()) {
-                String value = process.arg(argument)
-                if (value.startsWith("--")) {
-                    valid = false
-                    break
-                }
-                int64 startIndex = 0
-                int64 end = 0
-                while (end <= value.length) {
-                    if (end == value.length || int64(value[end]) == 58) {
-                        String path = byteSpan(value, startIndex, end)
-                        if (path.equals("")) { path = "." }
-                        paths.append(path)
-                        startIndex = end + 1
-                    }
-                    end += 1
-                }
-                argument += 1
-                continue
-            }
-            valid = false
-            break
+        if (dotValues.length > 1) { valid = false }
+        if (dotValues.length == 1) {
+            graphPath = dotValues[0] as String
+            if (graphPath.equals("") or graphPath.startsWith("--")) { valid = false }
+            else { dot = true }
         }
+        list paths = []
+        list includeValues = commandLine.valuesFor("include-path")
+        int64 includeIndex = 0
+        while (includeIndex < includeValues.length) {
+            String value = includeValues[includeIndex] as String
+            if (value.startsWith("--")) { valid = false }
+            int64 startIndex = 0
+            int64 end = 0
+            while (end <= value.length) {
+                bool atColon = false
+                if (end < value.length) {
+                    if (int64(value[end]) == 58) { atColon = true }
+                }
+                if (end == value.length or atColon) {
+                    String path = byteSpan(value, startIndex, end)
+                    if (path.equals("")) { path = "." }
+                    paths.append(path)
+                    startIndex = end + 1
+                }
+                end = end + 1
+            }
+            includeIndex = includeIndex + 1
+        }
+        list positional = commandLine.allPositionalValues()
         if (positional.length < 1 || positional.length > 2) { valid = false }
         int64 index = 0
         while (index < positional.length) {
