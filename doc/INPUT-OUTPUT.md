@@ -226,9 +226,11 @@ paths). Empty include-path components remain supported.
 `--` ends option processing, allowing grammar/output filenames beginning with
 `-`; after it, every argument is positional. For example,
 `cparsegen --dot graph.dot -- -grammar.cpg -parser.cw` is valid.
-There is no
+Argv is parsed through the SDK `cli` package (no remainder capture; `--` is
+the positional-only terminator). There is no
 generator `--help`, `--version`, `--target cwhip`, C++/Python target, combined
-`--library --target c`, entry-rule option, or resource-limit option.
+`--library --target c`, entry-rule option, or resource-limit option; unknown
+options still print the fixed usage line and exit 2.
 There is no stdin or stdout-source mode; `-` is a filename, not a stream
 selector. Create output parent directories before generation. Quoted paths
 may contain spaces; explicit relative paths are relative to the working
@@ -794,7 +796,7 @@ eight sites with `included from ...`.
 
 This provenance applies to **grammar input** and generator diagnostics only.
 Generated input `AstNode`/`Node` source spans are not added by this milestone:
-they remain as described in [In-memory token/node layouts](#in-memory-tokennode-layouts)
+they remain as described in [In-memory token/node layouts](#in-memory-token-node-layouts)
 and the existing generated runtime provides no new AST span API.
 
 Validation is not a full target-language symbol checker: user-chosen names
